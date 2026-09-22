@@ -1,36 +1,51 @@
-<!-- Fri, Aug 28, 2026 | sources: code + your recording -->
-# Lecture 2: Intro 2
+<!-- Fri, Aug 28, 2026 | sources: slides + code + YouTube auto-transcript + your recording + textbook -->
+# Lecture 2: Defining and Using Classes, Lists
 
-This lecture is about **defining your own classes in Java**, built live in IntelliJ around a running `Dog` example. We start by writing a class with an instance variable (`size`), a constructor (which is *not* a method: it says how to make Dogs), and an instance method (`makeNoise`) whose behavior depends on the object's own state. Along the way we compare Java to Python at every step: Java requires `new` to instantiate, requires every variable to have a declared type, requires the full list of properties to be declared up front and never changed, and never passes `self` explicitly (Java gives you `this` implicitly). We then pin down precise terminology (declaration, instantiation, assignment, invocation), and draw the central distinction of the day: **static means there is no `this`**, so static methods are invoked on the class (`Dog.maxDog(a, b)`) and cannot touch instance variables, while instance methods are invoked on an object (`d.makeNoise()`) and can. The lecture closes with a warm-up for Lecture 3: Java 4 style lists, showing that `import` in Java only shortens a name (unlike Python, where it makes something available), that `List` is abstract so you cannot instantiate it directly, and that Java deliberately offers many list implementations (`ArrayList`, `LinkedList`, `Stack`, ...) with different performance and operations.
+## Overview
+
+This lecture is the transition from "I know how to write a program in Python" to "I know how to write a program in Java." It covers how to define your own type in Java by writing a class: declaring instance variables, writing a constructor, and writing instance methods, along with the terminology (declaration, instantiation, assignment, invocation, member, object) that the course will use for the rest of the semester. It then draws the central distinction of the day: static (class) members versus non-static (instance) members, where the one-sentence summary Josh gives is "static means there is no `this`." Along the way it clears up two pieces of Java ceremony: the `public` keyword (which, for now, makes no difference) and the old `public static void main(String[] args)` incantation, which Java 25 replaced with a plain `void main()` plus `IO.println`. The last third of the lecture writes the Java equivalent of a four-line Python list program, discovering along the way that `List` needs an import, that `List` is abstract and cannot be instantiated, and that you must choose a concrete implementation such as `ArrayList` or `LinkedList`. That discovery motivates the final idea: the difference between an abstract data type (`List`) and a concrete implementation (`ArrayList`, `LinkedList`, `Stack`, ...), and why multiple implementations of the same idea exist at all (performance and extra operations).
 
 ---
 
 ## Key Concepts
 
-### 1. A class is a blueprint for objects
+### 1. Java classes are Java's way of letting you define your own type
 
-In Java, as in Python, a class lets you define your own type. `Dog.java` declares that a type called `Dog` exists. The class file says, authoritatively: *all Dog objects are this way*. They have a `size`, they can `makeNoise()`, they cannot do anything else, and they always have exactly those properties.
+Just like Python, Java lets you define new types. The syntax is different, but the ideas line up almost one to one:
 
-When you instantiate the class, you get a **Dog object** (an *instance*). The blueprint analogy is the one the lecture used: the class is the plan, each instance is a house built from it.
+| Python | Java |
+|---|---|
+| `class Dog():` | `class Dog { ... }` |
+| `def __init__(self, size):` | `Dog(int s) { ... }` (a constructor) |
+| `def make_noise(self):` | `void makeNoise() { ... }` (an instance method) |
+| attributes created on the fly via `self.size = size` | instance variables declared at the top of the class: `int size;` |
+| `d = Dog()` | `Dog d = new Dog(...);` |
+| `d.make_noise()` | `d.makeNoise();` |
 
-### 2. Instance variables are declared at the top, and the list is fixed
+The differences Josh drew out in class, from the students' own observations:
 
-Every Java class declares its properties up front, in a dedicated region at the top of the class body:
+- **`new`**: Java requires the `new` keyword to create an object. Python does not.
+- **No `self`**: Java never passes the receiving object in explicitly. Inside an instance method, the current object is implicitly available and can be named `this`, but you do not declare it as a parameter and usually do not need to write it.
+- **Instance variables must be declared, up front, with types**: a Java class has a designated region at the top where every property of the object is listed. That list is fixed. You cannot attach a new field to an object at runtime the way Python lets you. Java is a strict language: the list of properties is fixed, types cannot change, and everything must be declared before use.
+- **All code lives inside a method, and a program starts at `main`**: you cannot have loose statements sitting at the top level of a file the way Python does. When you run a Java program, Java looks for a method called `main` and runs it. Code outside of any method is, in Josh's words, orphaned, with no place to live.
+
+### 2. A class is a blueprint; instances are objects
+
+`Dog.java` is a blueprint that describes what all `Dog` objects are like. Every `Dog` object will have exactly one `int` called `size`, and will be able to `makeNoise()`, and will be able to do nothing else and have nothing else. So:
 
 ```java
-class Dog {
-    int size;
-    ...
-}
+Dog hugeDog = new Dog(150);
+hugeDog.size = 5;        // fine, size is guaranteed to exist (and can be changed)
+hugeDog.name = "frank";  // will NOT compile, name is not in the blueprint
 ```
 
-This is one of the biggest departures from Python. In Python you can staple a new attribute onto an object whenever you feel like it. In Java the rules are strict: **the list of properties is fixed at compile time**. You can change the *value* of `size` on a dog you already made, but you can never give that dog a `name` if `Dog` has no `name` field. The lecture's phrasing: try it, and "the universe explodes", except it does not actually explode, because it will not even compile. That is the characteristic Java move: catch the mistake before the program ever runs.
+Notice the failure mode: not a runtime crash, but a refusal to compile. As Josh put it, the wild thing about Java is that you avoid the trouble by not even letting the code run in the first place.
 
-Instructor's framing: **Java is a strict language, Python is more freemium.**
+A related question from class: what if you declare an instance variable and never use it? It compiles and runs fine, and it defaults to zero (for an `int`). Default values get more attention in lecture 3.
 
-If you declare an instance variable and never use it (say `int numLegs;`), the code still compiles and runs, and the field defaults to `0`. Defaults get covered in Lecture 3.
+### 3. Constructors are not methods
 
-### 3. Constructors: how to make a Dog
+The top-of-class variable declarations say *what a Dog has*. The constructor says *how to build one*:
 
 ```java
 Dog(int s) {
@@ -38,176 +53,198 @@ Dog(int s) {
 }
 ```
 
-This is **not a method**. It is a **constructor**: it says how to make Dogs. Notice what is missing compared to Python's `__init__`:
+A constructor looks like a method (it has parameters, it has a body, it runs code) but it is not one: it has no return type, its name is the class name, and it exists to determine how the class is instantiated. The mental picture from lecture: the dog is coming down the assembly line, a `size` slot appears (initially undefined/zero), and the value passed in as `s` gets slotted in. It is the Java analogue of Python's `__init__`.
 
-- No `self` parameter. Java never makes you pass the receiver explicitly.
-- No return type, and the name matches the class name exactly.
-- You write `size = s`, not `self.size = s`. Java figures out from context whose `size` you mean.
+**Shadowing (raised by a student):** if you write the constructor as `Dog(int size) { size = size; }`, the parameter shadows the instance variable, and the line does nothing useful: it takes the parameter and assigns it to itself. In environment-diagram terms, there are two separate boxes, the local `size` (the parameter) and the object's `this.size`, and the plain name `size` refers to the local one. The fix is `this.size = size;`, which explicitly names the object's variable on the left. Lecture avoids the whole problem by naming the parameter `s`.
 
-You *may* write `this.size = s` and it does exactly the same thing. You do not have to.
+### 4. `this`
 
-Mental model from lecture: when the dog is about to be born, a `size` variable appears (initially undefined / zero-ish), and then the value you passed in gets slotted into it. Constructors can do far more complicated work than a single assignment, and later in the course they will.
-
-### 4. `this` and shadowing
-
-`this` refers to the current object. In `makeNoise`, `this.size` and plain `size` mean the same thing.
-
-The exception is when a parameter has the same name as an instance variable. A student asked what happens if the constructor parameter were also named `size`:
+Inside an instance method or constructor, `this` refers to the current object, the specific dog whose method was invoked. From the `maxDog` example on the slides:
 
 ```java
-Dog(int size) {
-    size = size;   // does NOTHING useful
+Dog maxDog(Dog otherDog) {
+    if (otherDog.size > this.size) {   // this. here is OPTIONAL
+        return otherDog;
+    }
+    return this;                        // this here is REQUIRED
 }
 ```
 
-Here the local parameter **shadows** the instance variable. `size = size` just takes the local and assigns it to itself. The instance variable is never touched. The fix is to disambiguate:
+The distinction that the slides call out and Josh emphasized live: `this.size` can be shortened to `size`, because in that context the only `size` you could be talking about is your own. But `return this;` cannot be shortened. There is no bare `return;` that Java will interpret as "return myself"; you need a name for the current object, and that name is `this`.
+
+### 5. Static versus instance members
+
+This is the core conceptual content of the lecture.
+
+- An **instance method** is an action taken by a *specific* object. It is invoked on an instance: `maya.makeNoise()`. It can see that instance's variables, because there is a "me."
+- A **static method** (also called a class method) is an action taken by *the class itself*. It is invoked using the class name: `Dog.maxDog(d1, d2)`. There is no `this` in a static context, and therefore it cannot access instance variables directly. It can only reach instance variables through a specific instance handed to it, e.g. `d1.size`.
+
+The lecture demonstrated this by writing `maxDog` twice, once each way:
+
+- **Instance version:** `lilDog.maxDog(clifford)`, where one dog judges itself against another.
+- **Static version:** `Dog.maxDog(lilDog, clifford)`, where, as Josh framed it, "the god of dogs" does the judging impartially, and no specific dog is involved.
+
+For `Dog`, choosing between them is described in the lecture as a purely aesthetic decision: maybe you think an instance should do the comparing, maybe you think the class should. Both are fine.
+
+**Why static methods exist at all:** some classes are never meaningfully instantiated. `Math` is the canonical example. Because `Math.round` and `Math.sqrt` are static, you write
 
 ```java
-this.size = size;  // works
+x = Math.round(5.6);
 ```
 
-Think of it in 61A environment-diagram terms: there are two separate variables in play, the local `size` (in the constructor's frame) and `this.size` (a field inside the object). The assignment copies the local's value into the object's field only if you name the target explicitly with `this.`.
-
-The lecture's own habit is to sidestep the issue entirely by not letting the names collide (hence the parameter `s`).
-
-### 5. Instance methods: behavior that depends on the object's own state
+instead of the awkward
 
 ```java
-void makeNoise() {
-    if (this.size < 10) {
-        IO.println("yipyipyippyip");
-    } else if (this.size < 30) {
-        IO.println("bark");
-    } else {
-        IO.println("aroooooooooooo");
+Math m = new Math();
+x = m.round(5.6);
+```
+
+`Math` is a bag of utility methods; there is nothing that a "Math object" would mean. That is where static really makes sense.
+
+### 6. Static variables (and why to be careful with them)
+
+A class can also have static variables, properties inherent to the class rather than to any one instance:
+
+```java
+class Dog {
+    int size;
+    static String binomen = "Canis familiaris";
+    ...
+}
+```
+
+Rules and advice from lecture:
+
+- Always access static variables through the class name: `Dog.binomen`, not `maya.binomen`. Java technically permits the instance form, but the textbook calls it bad style, confusing, and "in my opinion an error by the Java designers."
+- Even worse: `maya.binomen = "Vulpes vulpes";`. That is not setting Maya's scientific name, it is changing the scientific name for *every* dog, and the syntax actively hides that.
+- **Strong recommendation: avoid static variables whose values change.** It becomes hard to keep track of which parts of your program read from and write to the shared variable, which leads to complicated code. Josh noted this becomes especially tempting around Project 5.
+
+### 7. `public`
+
+You will constantly see `public` in front of classes, variables, constructors, and methods in real-world Java. For this lecture it makes **no difference** whatsoever whether you include it; Josh mixed it in and out deliberately so students would see it does not matter yet. (Lecture 3 covers it properly.) The gloss he gave when asked: `public` means any class can use this thing, whereas omitting it means only classes in the same package can.
+
+The lecture code file even ends with the comment: `// public means nothign today / sometimes I'm doing it, sometimes I'm not / sorry`.
+
+### 8. Java before and after September 2025
+
+Java 25 (September 2025) simplified the ceremony:
+
+```java
+// Pre-Java 25
+public class HelloWorld {
+    public static void main(String[] args) {
+        System.out.println("hello world");
     }
 }
 ```
 
-The motivating idea (and the reason for the two dog videos in lecture): we write code to represent things in the world, and a small dog and a huge dog make different noises. An **instance method** means *this specific dog does this thing*, and it can read that specific dog's instance variables.
-
-`void` means the method returns nothing. That was a student question answered directly: you use `void` when the method does not return anything.
-
-### 6. Terminology: method vs function
-
-A function that lives inside a class is called a **method**. In Java, because essentially all code lives inside classes, the words "method" and "function" are near-interchangeable. Methods come in two flavors: **instance methods** and **static methods** (the latter is roughly analogous to a class method / static method in Python).
-
-### 7. Where code lives, and `main`
-
-You cannot have loose code floating outside a class in Java. When you run a Java program, Java finds the method called `main` and runs it. Code outside a class is orphaned: it has no place to live, and Java will not know what it means.
-
-Important currency note from the lecture: **since Java 25 (September 2025)**, the rules relaxed. You write `void main()` rather than the old `public static void main(String[] args)`, you use `IO.println` instead of `System.out.println`, and some code no longer strictly has to be in a class. Because the lecture code uses `package lec2_intro2;`, the newest top-level-code relaxations did not apply in the demo. Old 61B material and old Java code will look like the verbose form; both work.
-
-In IntelliJ, when multiple classes have a `main`, the little green arrow next to a given `main` runs that one.
-
-### 8. Any class can use any other class, and imports are only shorthand
-
-`DogInvestigator` uses `Dog` with no import at all. Java automatically scans a list of allowed folders, including the current one, and finds the class. **You do not need to import code from other files in your project.**
-
-Even for built-in library classes, `import` is *not* required. It only lets you use a short name:
-
 ```java
-java.util.List L = new java.util.ArrayList();  // legal, verbose
+// Modern Java (25+), what this course uses
+void main() {
+    IO.println("hello world");
+}
 ```
-versus
+
+Three changes: all code no longer must be inside a class, `IO.println` replaces `System.out.println`, and `void main()` replaces `public static void main(String[] args)`. Many older 61B resources (including Fall 2025 materials) use the old style, so expect to see it and do not be surprised.
+
+Decoding the old incantation, piece by piece:
+- `public`: usable by any class.
+- `static`: not associated with any instance, so no instantiation needed.
+- `void`: returns nothing.
+- `main`: the name Java looks for to start your program.
+- `String[] args`: an array of strings supplied by the operating system, i.e. command line arguments. If you have a `Morph.java` and run `java Morph joshhug.jpg manuelsabin.jpg`, those two strings arrive in `args`. Declared beyond the scope of this class.
+
+### 9. No imports needed between your own `.java` files
+
+Unlike Python, you do not import code from other `.java` files in your own project. Java automatically scans a list of folders (including the current one) to see whether the desired class exists. So `DogInvestigator.java` can just say `new Dog(3)` with no import line at all.
+
+### 10. Lists in Java (old-school style)
+
+The Python program being translated:
+
+```python
+L = []
+L.append("a")
+L.append("b")
+L.append("c")
+print(L)     # ['a', 'b', 'c']
+```
+
+The lecture built the Java version by hitting each error in turn:
+
+1. **`List L = new List();`** → "can't resolve symbol List." Its actual full name is `java.util.List`.
+2. **`java.util.List L = new java.util.List();`** → resolves the name, but is ugly. You can instead write `import java.util.List;` at the top and then use the short name.
+   - Crucially: **importing in Java is different from Python.** In Python, importing is what makes something available. In Java, importing only *shortens the name*. You could skip every import and write `java.util.List` and `java.util.ArrayList` in full everywhere, and it would work identically.
+3. **`List L = new List();`** (with the import) → "List is abstract, cannot be instantiated." A `List` is an abstract notion; you must pick a *specific kind* of list.
+4. **`List L = new ArrayList();`** (with both imports) → compiles.
+
+Final program (the slide version; the lecture code file used integers and `IO.println`):
+
 ```java
-import java.util.List;
 import java.util.ArrayList;
-...
-List L = new ArrayList();  // same thing, readable
+import java.util.List;
+
+void main() {
+    List L = new ArrayList();
+    L.add("a");
+    L.add("b");
+    L.add("c");
+    System.out.println(L);   // [a, b, c]
+}
 ```
 
-The subtle but important contrast: **in Python, importing actually makes something available. In Java, importing only shortens the name.**
+Two things to notice: Java's append operation is called **`add`**, not `append`; and this code is deliberately written in a very old-school style (circa Java 4.0 / 5.0, roughly 2002-2004). Lecture 3 modernizes it (e.g. `List<String> L`).
 
-### 9. Static vs non-static: "static means there is no `this`"
+You could write `ArrayList L = new ArrayList();` and it would work fine. Josh wrote `List L = new ArrayList();` on purpose, to set up a principle that will matter enormously in the coming weeks.
 
-This is the headline idea of the lecture, and it was stated as a slogan worth memorizing:
+### 11. Abstract data types versus concrete implementations
 
-> **Static means there is no `this`. And the method must be invoked by calling `Dog.maxDog`.**
+In Python, a list is a list is a list; there is no syntactic distinction between the abstract idea of a list and an actual implementation, and there is a first-class default (`[]`). In Java there are many kinds of list, and the programmer must explicitly say which one they want.
 
-Two ways to write "give me the bigger of two dogs":
+- **`java.util.List` is an Abstract Data Type (ADT).** It is a guarantee: any `List` has at least the operations documented at the `List` API page (`add`, `get`, `isEmpty`, `indexOf`, `lastIndexOf`, ...).
+- **`ArrayList`, `LinkedList`, `Stack`, `Vector`, `CopyOnWriteArrayList`, `RoleList`, `AttributeList`, ... are Concrete Implementations.** Their internal code may be radically different, but from above the abstraction boundary (that is, from the user's perspective) they all provide at least what `List` guarantees.
 
-- **Instance method version**: one dog judges itself against another. `lilDog.maxDog(clifford)`. Inside, `this` is `lilDog` and the parameter is the other dog.
-- **Static version**: no specific dog does the judging, the *idea of Dog* does. `Dog.maxDog(ep, milo)`. Inside, there is no `this` at all, so you cannot write `this.size`; IntelliJ will flag it as not making sense in a static context.
+**Why bother having more than one implementation?** The lecture's two answers, arrived at from student suggestions about runtime and memory:
 
-The lecture's philosophical gloss: with the static version, you can think of it as "the god of dogs" doing the judging, rather than one dog judging itself against another. Which you prefer here is a pure aesthetic call; neither is more correct.
+1. **Performance.** Different implementations are fast at different things. `LinkedList` removes its front item very quickly, even in a billion-element list. `ArrayList` is slow at this, because under the hood everything gets scooted over.
+2. **Extra operations.** Some implementations offer more than the base guarantee, e.g. `Stack` adds `push` and `pop`.
 
-**Static methods cannot access instance variables**, because there is no instance and therefore no identity.
-
-### 10. Why static methods exist at all
-
-Some classes do not make sense to instantiate. `Math.round` in Java is static for exactly this reason. If it were an instance method, you would have to construct a `Math` object and say something like `m.round(x)`, which is awkward. Instead, `Math` is a class full of utility methods invoked on the class name. That is a case where static genuinely, obviously makes sense.
-
-### 11. Static variables
-
-You can also put a variable on the class itself. All dogs share the scientific name *Canis familiaris*, so:
-
-```java
-static String binomen = "Canis familiaris";  // one copy, shared by all Dogs
-```
-
-Two pieces of advice given:
-
-1. **Access static variables through the class name** (`Dog.binomen`), not through an instance (`maya.binomen`). Asking Maya for her scientific name is weird: that is not really Maya's property.
-2. **Avoid static variables whose values change.** Writing `maya.binomen = "..."` would change it for *all* dogs, which is confusing and leads to tangled code. This will become tempting in Project 5 especially; resist it.
-
-A class can freely mix static and non-static members. That is fine.
-
-### 12. `public` means nothing today
-
-Sometimes the lecture writes `public`, sometimes it does not. For now it does not matter. The one-sentence answer given when pressed: `public` means any class can use this, and omitting it means only classes in the same package can. Lecture 3 says more.
-
-### 13. Lists in Java (warm-up for Lecture 3)
-
-A **list** is an ordered sequence of objects. Independent of any language, lists support operations like appending an item, retrieving item *i*, and removing an item.
-
-Building the Java version live surfaced three obstacles, each instructive:
-
-1. **`List` is not a known name by default.** Its real name is `java.util.List`. Fix: use the full name, or `import java.util.List;`.
-2. **You cannot do `new List()`.** `List` is *abstract*: it is an abstract notion of what a list can do, not a concrete thing you can build. (Abstraction gets proper treatment in a couple of weeks.) Fix: pick a concrete implementation, e.g. `new ArrayList()`.
-3. Same import shorthand applies to `ArrayList`.
-
-The important design point: **Java has many kinds of list**, and the programmer must choose. `ArrayList`, `LinkedList`, `Stack`, `Vector`, `CopyOnWriteArrayList`, and others are all types of list. In Python you rarely think about this; a list is a list is a list, and there is a concise first-class default syntax for it. Java has no such default.
-
-Why have multiple implementations? Two reasons drawn out from the class:
-
-- **Performance differs.** Removing the front item of a `LinkedList` is fast, even for a billion-element list. Doing the same to an `ArrayList` is slow, because everything after it has to be shifted.
-- **Operations differ.** `Stack`, for example, also has `push` and `pop`.
-
-You can peek at the `List` documentation to see the operations lists support (`isEmpty`, `indexOf`, `lastIndexOf`, and so on) and the list of implementations.
-
-Note that `List L = new ArrayList();` and `ArrayList L = new ArrayList();` both work. The lecture deliberately used the first form to start highlighting a principle (declared type vs actual object type) that is central to the first part of the course. This was flagged as Java 4 style lists (circa 2002); Lecture 3 shows how lists are written today.
+The most common list in practice is `ArrayList`; `LinkedList` shows up sometimes. This distinction is the seed of a major theme of the first part of the course.
 
 ---
 
 ## Definitions
 
-- **Class**: a definition of a new type; a blueprint specifying exactly which properties and behaviors every instance of that type has.
-- **Instance / object**: a particular thing created from a class. A `Dog` created by `new Dog(5)` is a Dog object.
-- **Instance variable**: a property declared at the top of a class. Every instance gets exactly these properties and only these properties.
-- **Constructor**: a special block, named after the class and with no return type, that says how to create instances of the class. It is *not* a method.
-- **Instance method**: a method invoked on a particular object; it has a `this` and can read and write that object's instance variables.
-- **Static method**: a method invoked on the class itself (`Dog.maxDog(...)`). There is no `this`, so it cannot access instance variables.
-- **Static variable**: a variable belonging to the class rather than to any instance, shared by all instances.
-- **Method**: a function that is part of a class. In Java, nearly interchangeable with "function", since almost all code lives inside classes.
-- **`this`**: a reference to the current object, available inside instance methods and constructors, never inside static methods.
-- **Shadowing**: when a local variable or parameter has the same name as an instance variable, so the name inside the method refers to the local one rather than the field.
-- **Declaration**: creating a variable and stating its type, with no object yet. `Dog smallDog;` builds the house; no dog lives there yet.
-- **Instantiation**: creating an actual object with `new`. `new Dog(20);` makes a dog but does not put it anywhere.
-- **Assignment**: putting an instantiated object into a declared variable. The dog moves into the house.
-- **Invocation**: calling a method on something, e.g. `hugeDog.makeNoise()`. The dot generally indicates hierarchy: `makeNoise` is part of the `hugeDog` object.
-- **`void`**: the return type used when a method returns nothing.
-- **`public`**: an access modifier meaning any class can use this member; without it, only classes in the same package can. Treat it as "means nothing" for now.
-- **List**: an ordered sequence of objects, supporting operations such as append, retrieve at index, and remove.
-- **Abstract (as applied to `List`)**: a notion you cannot instantiate directly; you must choose a concrete implementation such as `ArrayList`.
-- **Garbage collection**: when you create an object and nothing uses it, Java eventually notices nobody is using it and reclaims it. (Mentioned in passing; details later.)
-- **Overloading**: two methods in the same class sharing a name but differing in parameters, as with the two `maxDog` methods. (The instructor called this overloading with a hedge about the static/non-static pair; see Pitfalls.)
+- **Class**: a blueprint describing a type: the variables its instances have and the methods they can run. Instances must obey the blueprint exactly.
+- **Object**: an instance of any class. Created with `new`.
+- **Instance variable (non-static variable)**: a variable declared inside a class, outside any method, which every instance of the class gets its own copy of. Must be declared in the class; cannot be added at runtime.
+- **Static variable (class variable)**: a variable declared `static` inside a class; a property of the class itself rather than of any instance. Shared by all instances. Should be accessed via the class name.
+- **Constructor**: a class-name-shaped, return-type-free block that determines how to instantiate the class, e.g. `Dog(int s) { size = s; }`. Similar to a method, but it is not a method. Analogous to Python's `__init__`.
+- **Method**: a function that is part of a class. In Java, nearly all functions are inside classes, so "method" and "function" are nearly interchangeable.
+- **Instance method (non-static method)**: a method invoked on a specific object, e.g. `maya.makeNoise()`. Has access to `this` and to instance variables.
+- **Static method (class method)**: a method declared `static`, invoked using the class name, e.g. `Dog.maxDog(d1, d2)`. There is no `this`; it cannot access instance variables except via a specific instance passed to it.
+- **`this`**: keyword referring to the current object inside an instance method or constructor. Does not exist in a static context.
+- **Member**: any variable or method of a class. Accessed with dot notation.
+- **Dot notation**: the `x.y` syntax meaning "the member `y` belonging to `x`"; indicates a hierarchy.
+- **Declaration**: creating a variable of a given type without necessarily giving it a value, e.g. `Dog smallDog;`. The house, with no dog in it yet.
+- **Instantiation**: creating an object, e.g. `new Dog(20);`. The dog, with no house.
+- **Assignment**: putting an instantiated object into a declared variable, e.g. `smallDog = new Dog(5);`. Putting the dog in the house.
+- **Invocation**: calling a method on an object or class, e.g. `hugeDog.makeNoise()`.
+- **Client**: a class that uses another class. `DogInvestigator` is a client of `Dog`.
+- **Shadowing**: when a local variable or parameter has the same name as an instance variable, so the plain name refers to the local one, hiding the instance variable.
+- **List**: an ordered sequence of objects, often written as comma-separated values in brackets, e.g. `[3, 6, 9, 12, 15]`, supporting operations such as appending, retrieving by index, and removing by index or value.
+- **Abstract Data Type (ADT)**: a specification of a set of guaranteed operations, without commitment to how they are implemented. `java.util.List` is an ADT.
+- **Concrete Implementation**: an actual class implementing an ADT, e.g. `ArrayList`, `LinkedList`, `Stack`. Provides at least the ADT's guaranteed operations, plus possibly more.
+- **`public`**: a keyword meaning the thing can be used by any class. For this lecture, including it or not makes no difference. (Full treatment in lecture 3.)
+- **Overloading**: (mentioned in response to a student question about the two `maxDog` methods with the same name but different parameter lists) having multiple methods with the same name distinguished by their parameters. Josh accepted this term with a stated ~2% uncertainty about whether a static/non-static pair has a special name.
 
 ---
 
 ## Worked Examples
 
-### Example 1: The complete `Dog` class
+### Example 1: The `Dog` class, built up from nothing
+
+This is the file written live in lecture (`Dog.java`), with the lecture's own comments:
 
 ```java
 package lec2_intro2;
@@ -241,48 +278,41 @@ class Dog {
 }
 ```
 
-Step by step through `main()`:
+Step by step:
 
-1. `Dog d` **declares** a variable `d` of declared type `Dog`. At this moment there is no Dog object at all: just a labeled box that is allowed to hold a Dog.
-2. `new Dog(5)` **instantiates**. Java allocates a new Dog object with an instance variable `size`. Control enters the constructor `Dog(int s)` with `s` bound to `5`. The line `size = s` writes `5` into the new object's `size` field. The constructor finishes and the new object is handed back.
-3. `d = ...` **assigns**: `d` now refers to that object. In box-and-pointer terms, the box labeled `d` holds an arrow pointing at the Dog object, and the Dog object contains a box labeled `size` holding `5`. `d` does not contain the dog; it points at it.
-4. `d.makeNoise()` **invokes** the instance method on that object. Inside, `this` is the object `d` points to, so `this.size` is `5`. `5 < 10` is true, so it prints `yipyipyippyip`.
+1. `int size;` declares the single instance variable. Every `Dog` object will have exactly one `int` named `size`, no more and no less.
+2. `Dog(int s) { size = s; }` is the constructor. When `new Dog(5)` runs, Java allocates a fresh `Dog` object whose `size` starts at the default `0`, runs the constructor body with `s` bound to `5`, and the assignment writes `5` into the object's `size` slot.
+3. `void makeNoise()` is an instance method: no `static`, so it runs on behalf of a specific dog. Inside, `this.size` is that specific dog's size. The `this.` prefix here is optional; the code would behave identically with plain `size`.
+4. `main` creates a dog of size 5 and invokes `makeNoise()` on it. Since `5 < 10`, it prints `yipyipyippyip`. With `new Dog(1000)` instead, we fall through to the `else` branch and get `aroooooooooooo`.
 
-Change the `5` to a larger number and the branch changes: `20` prints `bark`, `1000` prints `aroooooooooooo`.
+(Note on the `static` in `static void main()`: in lecture, IntelliJ refused to run a plain `void main()` inside a class that was in a package, so Josh added `static` to make it go. He explicitly told students not to worry about it; the modern `void main()` form is what the course uses, and `DogInvestigator`'s plain `void main()` worked fine.)
 
-The `package lec2_intro2;` line at the top exists only because the course code folder has many subfolders (`lec1_intro1`, `lec2_intro2`, ...) and IntelliJ complains otherwise. Do not read anything into it.
+**Box-and-pointer / environment reasoning in words:** after `Dog d = new Dog(5);` there is a variable `d` in the frame for `main`. `d` does not contain a dog; it contains a reference (an arrow) pointing to a `Dog` object sitting out in memory. That object has one labeled box inside it, `size`, containing `5`. When you invoke `d.makeNoise()`, Java follows the arrow to the object, and inside the method `this` is a reference pointing at that same object, so `this.size` reads the `5`.
 
-Note the `static` on `main`. The lecture ran into a live-coding hiccup where `void main()` would not run in this context, and added `static` because it is known to work. Under Java 25 both forms are generally acceptable; the interaction with packages was what got in the way.
-
-### Example 2: Declaration, instantiation, assignment, invocation, separated out
-
-Reconstructing the terminology slide from the lecture narration:
+### Example 2: Declaration, instantiation, assignment, invocation (the terminology slide)
 
 ```java
-Dog smallDog;              // declaration only: a house, no dog
-new Dog(20);               // instantiation only: a dog with nowhere to live
-smallDog = new Dog(5);     // instantiation AND assignment: dog moves in
-Dog hugeDog = new Dog(150); // declaration, instantiation, AND assignment, all in one
-hugeDog.makeNoise();       // invocation
-```
-
-Line 2 is pedagogy only: a Dog is created, nothing refers to it, and Java's garbage collector eventually reclaims it. You would not write that in real code.
-
-Line 4 is what you will write most of the time: declare, instantiate, and assign on a single line.
-
-### Example 3: `maxDog` as an instance method
-
-```java
-// return the larger of the dogs
-public Dog maxDog(Dog otherDog) {
-    if (otherDog.size > this.size) {
-        return otherDog;
-    }
-    return this; // the only choice here is this
+void main() {
+    Dog smallDog;                  // Declaration of a Dog variable
+    new Dog(20);                   // Instantiation of a Dog object (and nothing else)
+    smallDog = new Dog(5);         // Instantiation and Assignment
+    Dog hugeDog = new Dog(150);    // Declaration, Instantiation, and Assignment
+    smallDog.makeNoise();
+    hugeDog.makeNoise();           // Invocation of the 150 lb Dog's makeNoise method
 }
 ```
 
-Used from another class entirely:
+Line by line:
+
+1. `Dog smallDog;` builds the house but no dog lives in it yet. There is a variable, of type `Dog`, holding nothing useful.
+2. `new Dog(20);` builds a dog with no house. The object is created but no variable refers to it, so nothing can ever reach it again. (Student question: what is the point? Answer: pedagogy, you would not actually write this. Follow-up: what happens to that dog? It becomes garbage and is eventually reclaimed by the garbage collector. More on that much later in the course.)
+3. `smallDog = new Dog(5);` does both: creates a dog and puts it in the house.
+4. `Dog hugeDog = new Dog(150);` is the all-in-one form you will write nearly all the time.
+5. `hugeDog.makeNoise()` is invocation. The dot means "a member of `hugeDog`."
+
+Output: `smallDog` has size 5, so `yipyipyip!`; `hugeDog` has size 150, so `woof!` (or the lecture's `aroooooooooooo`).
+
+### Example 3: A client class (`DogInvestigator`)
 
 ```java
 package lec2_intro2;
@@ -298,25 +328,34 @@ class DogInvestigator {
 }
 ```
 
-Walking through:
+The `main` method does not have to live in `Dog`. A separate class can use `Dog` perfectly well, and that separate class is called a **client** of `Dog`. Note there is **no import**: Java finds `Dog` by scanning the allowed folders. (IntelliJ detail from lecture: each class with a `main` gets a little green run arrow, and whichever you click determines which `main` runs.)
 
-1. `lilDog` points at a Dog with `size == 3`. `clifford` points at a Dog with `size == 1000` (named after Clifford the Big Red Dog).
-2. `lilDog.maxDog(clifford)`: we are asking `lilDog` to judge itself against another dog. Inside the method, `this` is the `lilDog` object and `otherDog` is the `clifford` object. These are two arrows pointing at two distinct Dog objects.
-3. `otherDog.size > this.size` is `1000 > 3`, true, so we `return otherDog`, i.e. a reference to Clifford.
-4. `bigger` is assigned that reference. Now `bigger` and `clifford` are two variables pointing at **the same object**, not copies.
-5. `bigger.makeNoise()` prints `aroooooooooooo`, since `1000 >= 30`.
+### Example 4: `maxDog` as an instance method
 
-Two details worth noticing:
+```java
+// return the larger of the dogs
+public Dog maxDog(Dog otherDog) {
+    if (otherDog.size > this.size) {
+        return otherDog;
+    }
+    return this; // the only choice here is this
+}
+```
 
-- `return this;` in the fall-through branch is mandatory in spirit: you cannot write a bare `return;` and expect Java to infer "yourself". You must name the thing you are returning, and "the only choice here is `this`".
-- The `this.` in `this.size` is *not* required (plain `size` works, since the only size you could mean is your own). It is written for readability.
-- Note there is no import in `DogInvestigator` for `Dog`: same package/folder, so Java just finds it.
+Trace of `lilDog.maxDog(clifford)`:
 
-### Example 4: `maxDog` as a static method
+1. `this` points at the `lilDog` object (`size` 3). `otherDog` points at the `clifford` object (`size` 1000).
+2. The condition `1000 > 3` is true, so we `return otherDog`, i.e. a reference to Clifford.
+3. `bigger` now points to the exact same object as `clifford`. No copying happened; both names refer to one dog.
+4. `bigger.makeNoise()` sees `size` 1000, which is not `< 10` and not `< 30`, so it prints the sonorous `aroooooooooooo`.
+
+Note the asymmetry the lecture stressed: `this.size` could be written as just `size`, but `return this;` genuinely requires the keyword.
+
+### Example 5: `maxDog` as a static method
 
 ```java
 // static means there is no 'this'
-// and the method must invoked
+// and the method must be invoked
 // by calling Dog.maxDog
 static Dog maxDog(Dog ep, Dog milo) {
     if (ep.size > milo.size) {
@@ -326,38 +365,61 @@ static Dog maxDog(Dog ep, Dog milo) {
 }
 ```
 
-Invoked as `Dog.maxDog(someDog, someOtherDog)`.
+Invoked as:
 
-Reasoning through it:
+```java
+Dog bigger = Dog.maxDog(lilDog, clifford);
+bigger.makeNoise();
+```
 
-- No specific dog is doing the judging. The *class* is. So there is no `this` in scope, and writing `this.size` inside this method is a compile error: "this doesn't make sense in a static context". Likewise you could never print `this.size` here, because there isn't a dog.
-- Both dogs must come in as parameters, since neither is the receiver. Both `ep` and `milo` are references to Dog objects; comparing `ep.size > milo.size` reads the `size` field out of each object.
-- Ties go to `milo` (the `>` is strict, so equal sizes fall through to `return milo`).
+What changed and why:
 
-The two `maxDog` methods coexist in the same class, distinguished by their parameter lists (one Dog vs two Dogs).
+- No `this` exists in this method. Writing `this.size` here is a compile error; IntelliJ reports that `this` does not make sense in a static context. Nor could you write `IO.println(this.size)`, because there is no dog doing it.
+- Both dogs must be passed in explicitly as parameters, and both are reached by name: `ep.size`, `milo.size`. Static methods can still touch instance variables, but only through a specific instance handed to them.
+- Invocation uses the class name, `Dog.maxDog(...)`, not an instance name.
 
-### Example 5: Static vs instance invocation (the attendance question)
+Result is the same: `1000 > 3` is false in the `ep.size > milo.size` test when called as `Dog.maxDog(lilDog, clifford)` (since `ep` is `lilDog` with size 3 and `milo` is `clifford` with size 1000), so it returns `milo`, i.e. Clifford. Same output.
 
-The in-class question used a `Human` class with a static method `ponder` and a non-static method `consider`, asking which invocations are appropriate. Reconstructing the reasoning given:
+### Example 6: Mixing static and non-static members
 
-| Invocation | Verdict |
-|---|---|
-| `Human.consider()` | **Does not work.** `consider` is non-static; there is no instance for it to act on, so this will not compile. |
-| `h.ponder()` (instance calling a static method) | **Compiles, but confusing.** You are asking a specific instance to call `ponder`, but no specific instance is doing the pondering. The lecture argued this arguably *should* have been a compile error. Avoid it. |
-| `Human.ponder()` | **Fine.** Static method invoked on the class. |
-| `h.consider()` | **Fine.** Instance method invoked on an instance. |
+```java
+class Dog {
+    int size;                                       // instance variable
+    static String binomen = "Canis familiaris";     // static variable
 
-The rule to carry away: **invoke static members on the class name, instance members on an instance.**
+    Dog(int s) {
+        size = s;
+    }
 
-### Example 6: The list demo, built up from broken to working
+    static Dog maxDog(Dog d1, Dog d2) {             // static method
+        if (d1.size > d2.size) { return d1; }
+        return d2;
+    }
 
-The final working code:
+    void makeNoise() {                              // instance method
+        if (size < 10) {
+            System.out.println("yipyipyip!");
+        } else if (size < 30) {
+            System.out.println("bark. bark.");
+        } else {
+            System.out.println("woof!");
+        }
+    }
+}
+```
+
+Access rules on display here:
+- `Dog.binomen` is correct; `maya.binomen` is legal but bad style; `maya.binomen = "Vulpes vulpes"` is worse still, because it silently changes the binomen for all dogs.
+- `Dog.makeNoise()` does not work: a non-static member cannot be invoked using the class name.
+- Inside `maxDog`, there is no bare `size`; you must go through `d1` or `d2`.
+
+### Example 7: Building the list program by fixing errors
 
 ```java
 package lec2_intro2;
 // by using import, we can use the shorter name
 // but importing isn't necessary to use a list
-// you could jsut java.util.List;
+// you could just java.util.List;
 // UNLIKE PYTHON where importing actually makes something available
 import java.util.List;
 import java.util.ArrayList;
@@ -373,142 +435,159 @@ public class ListDemo {
 }
 ```
 
-The path taken to get there:
+The path to this code, error by error:
 
-1. Start with `List L = new List();` plus `L.add(...)` and a print. IntelliJ: **cannot resolve symbol `List`**. Java does not know the bare name `List`.
-2. Spell it out: `java.util.List L = new java.util.List();`. Closer, but ugly, and there is still an error.
-3. Add `import java.util.List;` so the short name `List` works. This is pure shorthand: it does not "make `List` available", it makes the name shorter.
-4. Remaining error: **you cannot make a `List`**. `List` is abstract: an abstract notion of a list, not a concrete one. Choose a concrete implementation: `new java.util.ArrayList()`, then add `import java.util.ArrayList;` to shorten that too.
-5. Run. Output is the list contents, `[0, 1, 2]`.
+1. `List L = new List();` with no import → **"can't resolve symbol List."** Java does not know the short name `List` by default.
+2. `java.util.List L = new java.util.List();` → the name now resolves (so we get past that error) but is verbose, and there is still a compilation error waiting.
+3. Add `import java.util.List;` → the short name works. Remember: the import did **not** make `List` available; it was always available under its full name. The import only lets you abbreviate.
+4. `List L = new List();` → **"List is abstract, cannot be instantiated."** You must pick a concrete kind of list.
+5. `List L = new ArrayList();` (plus `import java.util.ArrayList;`) → compiles and runs, printing `[0, 1, 2]`.
 
-The Python counterpart is `L = []` followed by `L.append(...)`, with no import, no `new`, no type declaration, and no choice of implementation. The Java version forces three decisions Python hides: the declared type, the concrete implementation, and the `new`.
-
-Also note: writing `ArrayList L = new ArrayList();` would work perfectly well here. The lecture chose `List L = new ArrayList();` deliberately, to begin separating "what type the variable is declared as" from "what kind of object is actually in it". That distinction is a pedagogical throughline for the first part of the course.
+Note the declared type is `List` while the created object is an `ArrayList`. Writing `ArrayList L = new ArrayList();` would also work; the `List` form is a deliberate setup for the abstraction-boundary theme coming later. Swapping in `new LinkedList()` on the right-hand side would also work, and the rest of the code would not change at all, which is exactly the point of an ADT.
 
 ---
 
 ## Common Pitfalls
 
-1. **Thinking a constructor is a method.** It is not. It has no return type, its name must match the class, and its job is to say how instances get made.
-
-2. **Writing `self` in Java.** Java never passes the receiver explicitly. Do not put `self` (or `this`) in your parameter list.
-
-3. **`size = size` in a constructor.** If the parameter shares the instance variable's name, this silently does nothing: it assigns the local to itself. Use `this.size = size;`, or avoid the collision by naming the parameter something else.
-
-4. **Forgetting `new`.** In Python, `d = Dog(5)`. In Java you must say `new Dog(5)`. Making a dog is an explicit act.
-
-5. **Omitting the declared type.** Every Java variable must have a declared type. `myDog = new Dog(20);` with no type is not legal Java. Even where it "seems obvious", Java semantics require the formal declaration. (The lecture mentioned there is another thing you can type there but declined to teach it: *(extra context)* this is `var`, local type inference. This class wants explicit types.)
-
-6. **Trying to add a property that is not in the blueprint.** A `Dog` with no `name` field can never have a name. This does not blow up at runtime, it fails to compile.
-
-7. **Using `this` inside a static method.** There is no `this` in a static context. Any reference to instance variables from a static method is a compile error.
-
-8. **Calling a static method through an instance.** `h.ponder()` compiles but is misleading; use `Human.ponder()`. Correspondingly, calling an instance method on the class name (`Human.consider()`) simply does not work.
-
-9. **Mutating static variables through an instance.** `maya.binomen = "..."` changes it for every dog. Access statics via the class name, and avoid static variables whose values change.
-
-10. **Assuming Java `import` behaves like Python `import`.** It does not. Java imports are name shorthand only; the class was reachable all along under its full name. And for classes in your own project/folder, no import is needed at all.
-
-11. **`new List()`.** `List` is abstract. Instantiate a concrete implementation like `ArrayList`.
-
-12. **Putting code outside a class.** Java runs your program by finding `main`. Loose top-level code is orphaned. (Java 25 relaxed some of this, but not in the packaged context used in lecture.)
-
-13. **Creating an object and never storing it.** `new Dog(20);` on its own line makes a dog nothing refers to; it gets garbage collected. Harmless, pointless.
-
-14. **Over-trusting the "overloading" label on the two `maxDog` methods.** The instructor answered "yes, I guess so" with a self-declared 2% chance of being wrong about the static/non-static pair specifically. Know the concept; do not build an exam answer on that hedge alone.
+1. **Forgetting `new`.** `Dog d = Dog(5);` is a Python habit. Java needs `Dog d = new Dog(5);`.
+2. **Trying to add a field that is not in the blueprint.** `hugeDog.name = "frank";` will not compile. Java's property list is fixed at class-definition time.
+3. **Forgetting to declare a type.** A student asked whether you could write `d = new Dog(5);` without saying `Dog`. You cannot: every variable in Java has a declared type, and in this class you always write it explicitly. (Josh mentioned there is another thing you can type instead, which he will not teach.)
+4. **Shadowing in a constructor.** `Dog(int size) { size = size; }` compiles but does nothing useful. Either rename the parameter (`int s`) or write `this.size = size;`.
+5. **Calling an instance method via the class name.** `Dog.makeNoise()` or `Human.consider(10)` is a compile error when the method is non-static.
+6. **Calling a static method via an instance name.** `h.ponder(10)` compiles and runs, but it is confusing and, in Josh's opinion, arguably should have been a compile error. Do not do it.
+7. **Using `this` (or an instance variable) inside a static method.** There is no `this` in a static context. Static methods can only touch instance variables through an instance parameter.
+8. **Accessing or, worse, mutating a static variable through an instance.** `maya.binomen` is bad style; `maya.binomen = "..."` changes it for everything, which the syntax disguises.
+9. **Mutable static variables generally.** Strongly discouraged: it becomes hard to track which parts of the program read and write them.
+10. **Returning the wrong type.** Returning `this.size` (an `int`) from a method declared to return a `Dog` will not compile. Java is very strict about type checking.
+11. **Expecting `append` on a Java list.** Java's method is `add`.
+12. **Thinking a missing import means "not available."** In Java, imports only shorten names. Conversely, you do not import your own project's classes at all.
+13. **Trying to instantiate `List`.** `new List()` fails: `List` is abstract. Pick `ArrayList`, `LinkedList`, etc.
+14. **Writing loose statements outside a method.** Java code must live in a method; orphaned code has nowhere to live, and Java starts execution by finding `main`.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Static vs instance: which invocations compile?
+### 1. Static versus instance invocation (the in-class attendance question)
 
-**Practice.** Given `class Human { static void ponder() {...} void consider() {...} }` and `Human h = new Human();`, classify each: (a) `Human.consider();` (b) `h.ponder();` (c) `Human.ponder();` (d) `h.consider();`
+Given:
 
-**Answer.** (a) does not compile: an instance method needs an instance. (b) compiles but is poor style and arguably should be an error, since no particular instance is pondering. (c) correct. (d) correct.
-
-### 2. "Static means there is no `this`"
-
-**Practice.** Why does the following fail to compile?
 ```java
-static Dog maxDog(Dog ep, Dog milo) {
-    if (ep.size > this.size) { return ep; }
-    return milo;
+class Human {
+    int consider(int x) { ... }
+    static int ponder(int y) { ... }
 }
 ```
 
-**Answer.** `maxDog` is static, so it is invoked on the class, not on any particular Dog. There is no receiving object, hence no `this`, hence no instance variables to reach. Compare against `milo.size` instead.
+**Q:** Which of these usages is appropriate, and why?
+```java
+Human h = new Human();
+h.consider(5);
+Human.consider(10);
+h.ponder(10);
+Human.ponder(10);
+```
 
-### 3. Shadowing in a constructor
+**A:**
+- `h.consider(5)`, fine. Instance method invoked on an instance.
+- `Human.consider(10)`, **compile error.** `consider` is non-static, so it cannot be invoked through the class name.
+- `h.ponder(10)`, **legal Java, but inappropriate/confusing.** You are asking a specific instance to run a method for which there is no specific instance. Josh argued it arguably should have been a compile error.
+- `Human.ponder(10)`, fine. Static method invoked on the class.
 
-**Practice.** What is `d.size` after `Dog d = new Dog(7);` if the constructor is `Dog(int size) { size = size; }`?
+Follow-up posed in lecture: if `h.consider(5)` returns 5000 and `Human.ponder(10)` returns 1000, what do `h.ponder(10)` and `Human.ponder(10)` return? Both return 1000: `ponder` is static, so which (if any) instance you write on the left makes no difference to its behavior.
 
-**Answer.** `0`. The parameter `size` shadows the instance variable, so `size = size` assigns the parameter to itself and the field is never written; `int` fields default to `0`. Fix with `this.size = size;`.
+### 2. Why can't a static method use instance variables?
 
-### 4. Terminology: declaration / instantiation / assignment / invocation
+**Q:** Explain in one sentence why the following does not compile.
+```java
+static void makeNoise() {
+    if (size < 10) { IO.println("yipyipyip!"); }
+}
+```
+**A:** Because `static` means there is no `this`: the method belongs to the class, not to any particular dog, so there is no "my" `size` to read. The method would have to take a `Dog` parameter and read `d.size`.
 
-**Practice.** Label each line: `Dog a;` / `new Dog(20);` / `a = new Dog(5);` / `Dog b = new Dog(150);` / `b.makeNoise();`
+### 3. Instance versus static `maxDog`
 
-**Answer.** Declaration; instantiation; instantiation plus assignment; declaration plus instantiation plus assignment; invocation.
+**Q:** Rewrite the instance method `Dog maxDog(Dog otherDog)` as a static method, and show how each is invoked.
+**A:**
+```java
+// instance
+Dog maxDog(Dog otherDog) {
+    if (otherDog.size > this.size) { return otherDog; }
+    return this;
+}
+// invoked: lilDog.maxDog(clifford);
 
-### 5. Instance-method `maxDog` tracing
+// static
+static Dog maxDog(Dog d1, Dog d2) {
+    if (d1.size > d2.size) { return d1; }
+    return d2;
+}
+// invoked: Dog.maxDog(lilDog, clifford);
+```
+The static version needs both dogs as parameters and has no `this`; the instance version needs one parameter and gets the other dog from `this`.
 
-**Practice.** With `Dog lilDog = new Dog(3); Dog clifford = new Dog(1000); Dog bigger = lilDog.maxDog(clifford); bigger.makeNoise();`, what prints, and what does `bigger` refer to?
+### 4. Terminology labeling
 
-**Answer.** Prints `aroooooooooooo`. Inside `maxDog`, `this` is `lilDog` (size 3) and `otherDog` is `clifford` (size 1000); `1000 > 3` so `otherDog` is returned. `bigger` and `clifford` now point at the same object (no copy is made), and since `1000 >= 30` the `else` branch of `makeNoise` runs.
+**Q:** Label each line as declaration, instantiation, assignment, invocation, or some combination.
+```java
+Dog a;
+new Dog(20);
+a = new Dog(5);
+Dog b = new Dog(150);
+b.makeNoise();
+```
+**A:** declaration; instantiation; instantiation and assignment; declaration, instantiation, and assignment; invocation.
 
-### 6. `makeNoise` branch selection
+### 5. Constructor shadowing
 
-**Practice.** What does each print: `new Dog(5).makeNoise()`, `new Dog(10).makeNoise()`, `new Dog(30).makeNoise()`?
+**Q:** What is wrong with `Dog(int size) { size = size; }`, and what does `size` end up as after `new Dog(30)`?
+**A:** The parameter `size` shadows the instance variable, so the assignment copies the parameter onto itself and the instance variable is never written. After `new Dog(30)` the object's `size` is still the default `0`. Fix: `this.size = size;`.
 
-**Answer.** `yipyipyippyip` (5 < 10); `bark` (10 is not < 10, but is < 30); `aroooooooooooo` (30 is not < 30). Watch the strict inequalities at the boundaries.
+### 6. What the blueprint permits
 
-### 7. Java imports vs Python imports
+**Q:** Given `class Dog { int size; ... }`, which of these lines fails, and how does it fail?
+```java
+Dog d = new Dog(150);
+d.size = 5;
+d.name = "frank";
+```
+**A:** The third line fails, and it fails at **compile time**, not run time, because `name` is not in the `Dog` blueprint and Java forbids adding instance variables at runtime. The second line is fine: you may change an existing instance variable.
 
-**Practice.** True or false: without `import java.util.List;`, you cannot use a `List` in Java.
+### 7. Static variables
 
-**Answer.** False. You can write `java.util.List L = new java.util.ArrayList();`. The import only lets you use the shorter name. This is unlike Python, where importing actually makes something available.
+**Q:** Given `static String binomen = "Canis familiaris";` inside `Dog`, what is wrong with `maya.binomen = "Vulpes vulpes";`?
+**A:** Two things. Stylistically, a static variable should be accessed by class name (`Dog.binomen`), not through an instance. Semantically, this does not give Maya a personal binomen; there is only one `binomen`, shared by the class, so this changes it for every `Dog`, while the syntax makes it look instance-specific.
 
-### 8. Why `List` cannot be instantiated
+### 8. `List` versus `ArrayList` / ADT versus concrete implementation
 
-**Practice.** Why does `List L = new List();` fail, and what is the fix?
+**Q:** Why does `List L = new List();` fail to compile, and give two reasons Java bothers to offer multiple implementations of `List`.
+**A:** `List` is abstract: it specifies guaranteed operations but contains no actual implementation, so it cannot be instantiated. You must choose a concrete implementation such as `ArrayList` or `LinkedList`. Two reasons for multiple implementations: (1) **performance** differs (a `LinkedList` removes its front item quickly regardless of size, while an `ArrayList` is slow because elements must shift over), and (2) some implementations provide **extra operations** beyond the `List` guarantee (e.g. `Stack` adds `push` and `pop`).
 
-**Answer.** `List` is abstract: it describes what a list can do, without being a concrete list. Instantiate an implementation, e.g. `List L = new ArrayList();`.
+### 9. Imports
 
-### 9. Why Java has many list implementations
+**Q:** True or false: you must import `java.util.List` in order to use a `List`. Explain.
+**A:** False. Imports in Java only shorten names. You can write `java.util.List L = new java.util.ArrayList();` with no imports at all. This differs from Python, where importing is what makes something available. (Separately, you never import your own project's classes; Java finds them by scanning folders.)
 
-**Practice.** Give two reasons Java offers `ArrayList`, `LinkedList`, `Stack`, and others rather than one list type.
+### 10. Old versus new `main`
 
-**Answer.** (1) Performance: removing the front element of a `LinkedList` is fast regardless of length, while an `ArrayList` must shift everything; memory use also differs. (2) Extra operations: `Stack` adds `push` and `pop`.
-
-### 10. Static variables and good style
-
-**Practice.** `Dog` has `static String binomen = "Canis familiaris";`. What is wrong with `maya.binomen = "Vulpes vulpes";`?
-
-**Answer.** Two things. It accesses a static member through an instance, which obscures that the variable belongs to the class; and because there is one shared copy, it changes the scientific name for *every* Dog. Prefer `Dog.binomen`, and avoid mutable static variables generally.
-
-### 11. What is fixed vs changeable about an object
-
-**Practice.** After `Dog d = new Dog(150);`, can you do `d.size = 5;`? Can you do `d.name = "Maya";`?
-
-**Answer.** `d.size = 5;` is fine: values of declared fields can change. `d.name = "Maya";` will not compile if `Dog` declares no `name` field: the list of properties is fixed by the class and cannot be extended at runtime, unlike Python.
+**Q:** Explain each piece of `public static void main(String[] args)`.
+**A:** `public`: usable by any class. `static`: belongs to the class, so no instantiation needed to run it. `void`: returns nothing. `main`: the name Java looks for to start the program. `String[] args`: array of command line arguments supplied by the operating system. In Java 25+ this course writes simply `void main()` with `IO.println`.
 
 ---
 
 ## Summary
 
-- A **class** defines a type and acts as a **blueprint**: every instance has exactly the declared instance variables and exactly the declared methods, no more.
-- **Instance variables** are declared at the top of the class. The list is fixed at compile time; you can change values, never add properties. Unused fields default (e.g. `int` to `0`).
-- A **constructor** (class name, no return type, no `self`) says how to make instances. `Dog(int s) { size = s; }`.
-- `this` refers to the current object and is usually optional; it becomes mandatory when a parameter **shadows** a field (`this.size = size;`) or when returning the receiver (`return this;`).
-- **Instance methods** act on a specific object and can read its fields; invoke as `d.makeNoise()`.
-- **Static means there is no `this`.** Static methods are invoked on the class (`Dog.maxDog(a, b)`), take everything they need as parameters, and cannot touch instance variables.
-- Static exists because some classes should not be instantiated: `Math.round` is the canonical example. In `Dog`, instance vs static `maxDog` is an aesthetic choice.
-- **Static variables** are shared by all instances; access them via the class name and avoid mutating them.
-- Vocabulary: **declaration** (a house), **instantiation** (`new`, a dog), **assignment** (dog moves in), **invocation** (`obj.method()`).
-- Java requires a **declared type** on every variable, requires `new`, runs by finding `main`, and rejects loose top-level code.
-- `public` does not matter yet (it means "any class can use this"; without it, same package only).
-- Classes in your own project need **no import**. Java `import` only shortens names, unlike Python where import makes something available.
-- `List` is **abstract**: use `List L = new ArrayList();`. Java deliberately has many list implementations, differing in performance, memory, and available operations.
-- Unreferenced objects are reclaimed by the **garbage collector**.
-- Next time (Lecture 3): modern Java lists, field defaults, more on `public`, and starting to build our own list.
+- Java lets you define your own types with **classes**; a class is a **blueprint**, and each instance created with `new` is an **object**.
+- **Instance variables** are declared at the top of the class, with types, and the list is fixed: you cannot attach new fields at runtime, and trying to do so is a compile error, not a crash.
+- A **constructor** (`Dog(int s) { size = s; }`) is not a method; it says how to build an instance. It is Java's `__init__`. Beware **shadowing** if the parameter shares a name with the instance variable.
+- **`this`** refers to the current object inside an instance method. `this.size` is usually optional; `return this;` is not.
+- Terminology: **declaration** (the house), **instantiation** (the dog), **assignment** (dog into house), **invocation** (calling a method), **member** (any variable or method), **client** (a class that uses another class).
+- **Static means there is no `this`.** Static methods are invoked on the class name, cannot see instance variables except through a passed-in instance, and exist for utility classes like `Math` that are never meaningfully instantiated. Instance methods are invoked on a specific object.
+- A class can mix static and non-static members. **Static variables** are class-wide; access via the class name, and strongly avoid mutable ones.
+- **`public`** makes no difference this lecture; lecture 3 covers access control.
+- Java 25 replaced `public static void main(String[] args)` + `System.out.println` with `void main()` + `IO.println`; old 61B materials use the old style.
+- You do **not** import your own `.java` files; Java scans folders. **Imports only shorten names**, unlike Python.
+- Java's list append is **`add`**, not `append`. `new List()` fails because `List` is abstract; pick a concrete implementation, typically `ArrayList`.
+- **`List` is an abstract data type**; `ArrayList`, `LinkedList`, `Stack`, etc. are **concrete implementations**. Multiple implementations exist for **performance** (e.g. `LinkedList` removes the front item fast, `ArrayList` does not) and for **extra operations** (e.g. `Stack`'s `push`/`pop`).
+- Lecture 3 picks up with modern list syntax (e.g. `List<String> L`) and starts building our own lists.
