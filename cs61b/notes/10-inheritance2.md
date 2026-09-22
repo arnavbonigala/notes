@@ -1,67 +1,491 @@
-<!-- Fri, Sep 18, 2026 | sources: code (no transcript available) -->
-# Lecture 10: Inheritance 2
+<!-- Fri, Sep 18, 2026 | sources: slides + code + YouTube auto-transcript + textbook -->
+# Lecture 10: Iterators, Iterables, and Equals
 
 ## Overview
 
-This lecture is about the second half of Java's inheritance story: how we use interfaces not just to describe "is-a" relationships, but to plug our own classes into machinery that Java (or someone else) already wrote. Two threads run through it. The first thread, from the lecture code (`ArraySet.java`, `IteratorDemo.java`), is **making our own data structure behave like a built-in one**: implementing `Iterable<T>` so that the enhanced for loop (`for (int i : aset)`) works, writing the `Iterator` object that actually walks the array, and overriding the `Object` methods `toString()` and `equals()` so that printing and comparing our set do something sensible. The second thread, from the textbook chapter, is **comparison and generic library code**: Python compares objects with operator overloading (`__gt__`) and handles alternate orders with function passing (`key=...`), while Java does both with **subtype polymorphism** instead, packaging "how to compare" into a `Comparable` implementation (one natural order, intrinsic) or a `Comparator` object (many orders, extrinsic). The unifying idea is that in Java, capability is declared by name with `implements`, not inferred from having the right methods, and once you declare it, library code like `Collections.max` or the for-each loop will call back into *your* overridden methods at runtime.
+This lecture completes the "core Java" arc by taking a deliberately bare-bones data structure, `ArraySet` (a set backed by an array, with `add`, `contains`, and `size`), and upgrading it into something "industrial strength" by adding the features that Java programmers expect of any real collection. The two big themes are iteration and object methods. On the iteration side, we peel back the magic of the enhanced for loop (`for (int i : aset)`) and discover that it is literally shorthand for asking the object for an `Iterator`, then repeatedly calling `hasNext()` and `next()`; to make our own class work with that syntax we write a private nested iterator class and declare `implements Iterable<T>`. On the object-methods side, we look at the methods every class inherits from `Object`, and override two of them: `toString()`, so printing an `ArraySet` shows its contents instead of `ArraySet@75412c2f`, and `equals(Object)`, so that two sets with the same contents compare as equal. Along the way we nail down the distinction between `==` (compares the bits, i.e. reference identity) and `.equals` (semantic equality), the meaning of `this`, the modern `instanceof` pattern-matching syntax, and a few side notes: autoboxing/unboxing, and why string concatenation in a loop is slow (use `StringBuilder`).
 
 ---
 
 ## Key Concepts
 
-### 1. Subtype polymorphism: the supertype specifies, the subtype supplies
+### 1. The starting point: `ArraySet`
 
-Polymorphism is, per the textbook's Wikipedia definition, "the ability in programming to present the same programming interface for differing underlying forms."
-
-In **subtype polymorphism**, that shared interface is a supertype:
-
-- A supertype (`Comparable`, `Iterable`, `Object`) declares a capability as a method signature.
-- A subtype (`Dog`, `ArraySet`) overrides that method with its own implementation.
-- At runtime, Java picks which implementation to run based on the **dynamic type** of the object that invoked the method.
-
-This is the mechanism behind everything in this lecture. `Collections.max` was compiled years before your `Dog` class existed, but it can still sort your dogs, because it only ever says `a.compareTo(b)` and dynamic method selection does the rest.
-
-### 2. Java is nominally typed; Python is duck typed
-
-The comments in `ArraySet.java` hammer this point:
-
-> "In some programming languages, it would just check automatically, but in Java, hypernym/hyponym relationships require the use of the `implements` keyword."
-
-Writing an `iterator()` method in `ArraySet` is **not enough** to make `for (int i : aset)` compile. Java checks the *declared* type relationship, not the presence of the right methods. You must literally write `implements Iterable<T>` so the compiler knows `ArraySet` is-a `Iterable`. In Python you would just define `__iter__` and everything would work, because Python only checks at runtime whether the method happens to exist ("if it walks like a duck...").
-
-The same story applies to comparison. Python's `get_the_max` works on any type because `>` dispatches to `__gt__` at runtime and nobody ever declared anything. Java's `Collections.max(dogs)` refuses to compile unless `Dog` formally `implements Comparable<Dog>`, and the error message is the famously awful "no instance(s) of type variable(s) T exist so that Dog conforms to Comparable<? super T>".
-
-### 3. `Iterable` and `Iterator` are two different interfaces
-
-This is the most commonly confused pair in the lecture. Their (simplified) definitions:
+A `Set` is a collection with no duplicates. Adding an element that is already present has no effect, and the main query is "is this in the set?". The lecture showed the same idea side by side in Java and Python:
 
 ```java
-public interface Iterable<T> {
-    Iterator<T> iterator();
-}
+ArraySet<String> S = new ArraySet<>();
+S.add("Oakland");
+S.add("Toronto");
+S.add("Minneapolis");
+S.add("Oakland");     // no effect
+S.add("Taipei");
+IO.println(S.contains("Oakland"));   // true
+```
 
+```python
+s = set()
+s.add("Oakland")
+s.add("Toronto")
+s.add("Minneapolis")
+s.add("Oakland")      # no effect
+s.add("Taipei")
+print("Oakland" in s) # True
+```
+
+Our `ArraySet` is deliberately simple: it keeps a `T[] items` array and an `int size`, it does not implement any `Set` interface (for now), and it ignores resizing, so it will eventually run out of room. That is fine, we already know how to resize from the list lectures.
+
+The key point about the basic implementation is that `contains` does a linear scan and uses `.equals`, not `==`:
+
+```java
+public boolean contains(T x) {
+    for (int i = 0; i < size; i += 1) {
+        if (items[i].equals(x)) { return true; }
+    }
+    return false;
+}
+```
+
+`==` on references would only ask "is this the exact same object in memory?", which is almost never what we mean when we ask if a set contains a value. `add` is then just "if not already contained, put it at index `size` and bump `size`":
+
+```java
+public void add(T x) {
+    if (!contains(x)) {
+        items[size] = x;
+        size += 1;
+    }
+}
+```
+
+The constructor contains a wart that is worth noting because you will hit it in your own code:
+
+```java
+items = (T[]) new Object[100];   // "unchecked cast" compiler warning, nothing we can do
+```
+
+Java will not let you write `new T[100]`, so we allocate an `Object[]` and cast. The compiler warns; we ignore it.
+
+### 2. The enhanced for loop is not magic, it is shorthand
+
+Java lets you write:
+
+```java
+Set<Integer> javaset = new HashSet<>();
+javaset.add(5); javaset.add(23); javaset.add(42);
+for (int i : javaset) {
+    System.out.println(i);
+}
+```
+
+But the same loop over our `ArraySet` fails to compile:
+
+```
+error: for-each not applicable to expression type
+        for (int i : aset) {
+                     ^
+  required: array or java.lang.Iterable
+  found:    ArraySet<Integer>
+```
+
+The reason is that `for (x : thing)` is **literally shorthand** for a `while` loop driven by an iterator. The compiler rewrites
+
+```java
+for (int x : javaset) {
+    IO.println(x);
+}
+```
+
+into (essentially)
+
+```java
+Iterator<Integer> seer = javaset.iterator();
+while (seer.hasNext()) {
+    int x = seer.next();
+    IO.println(x);
+}
+```
+
+The lecture called the left version "nice" iteration and the right version "ugly" iteration. They do exactly the same thing. The variable name `seer` is a joke about "one who sees": the iterator is an object that looks into the collection for you.
+
+### 3. What an `Iterator` is and how `next` behaves
+
+`Iterator<T>` is an interface with (for our purposes) two methods:
+
+```java
 public interface Iterator<T> {
     boolean hasNext();
     T next();
 }
 ```
 
-- **`Iterable`** means "you can ask me for an iterator." It is the thing you loop *over*. `ArraySet` implements this.
-- **`Iterator`** means "I am a cursor with a current position, and I can tell you if there's more and hand you the next item." It is the helper object doing the walking. `ArraySet.MagicWizard` implements this.
+`hasNext()` answers "are there more values?" and `next()` does **two** jobs at once:
 
-The separation matters: the collection holds the data, the iterator holds the *position*. You can have three iterators walking the same `ArraySet` at once, each with its own `wizPos`, because each is a separate object.
+1. returns the value at the current position, and
+2. advances the iterator's position.
 
-### 4. The enhanced for loop is syntactic sugar
+That double duty is the single most important thing to internalize. Java could have designed the API with a separate `move()` or `getNext()`, but it did not: one call to `next()` both yields and advances. This is why calling `next()` twice when you meant to look at the same element twice is a bug, and why a loop body must usually save `next()` into a local variable.
 
-`IteratorDemo.java` makes this explicit. These two snippets are, in the lecture's words, "EXACTLY THE SAME":
+The lecture's animation, described in words: imagine a wizard ("seer") born by `javaset.iterator()`, standing just before the first element of `5, 23, 42`.
+
+| Call | Result | Wizard position afterwards |
+|---|---|---|
+| `seer.hasNext()` | `true` | at `5` |
+| `seer.next()` | `5` (printed) | at `23` |
+| `seer.hasNext()` | `true` | at `23` |
+| `seer.next()` | `23` (printed) | at `42` |
+| `seer.hasNext()` | `true` | at `42` |
+| `seer.next()` | `42` (printed) | past the end |
+| `seer.hasNext()` | `false` | past the end |
+
+Output: `5`, `23`, `42`, then the loop ends.
+
+An important honesty note from lecture: the wizard is a cartoon. In our real implementation the "wizard" is just an object whose only state is an `int`. There is nothing visible moving through the array.
+
+(extra context) If you call `next()` when `hasNext()` is false, the standard library throws `NoSuchElementException`. The lecture explicitly said exception behavior here was out of scope for the day; our simple `ArraySetIterator` would instead read past `size` and return a stale or `null` slot.
+
+### 4. Writing an iterator for `ArraySet`
+
+To support ugly iteration we need two things:
+
+1. an `iterator()` method on `ArraySet` that returns an `Iterator<T>`, and
+2. some class implementing `Iterator<T>` with useful `hasNext()` and `next()`.
+
+There is no `Iterator` object lying around that knows about our array, so we must build one. We write a **private nested class** (called `ArraySetIterator` in the slides, `MagicWizard` in the live-coded file, same thing):
 
 ```java
-for (int i : javaset) {
-    System.out.println(i);
+private class ArraySetIterator implements Iterator<T> {
+    private int wizPos;                        // where the "wizard" is looking
+
+    public ArraySetIterator() { wizPos = 0; }
+
+    public boolean hasNext() { return wizPos < size; }
+
+    public T next() {
+        T returnItem = items[wizPos];
+        wizPos += 1;
+        return returnItem;
+    }
+}
+
+public Iterator<T> iterator() {
+    return new ArraySetIterator();
 }
 ```
 
+Two things to notice. First, `hasNext` and `next` refer to `size` and `items`, which are instance variables of the **outer** `ArraySet`, not of the iterator. A (non-static) nested class can see the enclosing object's fields, which is exactly why we nest it. Second, `wizPos` is the iterator's own state, so each call to `iterator()` produces a fresh, independent traversal starting at 0.
+
+`hasNext` can be written with an `if`/`else` returning `true`/`false`, but `return wizPos < size;` is the same thing and cleaner.
+
+### 5. `Iterable`: telling Java that you have an `iterator()` method
+
+After writing `iterator()`, ugly iteration works but the enhanced for loop still fails with the same error. Why? Because Java does not go looking for a method named `iterator` by duck typing. As the lecture put it: in some languages the compiler would just check automatically, but in Java a hypernym/hyponym relationship must be declared with `implements`. The compiler needs a *type-level* guarantee that `ArraySet` has an `iterator()` method.
+
+The interface that provides that guarantee is `Iterable`:
+
 ```java
+public interface Iterable<T> {
+    Iterator<T> iterator();
+    // plus some default methods, not shown
+}
+```
+
+This is an interface so trivial it is confusing (the lecture compared it to being asked for `lim_{x->inf} 4` in calculus: the answer is just 4). Its whole content is "I have an `iterator()` method." One line fixes everything:
+
+```java
+public class ArraySet<T> implements Iterable<T> {
+    ...
+    public Iterator<T> iterator() { return new ArraySetIterator(); }
+}
+```
+
+Now `for (int i : aset)` compiles and runs.
+
+**Recipe to support the enhanced for loop (memorize this):**
+1. Add an `iterator()` method to your class that returns an `Iterator<T>`.
+2. Make that returned `Iterator<T>` have useful `hasNext()` and `next()` methods.
+3. Add `implements Iterable<T>` to your class declaration.
+
+This is exactly what you do in the last part of Project 2.
+
+### 6. How Java's own collections fit together
+
+This is the same mechanism the built-in collections use:
+
+```
+Iterable<T>
+    ^
+    |  (extends)
+Collection<E>
+    ^
+    |  (extends)
+  Set<E>
+```
+
+```java
+public interface Collection<E> extends Iterable<E> {
+    public Iterator<E> iterator();
+}
+public interface Set<E> extends Collection<E> {
+    public Iterator<E> iterator();
+}
+```
+
+So `HashSet`, `TreeSet`, `ArrayList`, and friends all work with the enhanced for loop for exactly the reason our `ArraySet` now does. The `extends` keyword for interfaces was flagged as mostly beyond the scope of this class, but it is why a `Set` is also `Iterable`.
+
+### 7. The compiler's checks (clicker question)
+
+Given the desugared version:
+
+```java
+Set<Integer> javaset = new HashSet<Integer>();
+Iterator<Integer> seer = javaset.iterator();
+while (seer.hasNext()) { IO.println(seer.next()); }
+```
+
+which checks must the compiler perform? The answers are **A** (does the `Set` interface have an `iterator()` method?) and **D** (does the `Iterator` interface have `next`/`hasNext` methods?).
+
+The logic: we only ever call `.iterator()` on the thing whose static type is `Set`, and we only ever call `.hasNext()`/`.next()` on the thing whose static type is `Iterator`. So B ("does `Set` have next/hasNext?") and C ("does `Iterator` have an `iterator` method?") are not checks the compiler needs. It is a trivia-flavored question, but the point is real: the compiler checks methods against the **static type** of the variable you call them on.
+
+### 8. Autoboxing and unboxing
+
+In the ugly loop we wrote `int i = aseer.next();` even though `next()` returns `Integer`. Java allows assignment in both directions:
+
+```java
+Integer I = 1;
+int i = I;        // unboxing
+
+int iii = 3;
+Integer III = iii; // autoboxing
+```
+
+Converting `int` to `Integer` via `=` is **autoboxing**; the other direction is **unboxing**. Practical advice from lecture: use `int` 99% of the time. The only time you need `Integer` is when filling in a generic type parameter, e.g. `ArraySet<Integer>`, because generics cannot take primitives. Autoboxing/unboxing also costs a little time at runtime (real work happens on that line), though this is not a focus of 61B.
+
+### 9. `Object` methods
+
+Every class you write is a hyponym (subclass) of `Object`, so every object already has these methods whether you wrote them or not:
+
+| Method | Status in 61B |
+|---|---|
+| `String toString()` | Covered today |
+| `boolean equals(Object obj)` | Covered today |
+| `int hashCode()` | Coming later in the course |
+| `Class<?> getClass()` | Mentioned |
+| `protected Object clone()`, `protected void finalize()`, `notify()`, `notifyAll()`, `wait(...)` | Not discussed or used in 61B |
+
+### 10. `toString()`
+
+`toString()` provides a string representation of an object. `System.out.println(Object x)` calls `x.toString()` (strictly, `println` calls `String.valueOf`, which calls `toString`). This is the Java analogue of Python's `__str__`/`__repr__`.
+
+The `Object` default implementation is the class name, an `@`, and the hash code, which by default is derived from the object's memory location:
+
+```java
+ArraySet<Integer> aset = new ArraySet<>();
+aset.add(5); aset.add(23); aset.add(42);
+IO.println(aset);   // ArraySet@75412c2f
+```
+
+Useless. So we override it. The lecture's live-coded version, using the iterator we just built:
+
+```java
+@Override
+public String toString() {
+    String returnString = "{";
+    for (T item : this) {          // works because ArraySet is Iterable
+        returnString += item.toString();
+        returnString += ", ";
+    }
+    returnString += "}";
+    return returnString;
+}
+```
+
+Things worth noticing:
+- `for (T item : this)` iterates over the current object. This only compiles because we made `ArraySet` implement `Iterable`.
+- Writing `returnString += item` (without `.toString()`) also works: in Java, `+` with a `String` on one side automatically calls `toString()` on the other operand. (If the element type had no meaningful `toString`, there is nothing you can do about it; you get whatever it provides.)
+- The trailing comma before `}` is a cosmetic flaw you can fix if you want.
+- `@Override` is optional but strongly recommended: if you typo the name (e.g. `toStr1ng`), `@Override` makes the compiler tell you that you are not actually overriding anything.
+
+**Performance warning.** The `+=` version is slow. Intuition: Java strings are *immutable*, so adding even one character builds an entirely new string, copying everything. In a loop, that is a lot of copying. IntelliJ flags it with a yellow squiggle. The fast version uses `StringBuilder`, which is designed for a string "in progress" so that appending does not rebuild everything:
+
+```java
+@Override
+public String toString() {
+    StringBuilder returnSB = new StringBuilder("{");
+    for (int i = 0; i < size; i += 1) {
+        returnSB.append(items[i]);
+        returnSB.append(", ");
+    }
+    returnSB.append("}");
+    return returnSB.toString();
+}
+```
+
+(Bonus, from the slides) The lazy but clean way, using `String.join`:
+
+```java
+@Override
+public String toString() {
+    List<String> listOfItems = new ArrayList<>();
+    for (T x : this) {
+        listOfItems.add(x.toString());
+    }
+    return "{" + String.join(", ", listOfItems) + "}";
+}
+```
+
+This one also fixes the trailing-comma problem for free.
+
+### 11. `==` versus `.equals`
+
+`==` compares the **bits in the two memory boxes**. For primitives that means comparing the values. For references, the bits are addresses, so `==` means "do these two variables reference the same object?"
+
+```java
+Set<Integer> javaset  = Set.of(5, 23, 42);
+Set<Integer> javaset2 = Set.of(5, 23, 42);
+IO.println(javaset == javaset2);         // false
+IO.println(javaset.equals(javaset2));    // true
+```
+
+Box-and-pointer reasoning in words: `javaset` and `javaset2` are two separate 64-bit boxes, each holding the address of a *different* set object out in the heap. Those two addresses differ, so `==` is false even though the two objects have identical contents. `.equals` looks inside the objects and compares contents, so it is true.
+
+To test equality in the sense we usually mean:
+- Use `.equals` for classes. You have to write a `.equals` method for your own classes; the default one is not what you want.
+- For arrays, use `Arrays.equals` or `Arrays.deepEquals`.
+
+The default implementation in `Object.java` is literally:
+
+```java
+public class Object {
+    ...
+    public boolean equals(Object obj) {
+        return (this == obj);
+    }
+}
+```
+
+`this` here is just the 64-bit address of the current object, so the default `.equals` is exactly `==`. That is why:
+
+```java
+ArraySet<Integer> aset  = new ArraySet<>(); aset.add(5);  aset.add(23);  aset.add(42);
+ArraySet<Integer> aset2 = new ArraySet<>(); aset2.add(5); aset2.add(23); aset2.add(42);
+IO.println(aset.equals(aset2));   // false, until we override equals
+```
+
+### 12. `this`
+
+`this` is a reference to the current object. From the Lecture 2 `Dog` example:
+
+```java
+public Dog maxDog(Dog uddaDog) {
+    if (size > uddaDog.size) {
+        return this;
+    }
+    return uddaDog;
+}
+```
+
+You can also use `this` to access your own instance variables or methods. Unlike Python, where `self` is mandatory, `this` is optional in Java. These two are identical in behavior:
+
+```java
+public Dog maxDog(Dog o) {          public Dog maxDog(Dog o) {
+    if (this.size > o.size) {           if (size > o.size) {
+        return this;                        return this;
+    }                                   }
+    return o;                           return o;
+}                                   }
+```
+
+The one case where `this` is **mandatory** is a name conflict between a parameter (or local) and an instance variable:
+
+```java
+public Dog(int size) { size = size; }        // does NOTHING (assigns parameter to itself)
+public Dog(int size) { this.size = size; }   // works
+public Dog(int s)    { size = s; }           // works
+public Dog(int s)    { this.size = s; }      // works
+```
+
+### 13. `instanceof` with pattern matching
+
+The signature we must override is `equals(Object o)`, not `equals(ArraySet o)`. Why `Object`? Because the method in `Object` takes an `Object`, and overriding requires the same signature; writing `equals(ArraySet o)` plus `@Override` is a compile error because you are not actually overriding anything (you would be *overloading*). Conceptually it is also right: you might want an `ArrayDeque` and a `LinkedListDeque` with the same contents to be equal, so the parameter type has to be general.
+
+That generality creates a problem: inside the method, `o` has static type `Object`, so `o.size` and `o.items` do not compile. The modern (Java 16+) solution is `instanceof` with pattern matching:
+
+```java
+@Override
+public boolean equals(Object o) {
+    if (o instanceof Dog uddaDog) {
+        return this.size == uddaDog.size;
+    }
+    return false;
+}
+```
+
+`o instanceof Dog uddaDog` does **two** things at once:
+1. it evaluates to `true` if `o` is pointing at a `Dog` (and `false` otherwise, including when `o` is `null`, so no separate null check is needed), and
+2. if true, it binds `o` to a new variable `uddaDog` whose static type is `Dog`, usable in the body.
+
+This is called **pattern matching**. The lecture described step 2 informally as "reincarnating" the object under a new name with a more specific type.
+
+### 14. Historical note: old-school `equals`
+
+Before Java 16 (released March 2021), `equals` methods were ugly, with manual null checks, `getClass()` comparison, and explicit casting:
+
+```java
+@Override // OLD SCHOOL APPROACH. NOT PREFERRED IN 61B.
+public boolean equals(Object o) {
+    if (o == null) { return false; }
+    if (this == o) { return true; }                  // optimization
+    if (this.getClass() != o.getClass()) { return false; }
+    ArraySet<T> other = (ArraySet<T>) o;
+    ...
+}
+```
+
+You should avoid this style (explicit casting) in 61B. Recognize it if you see it in old exams or old code.
+
+---
+
+## Definitions
+
+- **Set**: An abstract data type storing a collection of values with no duplicates; adding a value already present has no effect. Core operations here: `add(value)`, `contains(value)`, `size()`.
+- **`ArraySet<T>`**: The class built in this lecture. A set backed by a `T[] items` array plus an `int size`; `contains` is a linear scan using `.equals`; `add` checks `contains` first; resizing is ignored.
+- **Enhanced for loop (for-each loop)**: The syntax `for (Type x : collection) { ... }`. It is shorthand that the compiler expands into obtaining an `Iterator` from the collection and looping with `hasNext()`/`next()`. It requires the expression to be an array or a `java.lang.Iterable`.
+- **`Iterator<T>`**: An interface whose implementors provide `boolean hasNext()` (are there more values?) and `T next()` (return the current value **and** advance). An object of this type is "one who sees" into a collection; the lecture nicknamed instances `seer` and the implementing class `MagicWizard`.
+- **`hasNext()`**: Returns `true` if there are more values remaining to be returned by `next()`.
+- **`next()`**: Returns the next value and simultaneously advances the iterator's position. Two jobs, one call.
+- **`Iterable<T>`**: An interface whose entire content (aside from some default methods) is `Iterator<T> iterator();`. Declaring `implements Iterable<T>` is how you formally tell Java "I have an `iterator()` method," which is what the enhanced for loop requires.
+- **`Collection<E>`**: A Java interface that `extends Iterable<E>`; `Set<E>` and `List<E>` extend `Collection<E>`. (Mostly out of scope for 61B, mentioned for orientation.)
+- **`wizPos`**: In our `ArraySetIterator`, the private `int` instance variable recording which index the iterator is currently looking at. It is the iterator's only state.
+- **Nested (inner) class, e.g. `private class ArraySetIterator`**: A class declared inside another class. A non-static nested class can access the enclosing object's instance variables (`items`, `size`), which is why the iterator can see the set's contents.
+- **Autoboxing**: Automatic conversion from a primitive (e.g. `int`) to its wrapper object type (e.g. `Integer`) via assignment.
+- **Unboxing**: The reverse, automatic conversion from `Integer` to `int`.
+- **`Object`**: The universal superclass; every class is a hyponym of `Object` and inherits `toString()`, `equals(Object)`, `hashCode()`, `getClass()`, and others.
+- **`toString()`**: An `Object` method returning a `String` representation of an object. Called automatically by `System.out.println(Object)` (via `String.valueOf`) and by string concatenation with `+`. Default implementation: class name, `@`, hash code (default hash code is derived from memory address).
+- **`equals(Object obj)`**: An `Object` method for semantic equality. Default implementation is `return (this == obj);`, i.e. reference identity, which is usually not what you want.
+- **`==`**: An operator comparing the bits in two memory boxes. For references this means "do they point at the same object?"
+- **`this`**: A reference to the current object (in effect, its address). Optional when accessing your own members, mandatory to disambiguate an instance variable from a same-named parameter or local.
+- **`instanceof` (with pattern matching)**: `o instanceof Dog d` returns `true` iff `o` references a `Dog` (false for `null`), and on the true branch binds `d` as a `Dog`-typed variable referring to the same object. Available since Java 16.
+- **`StringBuilder`**: A mutable string-building class whose `append` operation is fast, unlike repeated `String` concatenation, which rebuilds the whole string each time because Strings are immutable.
+- **Var arg (`Glerp... stuff`)**: A parameter that accepts any number of comma-separated arguments and is received as an array. (Bonus.)
+- **`@Override`**: An annotation asserting that the method overrides a superclass/interface method. Optional, but it catches typos and wrong signatures at compile time.
+
+---
+
+## Worked Examples
+
+### Example 1: Desugaring the enhanced for loop
+
+```java
+Set<Integer> javaset = new TreeSet<>();
+javaset.add(5);
+javaset.add(23);
+javaset.add(42);
+
+for (int i : javaset) {
+    System.out.println(i);
+}
+
+// the code above is EXACTLY THE SAME as:
 Iterator<Integer> seer = javaset.iterator();
 while (seer.hasNext()) {
     int x = seer.next();
@@ -69,159 +493,23 @@ while (seer.hasNext()) {
 }
 ```
 
-The compiler literally rewrites the first into the second. That is why `implements Iterable<T>` is the "magic ingredient so that `:` works properly": the desugared form calls `.iterator()`, and the compiler will only emit that call if the static type is known to be `Iterable`.
+Step by step for the bottom (ugly) version:
 
-### 5. Overriding `Object`'s methods: `toString` and `equals`
+1. `javaset.iterator()` asks the `TreeSet` to manufacture a fresh iterator object. A new object is created on the heap; `seer` is a box holding its address. That object has its own position state, initially "before the first element."
+2. `seer.hasNext()` → `true` (there are 3 elements, we have consumed 0).
+3. `seer.next()` → returns `5` **and** advances. Note it returns an `Integer`; assigning it to `int x` is unboxing.
+4. Print `5`.
+5. `hasNext()` → `true`; `next()` → `23`, advance; print `23`.
+6. `hasNext()` → `true`; `next()` → `42`, advance; print `42`.
+7. `hasNext()` → `false`; loop terminates.
 
-Every class in Java implicitly extends `Object`, which provides default implementations:
+Output: `5`, `23`, `42` (a `TreeSet` iterates in sorted order; a `HashSet` makes no ordering promise).
 
-- `toString()` returns something like `lec10_inheritance2.ArraySet@2f92e0f4` (class name, `@`, hex hash code). Useless for debugging.
-- `equals(Object o)` returns `this == o`, i.e. pure reference equality. Two distinct `ArraySet` objects holding identical contents would be "not equal."
+The top (nice) version produces the identical sequence of calls. The only difference is that the iterator variable is invisible to you, which is also why you cannot accidentally mess with it.
 
-`System.out.println(aset)` implicitly calls `aset.toString()`, so overriding `toString` immediately improves every print statement. Overriding `equals` is what makes `aset.equals(aset2)` return `true` for two separately-built sets with the same contents.
+### Example 2: Building `ArraySet`'s iterator from scratch
 
-Critically, `equals` must take an **`Object`** parameter to actually override. `public boolean equals(ArraySet o)` would be an *overload*, a brand new unrelated method, and library code (which only knows about `Object`) would never call it.
-
-### 6. `instanceof` pattern matching
-
-```java
-if (o instanceof ArraySet otherArraySet) {
-```
-
-The lecture comments describe this precisely: `instanceof` here does two things.
-
-1. It returns `true` if `o`'s dynamic type is `ArraySet` (or a subtype).
-2. It "reincarnates" `o` under a new name, `otherArraySet`, whose **static type is `ArraySet`**, so you can call `ArraySet` methods on it.
-
-Without the pattern variable you would have to write the old two-step dance:
-
-```java
-if (o instanceof ArraySet) {
-    ArraySet otherArraySet = (ArraySet) o;   // explicit cast
-    ...
-}
-```
-
-The pattern variable is scoped to where the check is known to have succeeded (the body of the `if`), so it is both shorter and safer.
-
-### 7. Comparable: one intrinsic "natural order"
-
-```java
-public interface Comparable<T> {
-    int compareTo(T o);
-}
-```
-
-`compareTo` returns a negative integer, zero, or a positive integer as `this` is less than, equal to, or greater than the argument. Note the contract is about the **sign**, not the magnitude.
-
-```java
-public class Dog implements Comparable<Dog> {
-    @Override
-    public int compareTo(Dog uddaDog) {
-        return this.size - uddaDog.size;
-    }
-}
-```
-
-The subtraction trick is idiomatic and short. The ordering it defines is the class's **natural order**, and there can be exactly one of them, because there is exactly one `compareTo` method.
-
-### 8. Comparator: many extrinsic orders
-
-```java
-public interface Comparator<T> {
-    int compare(T o1, T o2);
-}
-```
-
-Note the shape difference: `compare` is a **two-argument** method living in a *separate* class, not a one-argument method living in `Dog`. That is exactly what lets you have many of them.
-
-```java
-public static class NameComparator implements Comparator<Dog> {
-    @Override
-    public int compare(Dog a, Dog b) {
-        return a.name.compareTo(b.name);
-    }
-}
-```
-
-This is Java's answer to Python's `key=` function. Python passes a function; Java wraps the function in an object and passes the object. Same idea, different mechanism: **function passing** versus **subtype polymorphism**.
-
-A small ergonomic fix from the textbook: since a `NameComparator` has no state, you never need more than one, so stash a single instance as a constant:
-
-```java
-public class Dog {
-    public static final Comparator<Dog> NAME_COMPARATOR = new NameComparator();
-}
-```
-
-Now callers write `Collections.max(dogs, Dog.NAME_COMPARATOR)` instead of `new Dog.NameComparator()`. The textbook explicitly leaves it to you whether this is actually an improvement.
-
-### 9. Generic static methods and type bounds
-
-To write library functions like `max` yourself, you need generics on the *method*, not the class:
-
-```java
-public static <T> T pickRandom(T[] x)
-```
-
-Read as: "I am declaring a public static function that works on objects of type T, it returns a T, it is called `pickRandom`, and it takes an array of Ts as input."
-
-Why not just make the *class* generic? Because `public class RandomPicker<T>` forces you to instantiate a `RandomPicker<String>` object just to pin down `T`, and you cannot call a static method through an instance anyway. Making the class generic and the method non-static works but is awkward. The generic static method is the right tool.
-
-A bonus convenience: when calling a generic static method, you do **not** write the type argument. `RandomPicker.pickRandom(x)` is enough; `T` is inferred from the argument.
-
-When the method body needs to *do* something with `T`, a plain `<T>` is not enough, because as far as the compiler is concerned `T` could be anything, and `Object` has no `compareTo`. The fix is a **type bound**:
-
-```java
-public static <T extends Comparable<T>> T max(T[] items)
-```
-
-Read as: "...and additionally, T has to implement `Comparable`." Passing an array of non-`Comparable` objects is now a **compile-time** error, not a runtime surprise.
-
-Note the keyword: `extends` is used for type bounds even when the bound is an interface you would normally `implement`. That is just Java's syntax.
-
-### 10. Generics do not work with primitives
-
-`pickRandom` and `max` work on `String[]`, `Dog[]`, `Integer[]`, but not `int[]`, `double[]`, or `char[]`. Generic type parameters can only be bound to reference types. There is no way around it, which is why the real Java library ships separate overloads: `Arrays.sort(int[])`, `Arrays.sort(double[])`, `Arrays.sort(float[])`, and so on. (The textbook mentions Project Valhalla as the possible eventual fix.)
-
----
-
-## Definitions
-
-- **Polymorphism**: "The ability in programming to present the same programming interface for differing underlying forms" (Wikipedia, as quoted in the textbook).
-- **Subtype polymorphism**: Polymorphism achieved by having a supertype declare a capability and subtypes override it, with the implementation chosen at runtime by the object's dynamic type.
-- **Operator overloading**: Defining what built-in operators mean for your type. Python does this via dunder methods like `__gt__`. Java does **not** have operator overloading.
-- **Function passing**: Passing a function itself as an argument (Python's `key=name_len`). Java code typically does not do this for ordering; it passes a `Comparator` object instead.
-- **Duck typing**: A type system in which an object's usability is determined by whether it happens to have the needed methods, checked at runtime. Python is duck typed; Java is not.
-- **`implements`**: The Java keyword that formally declares a hyponym/hypernym (is-a) relationship between a class and an interface. Required; Java will not infer it from method presence.
-- **`Iterable<T>`**: The interface declaring a single method `Iterator<T> iterator()`. Implementing it is what enables the enhanced for loop over your class.
-- **`Iterator<T>`**: The interface declaring `boolean hasNext()` and `T next()`. An object that tracks a position within a collection and doles out elements one at a time.
-- **Enhanced for loop (for-each)**: `for (T x : iterable)`, syntactic sugar that the compiler rewrites into a call to `iterator()` plus a `while (hasNext()) { ... next() ... }` loop.
-- **`toString()`**: The `Object` method returning a `String` representation, called implicitly by `System.out.println` and by string concatenation. Default is `ClassName@hashcode`.
-- **`equals(Object o)`**: The `Object` method defining logical equality. Default implementation is reference equality (`this == o`). Must take an `Object` parameter to override rather than overload.
-- **`instanceof` pattern matching**: The form `o instanceof Type name`, which tests the dynamic type and, on success, binds `name` as a variable of that type, avoiding an explicit cast.
-- **`Comparable<T>`**: Interface with `int compareTo(T o)`. Implemented **by** the class being compared; defines its single natural order.
-- **Natural order**: The ordering implied by a class's own `compareTo` method.
-- **`Comparator<T>`**: Interface with `int compare(T o1, T o2)`. Implemented by a **separate** class; defines an alternate, extrinsic order. Many may exist per type.
-- **Generic static method**: A static method with its own type parameters declared before the return type, e.g. `public static <T> T pickRandom(T[] x)`. Type arguments are inferred at the call site.
-- **Type bound**: A constraint on a generic type parameter, written `<T extends SomeType>`, restricting what may be substituted for `T` and telling the compiler which methods `T` is guaranteed to have.
-- **Inner class**: A non-static nested class (like `MagicWizard`). Each instance is tied to an enclosing instance and can directly access its fields.
-
----
-
-## Worked Examples
-
-### Example 1: Why `for (int i : aset)` does not compile at first
-
-The lecture starts with `ArraySet` lacking `implements Iterable<T>`:
-
-```java
-public class ArraySet<T> {
-    private T[] items;
-    private int size;
-    // contains, add, size ...
-}
-```
+Goal: make this work.
 
 ```java
 ArraySet<Integer> aset = new ArraySet<>();
@@ -229,103 +517,95 @@ aset.add(5);
 aset.add(23);
 aset.add(42);
 
-for (int i : aset) {     // compile error
-    System.out.println(i);
+Iterator<Integer> aseer = aset.iterator();
+while (aseer.hasNext()) {
+    int i = aseer.next();
+    IO.println(i);
 }
 ```
 
-Step by step:
+Step 1: `aset.iterator()` does not exist, so the compiler errors. Add the method. But what should it return? We need "some sort of magic wizard who has a `next` and `hasNext` method," and no such class exists, so we must write one.
 
-1. The compiler sees a for-each loop and tries to desugar it. To do that it must emit `aset.iterator()`.
-2. It looks at the **static type** of `aset`, which is `ArraySet<Integer>`.
-3. It asks: does `ArraySet` advertise, through its declared supertypes, that it has an `iterator()` method? No. There is no `implements Iterable<T>`.
-4. Compile error. As the lecture comment puts it: "JAVA is unhappy right now, because it does not know that ArraySets have an iterator method."
-
-Even if we had *written* an `iterator()` method, this would still fail without the `implements` clause, because Java checks the declared relationship, not the method list. (This is the nominal-vs-duck-typing point in action.)
-
-### Example 2: The `Iterator` we have to write (`MagicWizard`)
+Step 2: Write the nested class and declare what it is.
 
 ```java
-private class MagicWizard implements Iterator<T> {
-    // this is where the wizard is looking in our array
-    private int wizPos;
+private class ArraySetIterator implements Iterator<T> {
+```
 
-    MagicWizard() {
-        wizPos = 0;
-    }
+`implements Iterator<T>` is a formal promise: "I have `hasNext()` and `next()`." Without it, the compiler will not let us return an `ArraySetIterator` where an `Iterator<T>` is expected, no matter what methods it happens to contain.
 
-    public boolean hasNext() {
-        return (wizPos < size);
-    }
+Step 3: What state does a wizard need? A position. An `int`:
 
+```java
+    private int wizPos;   // where the wizard is looking in our array
+    public ArraySetIterator() { wizPos = 0; }
+```
+
+Step 4: `hasNext`. How do we know there is more stuff? If the position has not reached the number of items:
+
+```java
+    public boolean hasNext() { return wizPos < size; }
+```
+
+`size` here is the enclosing `ArraySet`'s field, visible because the class is nested and non-static.
+
+Step 5: `next`. Two jobs: grab the item, then advance.
+
+```java
     public T next() {
-        T itemToReturn = items[wizPos];
+        T returnItem = items[wizPos];
         wizPos += 1;
-        return itemToReturn;
+        return returnItem;
     }
 }
+```
 
+Note the order: save first, then increment, then return the saved value. If you incremented first you would return the wrong element; if you returned first the increment would never run.
+
+Step 6: Hook it up.
+
+```java
+/** returns an iterator (a.k.a. seer) into ME */
 public Iterator<T> iterator() {
-    return new MagicWizard();
+    return new ArraySetIterator();
 }
 ```
 
-Things to notice:
+**Debugger trace (as shown in lecture):** stepping over `aset.iterator()` creates an object whose `wizPos` is `0`. Each loop iteration, `wizPos` visibly increments: 0 → 1 → 2 → 3. When `wizPos` is 3 and `size` is 3, `hasNext()` returns `false` and the loop exits. Printed output: `5`, `23`, `42`.
 
-- `MagicWizard` is a **non-static inner class**. It refers to `size` and `items` with no qualification. Those are the *enclosing `ArraySet`'s* fields. In box-and-pointer terms: a `MagicWizard` box contains an `int wizPos` slot **and** a hidden reference back to the `ArraySet` that created it. When `hasNext()` reads `size`, it follows that hidden arrow to the outer object's `size` field. If `MagicWizard` were declared `static`, this hidden arrow would not exist and the code would not compile.
-- `wizPos` is the *cursor*. It starts at 0 and advances one step per `next()` call. `hasNext()` is true exactly while the cursor is still inside the filled region `[0, size)`.
-- `next()` does two things in order: grab `items[wizPos]` into a local, then advance. Returning `items[wizPos]` *after* incrementing would skip the first element and run off the end.
-- `iterator()` returns a **fresh** `MagicWizard` each call, so each loop starts at position 0.
+**Environment reasoning in words:** `aset` is a box holding the address of an `ArraySet` object. That object has two instance variables: `items` (holding the address of a 100-element `Object[]`, whose first three slots hold addresses of `Integer` objects 5, 23, 42) and `size` (holding `3`). `aseer` is a box holding the address of a separate `ArraySetIterator` object, whose only instance variable is `wizPos`. Because the iterator is a non-static nested class instance, it also carries a hidden link back to the enclosing `ArraySet`, which is how `items` and `size` resolve inside its methods. Calling `aset.iterator()` a second time creates a **second, independent** iterator object with its own `wizPos = 0`.
 
-### Example 3: Tracing the desugared loop
+### Example 3: Making the enhanced for loop work
 
-With `implements Iterable<T>` in place, this:
+After Example 2, this still fails:
 
 ```java
-for (int i : aset) {
-    System.out.println(i);
-}
+for (int i : aset) { IO.println(i); }
+// error: required: array or java.lang.Iterable; found: ArraySet<Integer>
 ```
 
-becomes, conceptually:
+Even though `ArraySet` *has* an `iterator()` method, Java will not search for it by name. The fix is a single declaration:
 
 ```java
-Iterator<Integer> it = aset.iterator();
-while (it.hasNext()) {
-    int i = it.next();      // Integer auto-unboxed to int
-    System.out.println(i);
+public class ArraySet<T> implements Iterable<T> {
+    ...
+    public Iterator<T> iterator() { return new ArraySetIterator(); }
 }
 ```
 
-Trace with `aset` holding `[5, 23, 42]`, `size == 3`:
+Now the type `ArraySet<Integer>` is a subtype of `Iterable<Integer>`, the compiler's requirement is satisfied, and the loop compiles and prints `5`, `23`, `42`. Note that `iterator()` must be `public` to satisfy the interface.
 
-| Step | `wizPos` before | `hasNext()` | `next()` returns | `wizPos` after |
-|---|---|---|---|---|
-| 1 | 0 | `0 < 3` true | `items[0]` = 5 | 1 |
-| 2 | 1 | `1 < 3` true | `items[1]` = 23 | 2 |
-| 3 | 2 | `2 < 3` true | `items[2]` = 42 | 3 |
-| 4 | 3 | `3 < 3` false | (loop exits) | 3 |
+### Example 4: `toString` for `ArraySet`
 
-Output: `5`, `23`, `42`.
-
-`IteratorDemo.java` shows the same equivalence on a library type:
+Before overriding:
 
 ```java
-Set<Integer> javaset = new TreeSet<>();
-javaset.add(5); javaset.add(23); javaset.add(42);
-for (int i : javaset) { System.out.println(i); }
-
-// exactly the same as:
-Iterator<Integer> seer = javaset.iterator();
-while (seer.hasNext()) {
-    int x = seer.next();
-    System.out.println(x);
-}
+IO.println(aset);      // ArraySet@75412c2f
 ```
 
-The program prints `5 23 42` twice. Note the static type is `Set<Integer>` while the dynamic type is `TreeSet<Integer>`: the for-each loop is legal because `Set` extends `Iterable`, and the iterator you actually get back is `TreeSet`'s, chosen by dynamic method selection. (extra context: `TreeSet` keeps elements sorted, which is why the output happens to be in ascending order.)
+`println(Object x)` calls `x.toString()`; the inherited `Object` version gives class name + `@` + hash code, and the default hash code is derived from the address.
 
-### Example 4: `toString`, and why it uses the iterator
+After overriding (lecture's version, cleaned to use `StringBuilder` as in the code file):
 
 ```java
 @Override
@@ -340,30 +620,71 @@ public String toString() {
 }
 ```
 
-Step by step:
+Step by step on `{5, 23, 42}`:
+1. Start the builder with `"["`.
+2. `for (T x : this)` desugars to `this.iterator()` plus a `hasNext`/`next` loop, which only works because of `implements Iterable<T>`. So `toString` reuses the machinery from Examples 2 and 3.
+3. Append `5`, then `,` → `"[5,"`. Appending a non-String calls its `toString()` automatically.
+4. Append `23`, `,` → `"[5,23,"`.
+5. Append `42`, `,` → `"[5,23,42,"`.
+6. Append `"]"` → `"[5,23,42,]"`, and return `.toString()` of the builder.
 
-1. `for (T x : this)` iterates over the set itself. This works only because `ArraySet implements Iterable<T>`, so `toString` is a *client* of the iterator we just wrote. Nice payoff: once `iterator()` exists, other methods get to use the clean loop syntax.
-2. `StringBuilder` accumulates the pieces. `append(x)` calls `x.toString()` under the hood.
-3. `System.out.println(aset)` implicitly calls `aset.toString()`, printing `[5,23,42,]`.
+There is a trailing comma; the lecture left it in, noting you can fix it if you care. The `String +=` version produces the same string but is slow, since each `+=` builds a brand-new immutable `String`.
 
-Note the trailing comma before `]`, which is a cosmetic wart in the lecture version. (extra context: a common fix is to append the comma *before* each element except the first, or to use `String.join`.)
+A live-coding slip worth remembering: writing `returnString += "s"` inside `for (T s : this)` prints `sss`, because the literal string `"s"` is not the variable `s`. Concatenate the variable, not a quoted letter.
 
-(extra context: the reason `StringBuilder` is used instead of `returnString += x` is performance. Repeated `+=` on a `String` builds a new `String` each time, making the loop quadratic in total length. This is discussed in detail later in the course.)
+### Example 5: `equals` for `ArraySet`
 
-### Example 5: `equals`, line by line
+First attempt, which fails:
+
+```java
+@Override
+public boolean equals(ArraySet o) { ... }   // compiler error with @Override
+```
+
+This does not override `Object.equals(Object)`; it overloads it. `@Override` catches the mistake. Correct signature:
 
 ```java
 @Override
 public boolean equals(Object o) {
-    if (o instanceof ArraySet otherArraySet) {
-        if (this.size == otherArraySet.size) {
-            for (T x : this) {
-                if (!otherArraySet.contains(x)) {
-                    return false;
-                }
-            }
-        } else {
+    if (o instanceof ArraySet oas) {
+        // check sets are of the same size
+        if (oas.size != this.size) {
             return false;
+        }
+        // check that all of MY items are in the other array set
+        for (T x : this) {
+            if (!oas.contains(x)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // o is not an ArraySet, so return false
+    return false;
+}
+```
+
+Step by step:
+1. `o instanceof ArraySet oas` asks "is `o` pointing at an `ArraySet`?" If `o` is `null` or some unrelated type (say a `List`), this is `false` and we fall through to `return false`. No separate null check needed.
+2. If true, `oas` is now an `ArraySet`-typed name for the same object, so `oas.size` and `oas.contains(...)` compile. (Without the pattern variable, `o.size` would be a compile error, since `o`'s static type is `Object`.)
+3. Size check first: different sizes means not equal, and it is cheap.
+4. Same size: iterate over **my** elements (using the enhanced for loop we enabled) and verify each one is in the other set. This is where `contains` on the other set does the real work.
+5. If every one of my elements is in the other set **and** the sizes match, the sets are equal, so `return true`. (Equal size is what makes one-directional containment sufficient; if I had 3 elements all present in theirs and they also have 3, there is no room for an extra.)
+6. Not an `ArraySet` at all: `return false`.
+
+The polished, "pretty close to a standard `equals`" version from the slides adds one optimization:
+
+```java
+@Override
+public boolean equals(Object other) {
+    if (this == other) { return true; }   // doesn't affect correctness, saves time
+                                          // if this and other are the same object
+    if (other instanceof ArraySet otherSet) {
+        if (this.size != otherSet.size) { return false; }
+        for (T x : this) {
+            if (!otherSet.contains(x)) {
+                return false;
+            }
         }
         return true;
     }
@@ -371,201 +692,87 @@ public boolean equals(Object o) {
 }
 ```
 
-1. **Parameter type is `Object`.** This is what makes it a genuine override of `Object.equals`. The `@Override` annotation asks the compiler to verify that; if you slipped and wrote `equals(ArraySet o)`, `@Override` would trigger a compile error, which is exactly why you should always write it.
-2. **`o instanceof ArraySet otherArraySet`** checks that `o` really is an `ArraySet` and simultaneously introduces `otherArraySet` with static type `ArraySet`. Without this, `otherArraySet.size` and `otherArraySet.contains(x)` would not compile, because `Object` has neither.
-3. **Size check first.** Two sets with different sizes cannot be equal, and checking size is O(1), so bail out early.
-4. **Containment check.** For a set, "same contents" means every element of `this` is in the other. Combined with the equal-size check (and the fact that `add` refuses duplicates), one-directional containment is enough. Each `contains` call is a linear scan, so this loop is O(n²) overall (extra context).
-5. **Fall-through returns `true`** once the loop finishes without finding a missing element.
-6. **Non-`ArraySet` argument returns `false`**, which is why the commented-out `aset.equals(List.of(1, 2, 3))` in `main` would simply be `false` rather than a crash.
+`ArraySet` here is technically a raw type (no `<T>`); the slides say not to worry about it.
 
-Running `main`:
+Running it:
 
 ```java
-System.out.println(aset);              // [5,23,42,]
-ArraySet<Integer> aset2 = new ArraySet<>();
-aset2.add(5); aset2.add(23); aset2.add(42);
-IO.println(aset.equals(aset2));        // true
+ArraySet<Integer> aset  = new ArraySet<>(); aset.add(5);  aset.add(23);  aset.add(42);
+ArraySet<Integer> aset2 = new ArraySet<>(); aset2.add(5); aset2.add(23); aset2.add(42);
+IO.println(aset.equals(aset2));   // true (was false before we overrode equals)
+IO.println(aset == aset2);        // false: different objects
 ```
 
-In box-and-pointer terms: `aset` and `aset2` are two different boxes at two different addresses, each with its own 100-element array. `aset == aset2` would be `false`. `aset.equals(aset2)` is `true` because our override looks at contents, not addresses.
+### Example 6 (Bonus): writing your own `.of`
 
-(extra context: `IO.println` is the newer `java.lang.IO` convenience method available in recent JDKs. It behaves like `System.out.println` here.)
-
-### Example 6: `Collections.max` on `Dog` via `Comparable`
+Java's `Set.of(5, 23, 42)` is a static factory. You can write your own:
 
 ```java
-List<Dog> dogs = new ArrayList<>();
-dogs.add(new Dog("Grigometh", 200));
-dogs.add(new Dog("Pelusa", 5));
-dogs.add(new Dog("Clifford", 9000));
-Dog maxDog = Collections.max(dogs);
-```
-
-Before `Dog implements Comparable<Dog>`, this fails to compile with "no instance(s) of type variable(s) T exist so that Dog conforms to Comparable<? super T>". The fix:
-
-```java
-public class Dog implements Comparable<Dog> {
-    @Override
-    public int compareTo(Dog uddaDog) {
-        return this.size - uddaDog.size;
+public static <Glerp> ArraySet<Glerp> of(Glerp... stuff) {
+    ArraySet<Glerp> returnSet = new ArraySet<Glerp>();
+    for (Glerp x : stuff) {
+        returnSet.add(x);
     }
+    return returnSet;
 }
 ```
 
-What happens at runtime: `Collections.max` walks the list holding a "best so far." It calls `candidate.compareTo(best)`. Its own code has no idea what a `Dog` is; the static type there is just some `T extends Comparable<...>`. Dynamic method selection routes each call to `Dog.compareTo`. Since `9000 - 200 > 0`, Clifford ends up as the max.
+`Glerp... stuff` is a **var arg**: callers write comma-separated values, and inside the method `stuff` is an array (hence the enhanced for loop over it works, arrays being for-each-compatible). `<Glerp>` before the return type declares a generic type parameter for the static method, which is needed because static methods cannot use the class's `T`.
 
-The longer explicit version is equivalent but wordier:
+### Example 7 (from the code file): the null policy
 
-```java
-@Override
-public int compareTo(Dog uddaDog) {
-    if (size > uddaDog.size) { return 1; }
-    if (size < uddaDog.size) { return -1; }
-    return 0;
-}
-```
-
-### Example 7: `Comparator` for an alternate order
-
-Python's version passes a function:
-
-```python
-def get_the_max(x, key):
-    max_value = x[0]
-    for item in x:
-        if key(item) > key(max_value):
-            max_value = item
-    return max_value
-
-def name_len(dog):
-    return len(dog.name)
-
-max_dog = get_the_max(doglist, name_len)
-```
-
-Java's version passes an object:
+The live-coded `add` in `ArraySet.java` throws on null:
 
 ```java
-public static class NameComparator implements Comparator<Dog> {
-    @Override
-    public int compare(Dog a, Dog b) {
-        return a.name.compareTo(b.name);
+public void add(T x) {
+    if (x == null) {
+        throw new IllegalArgumentException("can't add null");
     }
-}
-```
-
-```java
-Dog maxNameDog = Collections.max(dogs, new Dog.NameComparator());
-// or, with the static constant:
-Dog maxNameDog = Collections.max(dogs, Dog.NAME_COMPARATOR);
-```
-
-Now walk the textbook's check-your-understanding question:
-
-```java
-Dog a = new Dog("Frank", 1);
-Dog b = new Dog("Zeke", 1);
-Comparator<Dog> nc = new Dog.NameComparator();
-System.out.println(nc.compare(a, b));
-```
-
-1. `nc.compare(a, b)` dispatches to `NameComparator.compare`.
-2. That returns `"Frank".compareTo("Zeke")`.
-3. `String.compareTo` compares character by character; the first characters differ, so it returns `'F' - 'Z'` = `70 - 90` = **-20**, a **negative** number, meaning Frank comes before Zeke alphabetically.
-4. The `size` fields (both 1) are irrelevant here. The `Comparator` completely overrides the natural order.
-
-Note that `nc`'s static type is `Comparator<Dog>` while its dynamic type is `NameComparator`: the usual interface-variable pattern.
-
-(extra context, textbook "bonus": the same comparator can be written as a lambda, `Comparator<Dog> dc = (a, b) -> a.name.compareTo(b.name);`. The textbook explicitly says lambdas are not expected knowledge in this class.)
-
-### Example 8: Building `max` ourselves, with a type bound
-
-First attempt, which does not compile:
-
-```java
-public class Maximizer {
-    public static <T> T max(T[] items) {
-        T maxItem = items[0];
-        for (int i = 0; i < items.length; i += 1) {
-            int cmp = items[i].compareTo(maxItem);   // error: T has no compareTo
-            if (cmp > 0) {
-                maxItem = items[i];
-            }
-        }
-        return maxItem;
+    if (contains(x)) {
+        return;
     }
+    items[size] = x;
+    size += 1;
 }
 ```
 
-The compiler treats an unbounded `T` as (essentially) `Object`, and `Object` has no `compareTo`. Add a type bound:
-
-```java
-public class Maximizer {
-    public static <T extends Comparable<T>> T max(T[] items) {
-        T maxItem = items[0];
-        for (int i = 0; i < items.length; i += 1) {
-            int cmp = items[i].compareTo(maxItem);
-            if (cmp > 0) {
-                maxItem = items[i];
-            }
-        }
-        return maxItem;
-    }
-}
-```
-
-Now the compiler knows every `T` implements `Comparable<T>`, so `compareTo` is legal. Calling `Maximizer.max(someNonComparableArray)` is a compile-time error rather than a runtime failure.
-
-Call site, with no type argument needed:
-
-```java
-Dog[] dogs = {new Dog("Grigometh", 200), new Dog("Pelusa", 5), new Dog("Clifford", 9000)};
-Dog biggest = Maximizer.max(dogs);   // T inferred as Dog
-```
-
-The industrial-strength signature the textbook shows is:
-
-```java
-public static <T extends Comparable<? super T>> T max(T[] items)
-```
-
-The `? super T` allows `T` to inherit its `compareTo` from a superclass (for example, comparing `Corgi[]` when only `Dog` implements `Comparable<Dog>`). The textbook says you will not need to wrestle with this much outside the end of Project 1B.
+Why: `contains` calls `items[i].equals(x)`, and more generally allowing nulls forces null-handling everywhere. Throwing an `IllegalArgumentException` is one design choice; the summary slide explicitly says there are other ways to deal with nulls and that this choice was arguably bad. The important skill is recognizing that "what do I do about null?" is a design decision you must consciously make.
 
 ---
 
 ## Common Pitfalls
 
-1. **Writing `iterator()` without `implements Iterable<T>`.** The for-each loop still will not compile. Java needs the declared relationship, not just the method.
+1. **Forgetting `implements Iterable<T>`.** You write a perfect `iterator()` method, ugly iteration works, and the enhanced for loop still refuses to compile with `required: array or java.lang.Iterable`. Java does not duck-type; you must declare the relationship.
 
-2. **Confusing `Iterable` and `Iterator`.** `Iterable` has `iterator()`. `Iterator` has `hasNext()` and `next()`. A very common exam trap is asking which interface a given class should implement, or which methods a class must provide.
+2. **Forgetting to implement `Iterator<T>` on your nested class.** Having methods named `hasNext` and `next` is not enough; the class must declare `implements Iterator<T>` so it can be returned where an `Iterator<T>` is required.
 
-3. **Having `ArraySet` itself implement `Iterator`.** Tempting, but wrong: the position state would live in the collection, so you could only ever loop once, and nested loops over the same set would break. Keep the cursor in a separate object.
+3. **Making `iterator()` non-public.** Interface methods must be public. A package-private `Iterator<T> iterator()` will not satisfy `Iterable<T>`.
 
-4. **Getting the order wrong inside `next()`.** Advance *after* reading. `wizPos += 1; return items[wizPos];` skips element 0 and reads one past the end.
+4. **Calling `next()` more than once per loop iteration.** Since `next()` advances, calling it twice skips an element. Save it: `T x = it.next();`.
 
-5. **`hasNext()` using `items.length` instead of `size`.** `items` has capacity 100 but only `size` slots are filled. Using `items.length` would iterate over 97 `null`s.
+5. **Getting the order wrong inside `next()`.** `wizPos += 1; return items[wizPos];` returns the wrong element, and `return items[wizPos]; wizPos += 1;` never advances (unreachable code). Save, advance, return.
 
-6. **Making the iterator a `static` nested class.** It then has no enclosing instance, so `size` and `items` are not in scope.
+6. **Writing `public boolean equals(ArraySet o)`.** This overloads instead of overriding, so `Object`-typed calls (including from library code) still get the identity-based default. `@Override` catches it at compile time; without `@Override` it silently "works" in some call sites and fails in others.
 
-7. **`equals(ArraySet o)` instead of `equals(Object o)`.** This is an overload, not an override. Your method silently never gets called by library code. Always write `@Override` so the compiler catches it.
+7. **Using `==` to compare objects.** `javaset == javaset2` is `false` for two distinct sets with identical contents. `==` compares bits (addresses) and only tells you whether it is the *same object*.
 
-8. **Forgetting the `instanceof` guard in `equals`.** Casting blindly throws `ClassCastException` when someone passes an unrelated object. `equals` must return `false`, not crash.
+8. **Expecting the default `.equals` to compare contents.** `Object.equals` is literally `return (this == obj);`, so until you override it, `.equals` is just `==`.
 
-9. **Using `==` where `equals` is meant.** `aset == aset2` compares addresses. For objects, `==` is true only if both variables point to the exact same box.
+9. **Using `.equals` or `==` on arrays.** Use `Arrays.equals` (or `Arrays.deepEquals` for nested arrays); array `.equals` is inherited identity comparison.
 
-10. **Mixing up `compareTo` and `compare`.** `Comparable` has one-argument `compareTo` and lives inside the class being ordered. `Comparator` has two-argument `compare` and lives outside.
+10. **Using `items[i] == x` inside `contains`.** This would only find the exact same object, not an equal value. The lecture is explicit that `contains` uses `items[i].equals(x)`.
 
-11. **Assuming `compareTo` returns exactly -1, 0, or 1.** The contract is only about the sign. `"Frank".compareTo("Zeke")` is -20. Never write `if (a.compareTo(b) == 1)`.
+11. **Building strings with `+=` in a loop.** Correct but slow, because Strings are immutable so every concatenation copies the whole thing. Use `StringBuilder` (IntelliJ will even offer the conversion).
 
-12. **Thinking Java has operator overloading.** It does not. You cannot make `>` work on `Dog`. (extra context: `+` on `String` is a special case baked into the language, not something you can define for your own types.)
+12. **The `size = size;` constructor bug.** With a parameter named the same as the instance variable, `size = size;` assigns the parameter to itself and does nothing. Write `this.size = size;` or rename the parameter.
 
-13. **Trying to make a generic method generic via the class.** `public class RandomPicker<T> { public static T pickRandom(T[] x) }` does not compile, because a static method cannot use the class's type parameter. Put `<T>` on the method.
+13. **Trailing separator in `toString`.** The straightforward loop produces `{5, 23, 42, }`. Not a correctness disaster, but exam graders and readers notice; `String.join` avoids it.
 
-14. **Writing the type argument when calling a generic static method.** Just call `Maximizer.max(dogs)`; the type is inferred.
+14. **Writing old-style `equals` with explicit casts and `getClass()` checks.** Obsolete since Java 16; prefer `instanceof` pattern matching. Recognize the old style, do not write it.
 
-15. **Passing primitive arrays to generic methods.** `int[]` is not `T[]`. Use `Integer[]`, or write a primitive-specific overload the way the real Java library does.
+15. **Assuming `instanceof` needs a null guard.** It does not: `null instanceof Anything` is `false`, so the pattern-matching form handles null for free.
 
-16. **Writing `<T implements Comparable<T>>`.** The keyword for type bounds is always `extends`, even for interfaces.
+16. **Reaching for `Integer` when `int` will do.** Use `int` except when supplying a generic type argument, where primitives are not allowed.
 
 ---
 
@@ -573,105 +780,154 @@ The `? super T` allows `T` to inherit its `compareTo` from a superclass (for exa
 
 ### 1. Desugaring the enhanced for loop
 
-**Q:** Rewrite `for (String s : myList) { System.out.println(s); }` without using the enhanced for loop, assuming `myList` has static type `List<String>`.
+*Commonly tested as: rewrite this for-each loop without for-each, or identify why a for-each loop fails to compile.*
 
-**A:**
+**Q.** Rewrite `for (String s : myCollection) { System.out.println(s); }` without using the enhanced for loop. What must be true of `myCollection`'s type for the original to compile?
+
+**A.**
 ```java
-Iterator<String> it = myList.iterator();
+Iterator<String> it = myCollection.iterator();
 while (it.hasNext()) {
     String s = it.next();
     System.out.println(s);
 }
 ```
+`myCollection` must be an array or its static type must be (a subtype of) `java.lang.Iterable`, i.e. the type must declare an `iterator()` method returning an `Iterator`.
 
-### 2. Which interface, which methods
+### 2. Fill in the blanks of an iterator class
 
-**Q:** You want `for (Card c : deck)` to work, where `Deck` is your own class. What must `Deck` declare, and what method(s) must it define? What must the helper object declare and define?
+*Project 2 and discussion worksheet material; expect a skeleton with `hasNext`/`next` bodies blanked out.*
 
-**A:** `Deck` must declare `implements Iterable<Card>` and define `public Iterator<Card> iterator()`. The helper (often a private inner class) must declare `implements Iterator<Card>` and define `public boolean hasNext()` and `public Card next()`.
+**Q.** Complete the iterator so that `for (T x : myArraySet)` visits `items[0] ... items[size - 1]` in order.
 
-### 3. Tracing an iterator
+```java
+private class ArraySetIterator implements Iterator<T> {
+    private int wizPos;
+    public ArraySetIterator() { ______ }
+    public boolean hasNext()  { ______ }
+    public T next()           { ______ }
+}
+```
 
-**Q:** Suppose `hasNext()` in `MagicWizard` were changed to `return (wizPos <= size);`. What happens when looping over an `ArraySet<Integer>` containing 5, 23, 42?
+**A.**
+```java
+public ArraySetIterator() { wizPos = 0; }
+public boolean hasNext()  { return wizPos < size; }
+public T next() {
+    T returnItem = items[wizPos];
+    wizPos += 1;
+    return returnItem;
+}
+```
 
-**A:** It prints 5, 23, 42, and then `null` (position 3, an unfilled slot). If the loop variable is declared `int` rather than `Integer`, auto-unboxing the `null` throws a `NullPointerException` on the fourth iteration.
+### 3. Why doesn't my for-each compile? (the three-step recipe)
 
-### 4. Override vs overload on `equals`
+**Q.** `MyList<T>` has a correct `public Iterator<T> iterator()` method and a correct nested `Iterator<T>` implementation, but `for (T x : myList)` gives `error: for-each not applicable to expression type`. What is missing and why?
 
-**Q:** A student writes `public boolean equals(ArraySet o) { ... }` in `ArraySet`. The code compiles. Does `Object o = aset2; aset.equals(o);` call it? Why?
+**A.** The class declaration is missing `implements Iterable<T>`. In Java, having a method with the right name is not enough: hypernym/hyponym relationships must be declared explicitly with `implements`, and the compiler requires the static type to be `Iterable` before it will desugar the loop.
 
-**A:** No. Overload resolution happens at **compile time** using static types. The static type of `o` is `Object`, so the compiler selects the inherited `Object.equals(Object)`, which does reference equality and returns `false`. Adding `@Override` would have caught the mistake at compile time, since `equals(ArraySet)` overrides nothing.
+### 4. Compiler checks for the desugared loop (the clicker)
 
-### 5. `instanceof` pattern matching
+**Q.** For `Iterator<Integer> seer = javaset.iterator(); while (seer.hasNext()) { IO.println(seer.next()); }` with `Set<Integer> javaset`, which of the following does the compiler check? (A) `Set` has `iterator()`. (B) `Set` has `next`/`hasNext`. (C) `Iterator` has `iterator()`. (D) `Iterator` has `next`/`hasNext`.
 
-**Q:** What two things does `if (o instanceof ArraySet otherArraySet)` accomplish?
+**A.** A and D. The compiler checks methods against the static type of the receiver: `.iterator()` is called on a `Set`, and `.hasNext()`/`.next()` are called on an `Iterator`. B and C are not needed.
 
-**A:** (1) It evaluates to `true` exactly when `o`'s dynamic type is `ArraySet` (or a subtype). (2) On success it binds `otherArraySet`, a variable whose static type is `ArraySet`, to `o`, so you can call `ArraySet` methods without an explicit cast.
+### 5. Trace `hasNext`/`next`
 
-### 6. Comparable vs Comparator
+**Q.** An iterator over `{5, 23, 42}` is created. The following calls are made in order: `hasNext()`, `next()`, `next()`, `hasNext()`, `next()`, `hasNext()`. What does each return?
 
-**Q:** You want to sort `Dog`s by size by default, but also sometimes by name, sometimes by age. Which interfaces do you use and where do they live?
+**A.** `true`, `5`, `23`, `true`, `42`, `false`. Key point: each `next()` both returns and advances, so two consecutive `next()` calls yield two different elements.
 
-**A:** `Dog implements Comparable<Dog>` with `compareTo` returning `this.size - other.size` defines the single natural order. For the alternates, write two separate classes, `NameComparator implements Comparator<Dog>` and `AgeComparator implements Comparator<Dog>`, each with a two-argument `compare`. `Comparable` gives one intrinsic order; `Comparator` gives arbitrarily many extrinsic ones.
+### 6. `==` versus `.equals`
 
-### 7. Sign of a comparison
+**Q.** What does the following print, and why?
+```java
+Set<Integer> a = Set.of(5, 23, 42);
+Set<Integer> b = Set.of(5, 23, 42);
+System.out.println(a == b);
+System.out.println(a.equals(b));
+```
 
-**Q:** Given `Dog a = new Dog("Frank", 1); Dog b = new Dog("Zeke", 1);` and a `NameComparator nc`, is `nc.compare(a, b)` positive, negative, or zero?
+**A.** `false` then `true`. `a` and `b` are two boxes holding addresses of two distinct objects, and `==` compares those bits, so it is false. `Set`'s `.equals` compares contents semantically, so it is true.
 
-**A:** Negative (specifically -20, since `String.compareTo` returns `'F' - 'Z'`). The equal sizes are irrelevant because the comparator only looks at names.
+### 7. The default `equals`
 
-### 8. Python vs Java mechanisms
+**Q.** You define `class Point { int x, y; }` and do not override `equals`. Two `Point`s both have `x = 1, y = 2`. What does `p1.equals(p2)` return and why?
 
-**Q:** Fill in the table for how each language achieves each comparison.
+**A.** `false`. The inherited `Object.equals` is `return (this == obj);`, i.e. reference identity, so distinct objects are never equal under it.
 
-**A:**
+### 8. Write / debug an `equals` method
 
-| | Natural order | Alternate order |
-|---|---|---|
-| Python | Operator overloading (`__gt__`) | Function passing (`key=name_len`) |
-| Java | Subtype polymorphism (`Comparable.compareTo`) | Subtype polymorphism (`Comparator.compare`) |
+**Q.** What is wrong with the following, and fix it?
+```java
+@Override
+public boolean equals(ArraySet o) {
+    return this.size == o.size;
+}
+```
 
-Java uses subtype polymorphism for both; Python uses two different mechanisms.
+**A.** Two problems. (1) The parameter type must be `Object` to actually override `Object.equals(Object)`; as written it is an overload, and `@Override` makes it a compile error. (2) Comparing only sizes is wrong; equal sizes does not mean equal contents. Fixed:
+```java
+@Override
+public boolean equals(Object o) {
+    if (this == o) { return true; }
+    if (o instanceof ArraySet otherSet) {
+        if (this.size != otherSet.size) { return false; }
+        for (T x : this) {
+            if (!otherSet.contains(x)) { return false; }
+        }
+        return true;
+    }
+    return false;
+}
+```
 
-### 9. Generic static method syntax
+### 9. `instanceof` pattern matching
 
-**Q:** Write the signature of a public static method named `smallest` that takes an array of `T` and returns a `T`, where `T` must be comparable to itself. Explain each piece.
+**Q.** What two things does `if (o instanceof Dog uddaDog)` do? What happens if `o` is `null`?
 
-**A:** `public static <T extends Comparable<T>> T smallest(T[] items)`. Reading left to right: `public static` is the access/staticness, `<T extends Comparable<T>>` declares a type parameter `T` constrained to implement `Comparable<T>`, the next `T` is the return type, `smallest` is the name, and `T[] items` is the parameter.
+**A.** It (1) evaluates to `true` exactly when `o` references a `Dog`, and (2) on the true branch introduces a new variable `uddaDog` of static type `Dog` bound to the same object, so you can call `Dog` methods and read `Dog` fields. If `o` is `null`, the expression is `false` and the body is skipped, so no separate null check is needed.
 
-### 10. Why the type bound is needed
+### 10. `toString` behavior
 
-**Q:** `public static <T> T max(T[] items)` fails to compile at the line `items[i].compareTo(maxItem)`. Why, and what is the minimal fix?
+**Q.** `ArraySet` does not override `toString`. What does `System.out.println(aset)` print, and what is the mechanism?
 
-**A:** With an unbounded `T`, the compiler can only assume `T` supports `Object`'s methods, and `Object` has no `compareTo`. The fix is a type bound: change `<T>` to `<T extends Comparable<T>>`.
+**A.** Something like `ArraySet@75412c2f`: the class name, `@`, and the hash code (by default derived from the object's memory location). `println(Object x)` calls `String.valueOf(x)`, which calls `x.toString()`, and the inherited `Object.toString()` produces that format.
 
-### 11. Generics and primitives
+### 11. `this` and shadowed variables
 
-**Q:** Does `Maximizer.max(new int[]{3, 1, 4})` compile? What about `Maximizer.max(new Integer[]{3, 1, 4})`?
+**Q.** Why does the constructor `public Dog(int size) { size = size; }` fail to set the instance variable, and what are two fixes?
 
-**A:** The `int[]` version does not compile; generic type parameters cannot be bound to primitive types. The `Integer[]` version compiles fine, since `Integer` is a reference type implementing `Comparable<Integer>`.
+**A.** Inside the constructor, the parameter `size` shadows the instance variable, so `size = size;` assigns the parameter to itself and the field is untouched. Fixes: `this.size = size;`, or rename the parameter (`public Dog(int s) { size = s; }`).
 
-### 12. Static vs dynamic type recall
+### 12. String concatenation performance
 
-**Q:** In `Comparator<Dog> nc = new Dog.NameComparator();`, what are the static and dynamic types of `nc`, and which `compare` runs on `nc.compare(a, b)`?
+**Q.** Why is building a `toString` with `returnString += item;` inside a loop considered slow, and what should you use instead?
 
-**A:** Static type `Comparator<Dog>` (what the compiler uses to check legality); dynamic type `NameComparator` (what actually exists at runtime). `NameComparator.compare` runs, by dynamic method selection.
+**A.** Java Strings are immutable, so appending even one character allocates and copies an entirely new String. Doing this once per element makes the loop do far more copying than necessary. Use a `StringBuilder` and `append`, which is designed for an in-progress string, then call `.toString()` at the end.
+
+### 13. Autoboxing/unboxing
+
+**Q.** `next()` returns `Integer` but we wrote `int i = aseer.next();`. Is that legal? What is it called, and which should you prefer?
+
+**A.** Legal. Converting `Integer` to `int` is unboxing (the reverse is autoboxing). Prefer `int` except when supplying a generic type argument such as `ArraySet<Integer>`, since generics cannot take primitives; boxing/unboxing also costs a little runtime.
 
 ---
 
 ## Summary
 
-- **Java is nominally typed.** Having the right methods is not enough; you must declare `implements` so the compiler knows the is-a relationship. Python, being duck typed, does not require this.
-- **`Iterable` vs `Iterator`.** `Iterable<T>` declares `iterator()`; it is the thing you loop over. `Iterator<T>` declares `hasNext()` and `next()`; it is the cursor object that tracks position.
-- **The for-each loop is sugar.** `for (T x : c)` compiles into `Iterator<T> it = c.iterator(); while (it.hasNext()) { T x = it.next(); ... }`. That is why `implements Iterable<T>` is the "magic ingredient."
-- **`ArraySet`'s iterator** is a private inner class (`MagicWizard`) holding an `int wizPos` plus an implicit reference to the enclosing set, which is how it reads `items` and `size` directly. `hasNext()` is `wizPos < size`; `next()` reads then advances.
-- **Override `toString()`** to get useful printing instead of `ClassName@hashcode`. `System.out.println(obj)` calls it implicitly. `ArraySet.toString` itself loops with for-each, using the iterator it just gained.
-- **Override `equals(Object o)`**, never `equals(ArraySet o)`. Use `@Override` so the compiler verifies you actually overrode. Guard with `instanceof`, return `false` for unrelated types, then compare contents.
-- **`instanceof` pattern matching** (`o instanceof ArraySet other`) both tests the dynamic type and binds a correctly typed variable, eliminating the explicit cast.
-- **`Comparable<T>`**: one-argument `compareTo`, implemented by the class itself, defines the single **natural order**. `return this.size - other.size;` is the idiomatic short form. Only the **sign** of the result is meaningful.
-- **`Comparator<T>`**: two-argument `compare`, implemented by a separate class, defines an alternate **extrinsic** order. Many per type. Optionally exposed as a `public static final` constant like `Dog.NAME_COMPARATOR`.
-- **Python vs Java**: Python uses operator overloading for natural order and function passing for alternate orders; Java uses **subtype polymorphism** for both.
-- **`Collections.max(list)`** uses the natural order; **`Collections.max(list, comparator)`** uses the supplied one. Both work on your classes only because dynamic method selection calls back into your overrides.
-- **Generic static methods**: put `<T>` before the return type (`public static <T> T pickRandom(T[] x)`). Do not make the class generic just to serve a static method. Type arguments are inferred at the call site.
-- **Type bounds**: `<T extends Comparable<T>>` tells the compiler what `T` can do, turning a runtime hazard into a compile-time check. Use `extends` even for interfaces. The industrial version is `<T extends Comparable<? super T>>`.
-- **Generics never work with primitives.** Use wrapper types, or write per-primitive overloads as the Java library does.
+- We built `ArraySet<T>`: `T[] items` plus `int size`, with linear-scan `contains` (using `.equals`, not `==`), a `contains`-guarded `add`, and `size()`. Resizing was ignored; `add` throws `IllegalArgumentException` on `null` (one of several possible null policies, arguably not the best one).
+- **The enhanced for loop is shorthand.** `for (T x : c)` is literally `Iterator<T> it = c.iterator(); while (it.hasNext()) { T x = it.next(); ... }`.
+- **`Iterator<T>`** has `boolean hasNext()` and `T next()`. `next()` does two jobs: return the current value **and** advance.
+- **To support the enhanced for loop, three steps:** (1) add a public `iterator()` returning an `Iterator<T>`; (2) make that iterator have useful `hasNext()`/`next()`; (3) add `implements Iterable<T>` to the class declaration.
+- Our iterator was a private nested class whose only state was `wizPos`, starting at 0; `hasNext` is `wizPos < size`, `next` saves `items[wizPos]`, increments, returns the saved value. Being nested lets it see the enclosing set's `items` and `size`.
+- **`Iterable<T>`** is the one-method interface `Iterator<T> iterator();`. Java requires the relationship be *declared*; it will not find an `iterator()` method by name. Java's own hierarchy: `Set` extends `Collection` extends `Iterable`.
+- The compiler checks method calls against the **static type** of the receiver: `iterator()` against `Set`, `hasNext`/`next` against `Iterator`.
+- **Autoboxing/unboxing** makes `int` and `Integer` interchangeable in assignments; prefer `int` except as a generic type argument.
+- Every class inherits from **`Object`**: `toString()`, `equals(Object)`, `hashCode()` (later in the course), and others we will not use.
+- **`toString()`** defaults to class name + `@` + hash code (address-derived). Override it; `println` and string `+` call it automatically. Beware `+=` in a loop (Strings are immutable): use `StringBuilder`, or `String.join` for a clean bonus version.
+- **`==` compares the bits**; for references that means "same object." **`.equals` is for semantic equality**, but `Object`'s default `equals` is literally `return (this == obj);`, so you must override it. Use `Arrays.equals`/`Arrays.deepEquals` for arrays.
+- **`equals` must take `Object`**, not your own type, or you are overloading rather than overriding. `@Override` catches this.
+- **`instanceof` pattern matching** (`o instanceof ArraySet oas`) both tests the type (false for `null`) and binds a correctly typed variable. The pre-Java-16 style with null checks, `getClass()`, and explicit casts is obsolete: do not write it.
+- A good `equals`: optional `this == other` fast path, `instanceof` check, size check, then verify every one of my elements is contained in the other.
+- This was the last in-scope lecture for Mini-Midterm 1 (no cheat sheet, a reference sheet is provided); these topics are also what you need for the last part of Project 2.
