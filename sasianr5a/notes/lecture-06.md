@@ -1,4 +1,4 @@
-# Session 1: What "Reading and Composition" means, how to read academic texts, and the first reading-response prompt
+# Lecture 6: What "Reading and Composition" means, how to read academic texts, and the first reading-response prompt
 
 ## Summary
 This session was mostly about method, with little new Tibetan history. The instructor described reading as collecting information and composition as working through that information to make an argument. In the humanities, that argument means offering a new, reasoned interpretation of concepts, not just stating an emotion or retelling facts. The instructor split "reading" into three parts: who reads (you, as a new academic reader), what gets read (a "text" in a broad sense: books, articles, films, podcasts, oral accounts), and how to read (dealing with a new language, unfamiliar terms, and getting lost in details). The main advice was to read for structure: use the title and table of contents to build a "map" of the argument, and step back after each section. The class then went through this week's essay prompt, looked at a sample student essay, and got the requirements: at least 500 words, due next Thursday by noon.
