@@ -1,181 +1,253 @@
-<!-- Fri, Sep 4, 2026 | sources: code (no transcript available) -->
+<!-- Fri, Sep 04, 2026 | sources: slides + code + YouTube auto-transcript + textbook -->
 # Lecture 5: Testing
 
-## Overview
+This lecture introduces "a new way" of knowing your code works: instead of relying on an instructor's autograder, you write your own tests. The vehicle for this is `Sort.sort(String[] x)`, a method that destructively sorts an array of strings using **selection sort**. The lecture deliberately writes tests *before* the code (test-driven development), starting with an ad hoc hand-rolled test (tedious, full of loops and print statements), then replacing it with the **Google Truth** assertion library plus JUnit's `@Test` annotation, which gamifies development with green checkmarks. Along the way Josh intentionally (and once accidentally) introduces bugs: a broken `swap` that loses a value, a `findSmallest` that returns a `String` when `swap` needs an index, a recursive `sort` with a missing base case, and, most instructively, a `findSmallest` that always scans the whole array instead of only the unsorted suffix. Each bug is caught by a unit test and diagnosed with the IntelliJ debugger using the key idea: **find the moment when reality diverges from expectation**. The lecture closes with testing philosophy: autograders vs. unit tests vs. integration testing, and why tests give you stability, confidence in individual units, and the freedom to refactor.
 
-This lecture is about how you decide, on your own, whether your code is correct, without an autograder. The running example is building a `Sort` class whose `sort(String[] x)` method destructively sorts an array of strings using **selection sort**, and the "new way" of the lecture is that we write the *test first* and the implementation second. Along the way we meet ad hoc testing (hand-rolled loops and print statements), the JUnit + Google Truth libraries (`@Test`, `assertThat(...).isEqualTo(...)`), the decomposition of `sort` into small testable units (`findSmallest`, `swap`, and a recursive `sort(x, k)` helper), and the repeated experience of a test catching a real bug: a `swap` without a temp variable, a missing recursive base case, a `findSmallest` that scans the whole array instead of just the unsorted suffix, and a `findSmallest` that returns a `String` when `swap` needs an `int` index. The chapter ends with testing philosophy: autograders vs. unit tests vs. integration tests, and Test-Driven Development (TDD) as a workflow.
+---
 
 ## Key Concepts
 
-### 1. Correctness is your job, not the autograder's
+### 1. How do you know your code works?
 
-In a class you tend to gain confidence in your code by uploading it and waiting for the autograder's verdict. But an autograder is just code an instructor wrote, and it is "fundamentally not all that different from the code that you are writing." Our autograder is in fact JUnit plus some custom libraries. In the real world nobody hands you a benevolent third-party grader; programmers write their own tests. The lecture's central move is to hand you the judge: you build a thing whose approval you can only win by making the code correct.
+In prior classes (61A, Data 88, E7), you knew your code worked because it passed an autograder or instructor-provided local tests. In the real world, no such oracle exists. Programmers (human or LLM) believe their code works because of tests **they wrote themselves**.
 
-The failure mode this is meant to cure has a name in the chapter: **Autograder Driven Development**, where you write everything, fix the compiler errors, submit, get errors, sprinkle in some print statements, change something, submit again, repeat. Your workflow is gated on someone else's server, and you are not really in control of your code.
+Two important caveats stated in lecture:
 
-### 2. Write the test before the code
+- Knowing your code is **completely** correct is usually impossible. Formal software verification works in limited circumstances, and for the small data structures in 61B you could in principle write full proofs, but for large systems the specification itself is fuzzy. There are also deep theoretical reasons (the halting problem and related results) why no single tool can verify all programs.
+- Tests give **strong evidence**, not proof. Josh's example: Java's built-in binary search had a subtle bug that went unnoticed for roughly 15 years.
 
-The workflow demonstrated is:
+### 2. Why ad hoc testing doesn't scale
 
-1. Write `testSort()` first.
-2. Write a blank or deliberately wrong `Sort.sort`.
-3. Run the test and **confirm it fails**.
-4. Now write code until the failure goes away.
+The natural shape of a test is: build an input, build the expected result, run the method, compare. The comparison is the painful part. You cannot write `input == expected` for arrays, because `==` compares the literal bits in the memory boxes, i.e. whether the two variables hold the same *address*, not whether the arrays hold the same values. So you write a loop, compare element by element with `.equals`, print a mismatch message, and return.
 
-Step 3 is not a formality. The chapter has an important cautionary moment: the dummy `findSmallest` returned `x[2]`, and for the chosen test input `{"rawr", "a", "zaza", "newway"}` with `expected = "zaza"`, the test *passed by accident*. A test that passes against a stub is not testing anything. The fix was to change the stub to return `x[3]` so that the test genuinely failed, and only then start implementing. (The chapter notes this accident really happened while recording the lecture video.)
+That loop-and-print boilerplate appears in essentially *every* test you'd ever write. Rewriting it by hand for every method is tedious and repetitive, and it's exactly the thing that discourages people from testing at all. We don't want to write boilerplate someone else has already written.
 
-A failing test is a good thing: it converts "make my program correct," which is vague and huge, into a concrete mini-puzzle, "make this specific red message go away." Many programmers find this almost addictive, and IntelliJ leans into it by showing green checkmarks per test.
+### 3. Unit tests and unit testing frameworks
 
-### 3. `==` does not compare array contents
+A **unit test** tests one individual unit of source code (usually a single method) to determine whether it is fit for use. The analogy from lecture: when you build a car, an airplane, or a robot dog, you test each component separately, then assemble tested components into larger units and test those.
 
-When you compare two objects, `==` compares "the literal bits in the memory boxes." For arrays, the box holds an **address**, so `input == expected` asks whether the two variables point at the *same array object*, not whether they hold equal elements. Two distinct arrays with identical contents will fail `==`.
+Frameworks do the boilerplate for you. Examples named in lecture: **JUnit** (the foundational, longest-standing one), **AssertJ** (more popular), and **Truth** (a Google library). 61B uses Truth, layered on JUnit. Josh's stated reason: at the time he switched away from raw JUnit, Truth had nicer error messages. (The course autograder itself is built on Truth + JUnit + custom `jh61b` libraries.)
 
-This is exactly the box-and-pointer picture from earlier lectures: `String[] input` is a single 64-bit box holding an address; the array of four address-boxes lives elsewhere on the heap; each of those points at a `String` object. `==` on the top-level variables only inspects that one outer box.
-
-So an ad hoc test must loop element by element (using `.equals` for the `String`s inside), or use `java.util.Arrays.equals`, or, best, hand the whole problem to a library.
-
-### 4. Ad hoc testing, and why it does not scale
-
-The first `testSort` builds an input, builds an `expected`, calls `Sort.sort(input)`, then loops comparing `input[i]` to `expected[i]` and prints the first mismatch before breaking. It works. It is also tedious: every new test means another loop, another print statement, another `break`, and a manual decision in `main` about which test to run.
-
-There is also a real structural problem with ad hoc tests driven from `main`. If `main` calls `testSort(); testFindSmallest(); testSwap();` and `testSort` throws, the whole `main` terminates and `testSwap` never runs at all. That is why the chapter's intermediate versions keep editing `main` to call exactly one test. JUnit exists to fix this: each `@Test` method is run independently, and one failure does not suppress the others.
-
-### 5. JUnit + Google Truth
-
-Two libraries, two jobs:
-
-- **JUnit** provides the `@Test` annotation and the runner. Marking a method `@Test` (and, per the chapter, making it **non-static**) makes IntelliJ show green run arrows: a single arrow to run that one test, a double arrow to run all tests in the class. The chapter is candid that the reason non-static is required is "unclear, though this probably has to do with things happening behind the scene." (Extra context: JUnit constructs a fresh instance of the test class for each test method, which is why test methods are instance methods.)
-- **Google Truth** provides the assertion syntax, imported statically:
+The Truth syntax:
 
 ```java
 import static com.google.common.truth.Truth.assertThat;
 ...
-assertThat(actual).isEqualTo(expected);
+assertThat(input).isEqualTo(expected);
 ```
 
-Truth knows how to compare arrays element-wise and reports the first differing element, e.g. `arrays first differed at element [0]; expected:<[an]> but was:<[i]>`. That one line replaces the entire hand-written loop-and-print.
+Read it as an English sentence: "assert that `input` is equal to `expected`."
 
-Note the argument order convention: **actual first, expected inside `isEqualTo`**. The lecture's own `TestSort.java` follows `assertThat(input).isEqualTo(expected)`. (The chapter's `testSwap` at one point writes `assertThat(expected).isEqualTo(input)`, which still detects the bug but reverses the roles and so labels the two values backwards in the failure message.)
+**Convention that matters:** the thing you are *evaluating* (the actual result your code produced) always goes inside `assertThat(...)`. The property you want it to have goes in the chained call (`isEqualTo`, `isTrue`, `isNotNull`, ...). Writing `assertThat(expected).isEqualTo(input)` compiles and technically tests the same thing, but the error message comes out backwards and will confuse you.
 
-The lecture code's imports are worth memorizing:
+### 4. The `@Test` annotation
+
+Adding `@Test` above a method **and making the method non-static** unlocks IntelliJ's test runner:
 
 ```java
-import org.junit.jupiter.api.Test;                      // JUnit 5
-import static com.google.common.truth.Truth.assertThat; // Truth
+import org.junit.jupiter.api.Test;
+...
+@Test
+public void testSort() { ... }
 ```
+
+- A single green arrow next to a method means "run this one test."
+- A double green arrow next to the class means "run all tests in this class."
+- You no longer need a `main` method in your test class at all.
+
+**What an annotation actually is:** `@Test` does nothing by itself. It is a marker. A separate program (the test runner) uses Java's reflection library to open the class, find every method carrying the `@Test` annotation, and run each one. Pseudocode from the slides:
+
+```java
+List<Method> L = getMethodsWithAnnotation(TestSort.class, @Test);
+int numTests = L.size();
+int numPassed = 0;
+for (Method m : L) {
+    result r = m.execute();
+    if (r.passed == true)  { numPassed += 1; }
+    if (r.passed == false) { System.out.println(r.message); }
+}
+System.out.println(numPassed + "/" + numTests + " passed!");
+```
+
+**Why non-static?** In more complex testing setups, `TestSort` may have instance variables that the test methods require (for example, an object constructed fresh before each test). The runner instantiates the test class, so the methods must be instance methods. Josh explicitly marked the deeper reasons as beyond the scope of 61B. (The textbook is even blunter: "The reason why the function has to be non-static is unclear.")
+
+**A crucial practical benefit of `@Test` over a hand-written `main`:** if `main` calls `testSort(); testFindSmallest(); testSwap();` in sequence, the *entire* `main` terminates as soon as `testSort` throws an assertion failure, and the later tests never run. With `@Test`, each test runs independently and you see a full report: which passed, which failed, and how long each took.
+
+### 5. Gamification
+
+With `@Test`, IntelliJ turns debugging into a game: you get concrete mini-goals, progress summarized in the bottom left, and you win when every test has a green check. The textbook frames this psychologically: you have created a judge for your own code whose approval you can only earn by writing it correctly. This is genuinely motivating, and it's the same hook that makes autograders addictive, except now you control it.
 
 ### 6. Selection sort
 
-Three steps, stated recursively:
+The algorithm, for a list of N items:
 
-- Find the smallest item.
-- Move it to the front.
-- Selection sort the remaining N-1 items, without touching the front item.
+1. Find the smallest item.
+2. Move it to the front (by **swapping** it with the current front item).
+3. Selection sort the remaining N-1 items, without touching the front item.
 
-"Move it to the front" has two implementations. You could insert at the front and slide everything over: `{6, 3, 7, 2, 8, 1}` becomes `{1, 6, 3, 7, 2, 8}`. Much more efficient is to **swap** the smallest with whatever is currently at the front: `{1, 3, 7, 2, 8, 6}`. The lecture uses swapping.
+Why swap rather than insert-and-shift? Shifting everything over requires rewriting all the numbers; swapping touches only two positions. (Efficiency is deferred to a much later lecture.)
 
-Full trace of `{6, 3, 7, 2, 8, 1}`:
+Lecture trace on `{6, 3, 7, 2, 8, 1}` (the `*` marks the smallest item in the unsorted region, which is about to be swapped forward):
 
-| Step | Array | Smallest in suffix | Action |
-|---|---|---|---|
-| start | `{6, 3, 7, 2, 8, 1}` | `1` at index 5 | swap 0 and 5 |
-| 1 | `{1, 3, 7, 2, 8, 6}` | `2` at index 3 | swap 1 and 3 |
-| 2 | `{1, 2, 7, 3, 8, 6}` | `3` at index 3 | swap 2 and 3 |
-| 3 | `{1, 2, 3, 7, 8, 6}` | `6` at index 5 | swap 3 and 5 |
-| 4 | `{1, 2, 3, 6, 8, 7}` | `7` at index 5 | swap 4 and 5 |
-| 5 | `{1, 2, 3, 6, 7, 8}` | done | |
-
-The chapter mentions that correctness can be proved formally using **invariants** (from chapter 2.4), but does not do so.
-
-### 7. Java has no sub-array references, hence recursive helper methods with an index parameter
-
-The natural recursive call is "sort everything after the front," which in Python you would write as a slice, `sort(x[1:])`. Java has no such thing: "there is no such thing in Java as a reference to a sub-array." You cannot pass the address of the middle of an array.
-
-The standard fix, and a pattern you will use constantly in 61B, is a **private helper method with an extra parameter that delineates the region of interest**:
-
-```java
-public static void sort(String[] x) {   // the public entry point
-    sort(x, 0);                         // set up the initial call
-}
-
-public static void sort(String[] x, int k) {  // the recursive workhorse
-    ...
-}
+```
+6 3 7 2 8 1*
+1 3 7 2* 8 6
+1 2 7 3* 8 6
+1 2 3 7 8 6*
+1 2 3 6 8 7*
+1 2 3 6 7 8
 ```
 
-These are **overloaded** methods: same name, different parameter lists, which Java resolves by the argument types at each call site. The public one exists to give callers a clean interface and to establish the correct starting value of `k`. The chapter calls this "quite common when trying to use recursion on a data structure that is not inherently recursive, e.g. arrays."
+Correctness of selection sort can be proven formally using **invariants**, a concept the course returns to later. It is not proven here.
 
-### 8. Strings compare with `compareTo`, not `<`
+### 7. Comparing Strings in Java
 
-Writing `if (x[i] < smallest)` on `String`s yields the compile error `< cannot be applied to 'java.lang.String'`. Java's relational operators only work on primitives. The chapter models the realistic response: search the web ("less than strings Java"), find the Stack Overflow answer, and learn that `str1.compareTo(str2)` returns
+`x[i] < smallest` does not compile: "operator `<` cannot be applied to `java.lang.String`." Java does not allow `<` on Strings.
 
-- a negative number if `str1 < str2`,
-- `0` if they are equal,
-- a positive number if `str1 > str2`.
+The fix, found via a search engine and Stack Overflow: `str1.compareTo(str2)` returns
 
-For a course, cite the source with a `@source` tag in the Javadoc (the lecture code has `// @source https://stackoverflow.com/questions/5153496`). The chapter notes this citation practice "is not a typical real world practice," it is a course rule.
+- a **negative** number if `str1` is lexicographically less than `str2`,
+- **zero** if they are equal,
+- a **positive** number if `str1` is greater.
 
-### 9. Unit testing reduces cognitive load
+"Lexicographically" means alphabetically (roughly; it compares character codes). So the idiom is:
 
-The sharpest argument in the chapter: while writing `sort`, we discovered a bug in `findSmallest`. Because `testFindSmallest` already existed, we could **switch contexts**, fix and re-verify `findSmallest` in isolation, and switch back, instead of repeatedly calling `sort` and trying to infer from the overall output whether `findSmallest` was to blame.
+```java
+int cmp = x[i].compareTo(x[smallestIndex]);
+if (cmp < 0) { smallestIndex = i; }
+```
 
-The analogy: you could test a parachute ripcord by taking off, jumping out, and pulling it. Or you could just pull it on the ground.
+Cite your source with a `@source` tag in the Javadoc. This is a 61B course convention, not typical real-world practice.
 
-Tests also make **refactoring** safe. If you rewrite `findSmallest` to be faster or more readable, the tests tell you whether you broke it.
+### 8. Getting unstuck: search engines vs. LLMs
 
-### 10. Testing philosophy: three tools
+Josh's explicit guidance in this lecture:
 
-**Autograder.** Pros: verifies correctness for you, saves the tedious non-instructive work of writing all your own tests, gamifies assessment with points. Cons: can backfire when students chase points that affect neither grade nor learning; does not exist in the real world; builds bad habits; your workflow is hindered by sporadic upload-and-wait cycles.
+- When stuck on something easily describable ("how do I compare strings in Java?"), search for it.
+- **Do not paste your class code into an LLM and ask "what's wrong?"** This violates course policy, for two reasons: (a) it short-circuits the learning of debugging skills this class is trying to teach, and (b) it makes academic-integrity conversations messy, because an LLM asked to "help" will often quietly rewrite your code.
+- Ask **pointed questions** you have some sense of the answer to, rather than "what's wrong."
+- LLMs may give you the **wrong level of detail**. Josh's live example: the cheap Gemini result for "less than strings Java" omitted the crucial fact that `compareTo` returns negative/zero/positive. Frontier models (Opus, Fable) gave answers he judged better than the Stack Overflow post. He also retracted an older warning: he used to say LLMs produce subtly buggy or inefficient code, but says frontier models no longer do this at 61B-assignment scale.
 
-**JUnit unit tests.** A **unit** is a piece of your program, often a single method. Testing each unit gives you confidence in the pieces so you can depend on them, isolates debugging attention to one unit at a time, and **forces you to clarify what each unit is supposed to do**. Downsides: thorough tests take time; incomplete unit tests give false confidence; and it is hard to test units that depend on other units (the chapter's example: `addFirst` in your `LinkedListDeque`).
+### 9. Recursion over arrays: the private helper method with an extra parameter
 
-**Integration testing.** Verifies that components interact properly together, one level of abstraction above unit testing. JUnit can do this too. Downsides: tedious to do manually, challenging to automate, and at a high level of abstraction it is easy to miss subtle or rare errors.
+The natural recursive step is "now selection sort the rest of the array." In Python you'd write `sort(x[1:])`. **Java has no sub-array references**: there is no way to get the address of the middle of an array. Passing `x[1:]` is simply not a thing.
 
-**Test-Driven Development (TDD):**
+The standard solution: write a **private helper method** with an extra parameter delineating which part of the array to consider.
+
+```java
+public static void sort(String[] x) {
+    sort(x, 0);                 // sort everything, nothing grayed out
+}
+
+/** Sort x starting from position k, leaving the first k untouched. */
+private static void sort(String[] x, int k) { ... }
+```
+
+The public method keeps its clean signature; the helper does the recursion. Conceptually, `k` is the boundary between the "grayed out, already sorted, don't touch" prefix and the unsorted suffix. This pattern (overloading a method with an index parameter) is extremely common whenever you want recursion on a data structure that isn't inherently recursive, like an array.
+
+### 10. Debugging: find where reality diverges from expectation
+
+The single most emphasized debugging idea in the lecture:
+
+> Don't just step through the code hoping to see something weird. Find the moment when reality diverges from expectation.
+
+The method is the scientific method. Before each step, **write down what you predict the state should be**. Then step and compare. The first step where your prediction fails is where the bug lives, and you now know the bug is in whatever just executed.
+
+Two supporting techniques:
+
+- **Put breakpoints where the action is.** In lecture, Josh chose to break inside `swap`, because that's the elemental operation that transforms the array. A breakpoint at the recursive call would have been less informative.
+- **Debug at a higher level of abstraction: prefer "Step Over" to "Step Into."** Stepping over a whole function call and checking whether its result matches your expectation is much faster than crawling through every line. You already have unit tests giving you confidence in the units, so treat them as black boxes until the evidence points at one.
+
+### 11. Testing philosophy: three correctness tools
+
+**Tool #1: The autograder.** Benefits: it verifies correctness for you, saving tedious non-instructive work, and it gamifies the process with points. Downsides: autograders don't exist in the real world, and they build bad habits.
+
+**Autograder Driven Development (ADD)** is the worst way to program in 61B: write the entire program, submit, get a wall of errors, then loop forever over {run autograder, sprinkle in print statements, poke at the code}. This workflow is slow and unsafe, and you're not in control of your workflow or your code. Note the nuance from the slides: **print statements are not inherently evil.** They're a weak tool, but they're very easy to use.
+
+**Tool #2: Unit tests.** You write tests for each unit of your program. Benefits: confidence in each unit, so you can *depend* on them; less debugging time because you can isolate attention to one method; and writing the test forces you to clarify what the unit is supposed to do. The dependency picture from the slides:
+
+```
+        testSort
+           |
+          sort
+         /    \
+      swap   findSmallest
+       |          |
+   testSwap  testFindSmallest
+```
+
+Downsides: thorough tests take time, incomplete tests can give false confidence, and it's hard to test units that depend on other units (think `addFirst` in your `LinkedListDeque`).
+
+**Test-Driven Development (TDD).** The process:
 
 1. Identify a new feature.
 2. Write a unit test for that feature.
-3. Run the test. It should fail.
-4. Write code that passes the test.
-5. Optional: refactor, now with tests as a safety net.
+3. Run the test. It should fail. (RED)
+4. Write code that passes the test. (GREEN) The implementation is now certifiably good.
+5. Optional: refactor to make it faster or cleaner, with the tests as a safety net.
 
-The chapter's verdict: TDD is **not required** in 61B and may not be your style, but unit testing in general is definitely a good idea. Summary slogan: **write tests, but only when they might be useful.**
+TDD is **not required** in 61B, and you might hate it. But unit testing in general is definitely a good idea. TDD is the exact opposite of the autograder-with-print-statements workflow; what's best for you is probably somewhere in the middle.
+
+**Tool #3: Integration testing.** Unit tests verify the pieces; integration tests verify the pieces work *together* (as in Project 0, testing a whole `ArrayDeque` rather than each method in isolation). JUnit can be used for this too. Challenges: tedious to do manually, hard to automate, and at a high level of abstraction it's easy to miss subtle or rare errors. 61B won't have you build full-scale integration tests.
+
+**Summary rule from the textbook:** definitely write tests, but only when they might be useful.
+
+### 12. Why tests help during development
+
+Development is an incremental process with lots of task switching and on-the-fly design modification. Trying to hold everything in your head at once is a recipe for disaster. Tests provide scaffolding:
+
+- **Confidence in basic units.** The parachute analogy: you could test a ripcord by boarding a plane, jumping out, and pulling it. Or you could just pull it on the ground. Don't use `sort` to test `findSmallest`.
+- **Regression protection.** Later changes to a basic unit can't silently break it; every piece is under constant inspection, not just the overall program.
+- **Focus.** You can context-switch to a suspect method, establish it's correct (or fix it), and switch back.
+- **Safe refactoring.** In larger projects (61B Projects 4 and 5), code gets ugly and needs rewriting. Tests let you redesign without fear.
+
+This applies to LLM developers too: tests provide the same stability and scaffolding for machine-written code.
+
+---
 
 ## Definitions
 
-- **Destructive method**: a method that modifies its argument in place rather than returning a new object. `Sort.sort(String[] x)` is destructive: it returns `void` and the caller observes the change through their own reference to the same array.
-- **Ad hoc test**: a hand-written test using ordinary loops, conditionals, and print statements, with no testing framework.
-- **Unit**: a single piece of a program, typically one method, that can be tested on its own.
-- **Unit test**: a test that verifies the behavior of one unit in isolation.
-- **Integration test**: a test that verifies that multiple components interact correctly together.
-- **JUnit**: the testing framework providing the `@Test` annotation and a runner that executes each test method independently. The course autograder is built on JUnit.
-- **`@Test`**: a JUnit annotation marking a method as a test. The method must be non-static for IntelliJ's green run arrows to appear.
-- **Google Truth**: an assertion library providing the fluent `assertThat(actual).isEqualTo(expected)` syntax, including sensible element-wise comparison and failure messages for arrays.
-- **`assertThat(x).isEqualTo(y)`**: passes silently if `x` equals `y`; otherwise throws an `AssertionError` describing the mismatch, which JUnit records as a test failure.
-- **Test-Driven Development (TDD)**: a development process in which the unit test for a feature is written, and observed to fail, before the feature's code is written.
-- **Autograder Driven Development**: the anti-pattern of writing all code, fixing compiler errors, submitting, and iterating blindly on autograder feedback with print statements.
-- **Selection sort**: a sorting algorithm that repeatedly finds the smallest remaining item, swaps it to the front of the unsorted region, and recurses on the rest.
-- **`compareTo`**: `str1.compareTo(str2)` returns a negative int if `str1` precedes `str2`, `0` if equal, a positive int if `str1` follows `str2`.
-- **Overloading**: defining multiple methods with the same name but different parameter lists in the same class, e.g. `sort(String[])` and `sort(String[], int)`.
-- **Private helper method**: a non-public method, often carrying extra bookkeeping parameters (like a start index), used to implement a clean public method.
-- **`@source` tag**: a Javadoc/comment annotation citing external help used while writing a method. A 61B course convention, not standard industry practice.
+- **Unit test:** a software testing method by which individual units of source code (typically a single method) are tested to determine whether they are fit for use.
+- **Unit:** one piece of your program, usually a single method, that can be tested in isolation.
+- **Ad hoc test:** a test written by hand from scratch, with your own comparison loop and print statements, without a testing framework. Correct but tedious and repetitive.
+- **Unit testing framework:** a library that handles the boilerplate of comparing values and reporting failures. Examples: JUnit, AssertJ, Truth.
+- **Truth:** a Google assertion library (built over JUnit) used in 61B, with the syntax `assertThat(actual).isEqualTo(expected)`.
+- **JUnit:** the foundational Java testing framework; supplies the `@Test` annotation and the test runner. 61B uses JUnit 5 (`org.junit.jupiter.api.Test`).
+- **Annotation (`@Test`):** a marker attached to a method that does nothing by itself. A runner uses the reflection library to find all annotated methods and execute them.
+- **Reflection:** the Java capability that lets a program inspect the methods/annotations of a class at runtime; it is how the test runner discovers `@Test` methods.
+- **Destructive method:** a method that modifies its argument in place rather than returning a new object. `Sort.sort(String[] x)` is destructive: it returns `void` and rearranges `x` itself.
+- **`void`:** a return type meaning the method returns nothing.
+- **Selection sort:** a sorting algorithm: repeatedly find the smallest item in the unsorted region, swap it to the front of that region, and recurse on the rest.
+- **`compareTo`:** `str1.compareTo(str2)` returns a negative number if `str1 < str2` lexicographically, 0 if equal, and a positive number if `str1 > str2`.
+- **Lexicographic order:** dictionary/alphabetical ordering of strings.
+- **`==` on reference types:** compares the literal bits in the memory boxes, i.e. whether two variables hold the same address, not whether the contents are equal.
+- **Private helper method (with index parameter):** an overloaded method taking an extra parameter (e.g. `int start` or `int k`) that delineates which portion of an array to operate on; used to enable recursion over arrays, since Java has no sub-array references.
+- **Test-Driven Development (TDD):** a development process where you write a failing unit test for a feature first (RED), then write code to pass it (GREEN), then optionally refactor.
+- **Integration testing:** testing that verifies multiple components interact correctly together, one level of abstraction above unit testing.
+- **Autograder Driven Development (ADD):** the anti-pattern of writing an entire program, submitting to the autograder, and iterating via print statements and resubmissions.
+- **Invariant:** a property that holds at every step of an algorithm; used to prove correctness (mentioned, developed in a later lecture).
+- **`@source` tag:** a Javadoc comment tag used in 61B to cite where you got help (e.g. a Stack Overflow URL).
+
+---
 
 ## Worked Examples
 
-### Example 1: the ad hoc test, and why the loop exists
+### Example 1: The ad hoc test (and why it's painful)
 
 ```java
 public class TestSort {
     /** Tests the sort method of the Sort class. */
     public static void testSort() {
-        String[] input = {"i", "have", "an", "egg"};
-        String[] expected = {"an", "egg", "have", "i"};
+        String[] input    = {"CC", "BB", "DD", "AA"};
+        String[] expected = {"AA", "BB", "CC", "DD"};
         Sort.sort(input);
+
         for (int i = 0; i < input.length; i += 1) {
             if (!input[i].equals(expected[i])) {
-                System.out.println("Mismatch in position " + i + ", expected: "
-                    + expected + ", but got: " + input[i] + ".");
-                break;
+                System.out.println("Mismatch at position " + i +
+                        ", expected: '" + expected[i] +
+                        "', but got '" + input[i] + "'");
+                return;
             }
         }
     }
@@ -186,188 +258,138 @@ public class TestSort {
 }
 ```
 
-Step by step:
+**Step by step:**
 
-1. `input` and `expected` are two separate arrays. In box-and-pointer terms: `input` is one box holding an address, `expected` is another box holding a *different* address. Each points at its own four-element array of `String` references.
-2. `Sort.sort(input)` passes a **copy of the address** in `input` (Java is always pass-by-value). The copy points at the same array, so the method's writes to `input[i]` are visible to the caller. That is what makes `sort` destructive.
-3. The loop compares element by element with `.equals`, not `==`, because the elements are `String` objects.
-4. On the first mismatch it prints and `break`s, so you see only the first failure, which is usually the most informative one.
+1. `input` and `expected` are two **separate** array objects. In box-and-pointer terms, `input` is a variable holding the address of one 4-box array; `expected` holds the address of a different 4-box array. Each box holds an address pointing at a `String` object.
+2. `Sort.sort(input)` passes a **copy of the address** into `sort` (Java is always pass-by-value; the value copied here is a reference). Because `sort` follows that address to reach the same array object, any rearranging it does is visible to `testSort` afterward. This is exactly what "destructive" means.
+3. The loop walks positions `0..length-1` comparing with `.equals` (contents), not `==` (addresses). If you wrote `input == expected` you would compare two different addresses and always get `false`, even for identical contents.
+4. On the first mismatch, print and `return`, so you see only the *first* problem.
 
-Against an empty `Sort.sort`, this prints `Mismatch in position 0, expected: an, but got: i.` Getting an error is a **good** result: it proves the test can detect a broken implementation.
+With a do-nothing `Sort.sort`, this prints something like:
 
-Two things to notice critically: the `.equals` at the element level is essential, and the printed `expected` in that message is the array *variable*, so it would actually print something like `[Ljava.lang.String;@2f92e0f4` rather than `"an"` (the chapter's shown output is idealized). That sloppiness is itself an argument for using a library.
-
-### Example 2: the same test in Truth
-
-```java
-import static com.google.common.truth.Truth.assertThat;
-
-public class TestSort {
-   /** Tests the sort method of the Sort class. */
-   public static void testSort() {
-       String[] input = {"cows", "dwell", "above", "clouds"};
-       String[] expected = {"above", "clouds", "cows", "dwell"};
-       Sort.sort(input);
-
-       assertThat(input).isEqualTo(expected);
-   }
-}
+```
+Mismatch at position 0, expected: 'AA', but got 'CC'
 ```
 
-One line replaces the loop, the `if`, the `println`, and the `break`. `assertThat(input)` wraps the array in a Truth subject; `.isEqualTo(expected)` performs the comparison. Truth compares arrays by contents (not by reference), so this does the right thing where a bare `input == expected` would not. If they differ it throws an `AssertionError` reporting the first differing element.
+Getting an error here is a **good** thing: it proves your test actually exercises the code. The problem with this style is that the loop-plus-print block is boilerplate you'd rewrite for every single test.
 
-### Example 3: the lecture's final `TestSort.java`
+### Example 2: The same test with Truth
 
 ```java
-package lec5_testing;
-
-import org.junit.jupiter.api.Test;
 import static com.google.common.truth.Truth.assertThat;
+import org.junit.jupiter.api.Test;
 
-/** Evaluate that Sort.sort and its helper
- *  functions work correctly. */
 public class TestSort {
     @Test
     public void testSort() {
-        String[] input = {"hello", "whoa", "apple", "hola"};
+        String[] input    = {"hello", "whoa", "apple", "hola"};
         String[] expected = {"apple", "hello", "hola", "whoa"};
 
-        // after i call this, input should be sorted
+        // after I call this, input should be sorted
         Sort.sort(input);
 
         assertThat(input).isEqualTo(expected);
     }
-
-    @Test
-    public void testFindSmallest() {
-        String[] input = {"hello", "whoa", "apple", "hola"};
-
-        // expected smallest string ALPHABETICALLY
-        // because we are sorting ALPHABETICALLY
-        int expected = 3;
-        int actual = Sort.findSmallest(input, 3);
-        assertThat(actual).isEqualTo(expected);
-    }
-
-    @Test
-    public void testSwap() {
-        String[] input = {"hello", "whoa", "apple", "hola"};
-        String[] expected = {"hello", "hola", "apple", "whoa"};
-
-        Sort.swap(input, 1, 3);
-        assertThat(input).isEqualTo(expected);
-    }
 }
 ```
 
-Notes on each piece:
+**What changed and why it matters:**
 
-- **No `main` method.** JUnit's runner finds the `@Test` methods. Each runs independently, so a failure in `testSort` does not prevent `testSwap` from running. This is precisely the problem the ad hoc version had.
-- Every test method is `public void` and **non-static**, which is what makes the green arrows appear.
-- Each test follows the same three-part shape: set up `input` and `expected`, perform the action, assert.
-- `testFindSmallest` calls `findSmallest(input, 3)`. Starting at index 3, the only candidate is `"hola"` itself, so the answer is index 3. This is a legitimate boundary case (the one-element suffix) but note it is a weak test on its own: it would also pass for an implementation that just returns `startingIndex`. Stronger companions would be `findSmallest(input, 0) == 2` (`"apple"`) and `findSmallest(input, 1) == 2`.
-- `testSwap` swaps indices 1 and 3: `{"hello", "whoa", "apple", "hola"}` becomes `{"hello", "hola", "apple", "whoa"}`. Note `swap` returns `void`; the assertion is on `input`, the mutated array, which is the correct way to test a destructive method.
+- The entire comparison loop collapses to one line. Truth knows how to deep-compare arrays and produces a message naming the first differing element.
+- `import static` means you can write `assertThat(...)` instead of `Truth.assertThat(...)`.
+- `@Test` + non-static means no `main` method is needed; IntelliJ shows green run arrows and a pass/fail report.
+- Running this against a do-nothing `sort` produces a failure reporting expected `[apple, hello, hola, whoa]` but got `[hello, whoa, apple, hola]`.
 
-### Example 4: `findSmallest`, four drafts
+**Design note from lecture:** the initial in-class input had the alphabetically-first element already in position 0. Josh deliberately changed it so that position 0 must move. A test where nothing has to change isn't exercising the code hard. (Analogy from lecture: asking someone to prove their strength by handing them earbuds.)
 
-**Draft 0 (stub).**
+### Example 3: `findSmallest`, version 1 (returns a String) and its two bugs
+
+Start with a deliberately wrong stub so the test can fail:
 
 ```java
 public static String findSmallest(String[] x) {
-    return x[2];
+    return "potato";   // or "cow" in the live demo
 }
 ```
 
-This accidentally passed `testFindSmallest` because the test's expected answer happened to be at index 2. Changing it to `return x[3];` produced a genuine failure, confirming the test actually works.
-
-**Draft 1 (does not compile).**
+Then the first real attempt:
 
 ```java
-String smallest = x[0];
-for (int i = 0; i < x.length; i += 1) {
-    if (x[i] < smallest) { smallest = x[i]; }   // error
-}
-```
-
-Compile error: `< cannot be applied to 'java.lang.String'`.
-
-**Draft 2 (compiles, returns the wrong *kind* of thing).**
-
-```java
-/** Returns the smallest string in x.
-  * @source Got help with string compares from https://goo.gl/a7yBU5. */
 public static String findSmallest(String[] x) {
     String smallest = x[0];
     for (int i = 0; i < x.length; i += 1) {
-        int cmp = x[i].compareTo(smallest);
-        if (cmp < 0) { smallest = x[i]; }
+        if (x[i] < smallest) {      // COMPILE ERROR
+            smallest = x[i];
+        }
     }
     return smallest;
 }
 ```
 
-Correct as written, but when we try to plug it into `sort` we hit a type mismatch:
+This does not compile: "operator `<` cannot be applied to `java.lang.String`." After searching and finding `compareTo`:
 
 ```java
-String smallest = findSmallest(x);
-swap(x, 0, smallest);   // swap wants two ints!
-```
-
-`swap` needs *indices*, not values. The design lesson: **what a helper returns is determined by what its caller needs**, and you often only discover that when you try to connect the pieces. "Iterating on a design is part of the process of writing code."
-
-**Draft 3 (returns an index).**
-
-```java
-public static int findSmallest(String[] x) {
-    int smallestIndex = 0;
+/** Returns the smallest string in x.
+  * @source https://stackoverflow.com/questions/5153496 */
+public static String findSmallest(String[] x) {
+    String smallest = x[0];
     for (int i = 0; i < x.length; i += 1) {
-        int cmp = x[i].compareTo(x[smallestIndex]);
-        if (cmp < 0) { smallestIndex = i; }
-    }
-    return smallestIndex;
-}
-```
-
-Tests updated accordingly (`expected` becomes `2`, an `int`). This passes its test, but it will still break `sort`, because it always scans from index 0.
-
-**Draft 4 (final, with `start`).**
-
-```java
-public static int findSmallest(String[] input, int startingIndex) {
-    int currentSmallest = startingIndex;
-    for (int i = startingIndex; i < input.length; i += 1) {
-        int cmp = input[i].compareTo(input[currentSmallest]);
+        int cmp = x[i].compareTo(smallest);
         if (cmp < 0) {
-            currentSmallest = i;
+            smallest = x[i];
         }
     }
-    return currentSmallest;
+    return smallest;
 }
 ```
 
-Both the initial value and the loop bound move to `startingIndex`, so only the unsorted suffix is considered. Two details worth internalizing: `currentSmallest` starts at `startingIndex` (not `0`, and not some sentinel), and the comparison re-reads `input[currentSmallest]` each iteration rather than caching the string, which keeps index and value in sync automatically.
+**Trace on `{"hello", "whoa", "apple", "hola"}`:**
 
-### Example 5: `swap`, buggy and fixed
+- `smallest = "hello"`.
+- `i = 0`: `"hello".compareTo("hello")` is 0, not `< 0`, no change.
+- `i = 1`: `"whoa".compareTo("hello")` is positive (w > h), no change.
+- `i = 2`: `"apple".compareTo("hello")` is negative (a < h), so `smallest = "apple"`.
+- `i = 3`: `"hola".compareTo("apple")` is positive, no change.
+- Returns `"apple"`. Correct.
 
-Buggy:
+**The live-demo bug:** Josh first wrote `smallest = input[0];` inside the loop body instead of `smallest = input[i];`. The test caught it immediately. Note that the loop starts at `i = 0` even though `smallest` is initialized to `x[0]`; the wasted first comparison is harmless.
+
+Matching test:
+
+```java
+@Test
+public void testFindSmallest() {
+    String[] input = {"hello", "whoa", "apple", "hola"};
+    // expected smallest string ALPHABETICALLY, because we are sorting alphabetically
+    String expected = "apple";
+    String actual = Sort.findSmallest(input);
+    assertThat(actual).isEqualTo(expected);
+}
+```
+
+The textbook adds a cautionary note: an early stub `return x[2];` accidentally returned the *correct* answer for the chosen input, so the test passed and gave false confidence. Josh says he made exactly this mistake unintentionally while recording. The fix was to change the stub to something definitely wrong so the test would fail as intended.
+
+### Example 4: `swap`, the classic overwrite bug
+
+The naive version:
 
 ```java
 public static void swap(String[] x, int a, int b) {
     x[a] = x[b];
-    x[b] = x[a];   // x[a] was already overwritten!
+    x[b] = x[a];
 }
 ```
 
-Trace with `x = {"i", "have", "an", "egg"}`, `a = 0`, `b = 2`:
+**Trace on `{"hello", "whoa", "apple", "hola"}` with `a = 1, b = 3`:**
 
-- `x[0] = x[2]` makes the array `{"an", "have", "an", "egg"}`. The original `"i"` reference has been **lost**: nothing points at it anymore.
-- `x[2] = x[0]` reads the *new* `x[0]`, which is `"an"`, so it writes `"an"` back. The array is still `{"an", "have", "an", "egg"}`.
+- Initially box 1 holds a reference to `"whoa"`, box 3 holds a reference to `"hola"`.
+- `x[1] = x[3]`: box 1 now points at `"hola"`. **The reference to `"whoa"` is gone.** Array is `{"hello", "hola", "apple", "hola"}`.
+- `x[3] = x[1]`: box 3 is assigned box 1's current contents, which is `"hola"` again. No change.
+- Result: `{"hello", "hola", "apple", "hola"}`. The value `"whoa"` has been destroyed and `"hola"` duplicated.
 
-Result: `"i"` is gone and `"an"` is duplicated. The test reports `arrays first differed in element [2]; expected:<[i]> but was:<[an]>`.
+In the debugger, Josh watched exactly this: after the first line he saw `hola` in both positions and said "so I end up with double Ola."
 
-In box-and-pointer terms, the boxes `x[0]` and `x[2]` hold addresses. Assignment copies an address into a box and destroys whatever address was there. To exchange two boxes you need a third box.
-
-Fixed (and this is the lecture's final version):
+The fix is a temporary variable:
 
 ```java
 public static void swap(String[] input, int a, int b) {
@@ -377,59 +399,145 @@ public static void swap(String[] input, int a, int b) {
 }
 ```
 
-`temp` saves the address in `input[a]` before it is clobbered. Trace: `temp = "i"`, then `x[0] = "an"` giving `{"an", "have", "an", "egg"}`, then `x[2] = temp` giving `{"an", "have", "i", "egg"}`. Correct.
+`temp` holds the reference to `"whoa"` before box `a` is overwritten, so it can be deposited into box `b`. Note that no `String` objects are created, copied, or mutated; only the two boxes' addresses change.
 
-### Example 6: the recursive `sort`, and its two bugs
+The test:
 
-**Attempt A (Python-style, does not compile).**
+```java
+@Test
+public void testSwap() {
+    String[] input    = {"hello", "whoa", "apple", "hola"};
+    String[] expected = {"hello", "hola", "apple", "whoa"};
+
+    Sort.swap(input, 1, 3);
+    assertThat(input).isEqualTo(expected);
+}
+```
+
+Note that during the live demo Josh initially wrote the wrong `expected` array while distracted, illustrating that **tests themselves can have bugs**. He also noted that the aside `x[a], x[b] = x[b], x[a]` (Python tuple swap) simply does not exist in Java.
+
+### Example 5: Discovering the design error in `findSmallest`
+
+Trying to wire the pieces together:
 
 ```java
 public static void sort(String[] x) {
-    int smallestIndex = findSmallest(x);
-    swap(x, 0, smallestIndex);
-    sort(x[1:]);   // no such thing in Java
+    String smallest = findSmallest(x);
+    swap(x, 0, smallest);   // ??? does not compile
 }
 ```
 
-**Attempt B (helper with `start`, but no base case).**
+The types don't fit. `findSmallest` returns a `String`; `swap` needs two `int` indices. This is a **design/abstraction error**, not a typo: `findSmallest` should have been returning the *index* of the smallest string all along.
+
+The revision (three coordinated edits, shown one at a time in the demo):
 
 ```java
-private static void sort(String[] x, int start) {
-   int smallestIndex = findSmallest(x);
-   swap(x, start, smallestIndex);
-   sort(x, start + 1);
+public static int findSmallest(String[] x) {
+    int smallestIndex = 0;                                  // was String smallest = x[0]
+    for (int i = 0; i < x.length; i += 1) {
+        int cmp = x[i].compareTo(x[smallestIndex]);         // index into the array now
+        if (cmp < 0) {
+            smallestIndex = i;                              // store i, not x[i]
+        }
+    }
+    return smallestIndex;
 }
 ```
 
-Running `testSort` gives `java.lang.ArrayIndexOutOfBoundsException: 4 at Sort.swap(...)`. Debugging shows `start` reaching 4 on a length-4 array. The recursion never stops because there is no base case: it keeps incrementing `start` past the end.
-
-**Attempt C (base case added, but `findSmallest` still scans from 0).**
+Because this is a non-trivial change to a building block, the test must be updated too:
 
 ```java
-private static void sort(String[] x, int start) {
-   if (start == x.length) { return; }
-   int smallestIndex = findSmallest(x);   // still scans the whole array
-   swap(x, start, smallestIndex);
-   sort(x, start + 1);
+@Test
+public void testFindSmallest() {
+    String[] input = {"hello", "whoa", "apple", "hola"};
+    int expected = 2;                       // "apple" lives at index 2
+    int actual = Sort.findSmallest(input);
+    assertThat(actual).isEqualTo(expected);
 }
 ```
 
-New failure: `arrays first differed at element [0]; expected:<[an]> but was:<[have]>`. Debugging at a **high level of abstraction** (using `Step Over` rather than `Step Into`, so you compare whole function results against expectations, per Lab 3) pinpoints the culprit: when sorting the last 3 of 4 items with `x = {"an", "have", "i", "egg"}` and `start = 1`, `findSmallest` returns index 0 (`"an"`) instead of index 3 (`"egg"`). Then `swap(x, 1, 0)` drags the already-placed `"an"` back out of position.
+Re-running gives a green check, so you can return to `sort` with confidence that this unit still works. **This is the whole point of unit tests:** you context-switched away to fix `findSmallest`, verified it independently, and switched back, without ever having to reason about whether the overall sort's misbehavior implied something about `findSmallest`.
 
-This is the exact bug the lecture code's inline comment records:
+### Example 6: The recursion, the missing base case, and the second design error
+
+First attempt at recursion (what you'd like to write, but can't):
 
 ```java
-//0: hello, whoa, apple, hola
-//1: apple, whoa, hello, hola
-//2: apple, hello, whoa, hola
-//R2: whoa, apple, hello, hola
+public static void sort(String[] x) {
+    int smallest = findSmallest(x);
+    swap(x, 0, smallest);
+    // sort(x[1:]);   <- Would be nice, but not possible in Java!
+}
 ```
 
-Lines 0, 1, 2 are the correct behavior at successive levels; `R2` shows the wrong result you get at that level when `findSmallest` is allowed to look back at the already-sorted prefix.
-
-**Final version (the lecture code).**
+The helper-method solution:
 
 ```java
+public static void sort(String[] x) {
+    sort(x, 0);
+}
+
+/** Sort x starting from position k, leaving the first k untouched. */
+private static void sort(String[] x, int k) {
+    int smallestIndex = findSmallest(x);   // BUG: ignores k
+    swap(x, k, smallestIndex);
+    sort(x, k + 1);                        // BUG at first: no base case
+}
+```
+
+**Bug A: no base case.** The recursion runs forever past the end of the array and throws `ArrayIndexOutOfBoundsException: 4` from inside `swap`. Fix:
+
+```java
+if (k >= x.length) {
+    return;
+}
+```
+
+Read it as: "sort these 10 strings starting from position 11" means do nothing.
+
+**Bug B: `findSmallest` scans the whole array.** After fixing the base case, the test still fails. Debugging session from lecture, on input `{"hello", "whoa", "apple", "hola"}`:
+
+| step | reality | expectation |
+|---|---|---|
+| time 0 | `{hello, whoa, apple, hola}` | (start) |
+| after swap 1 | `{apple, whoa, hello, hola}` | `{apple, whoa, hello, hola}` ✓ |
+| after swap 2 | `{whoa, apple, hello, hola}` | `{apple, hello, whoa, hola}` ✗ |
+
+The second swap is where **reality diverges from expectation**. Josh set a breakpoint inside `swap` (the elemental operation where the array actually changes), predicted the state before each hit, and stepped. Inspecting the stack frame at the failing moment showed `smallestIndex == 0`, i.e. `findSmallest` selected `"apple"`, which is at index 0 and is supposed to be **grayed out and off-limits**. `findSmallest` always looks at the entire array, never at just the suffix starting at `k`.
+
+The fix, again applied test-first:
+
+```java
+@Test
+public void testFindSmallest() {
+    String[] input = {"hello", "whoa", "apple", "hola"};
+    int expected = 3;                                // smallest from index 3 onward is "hola"
+    int actual = Sort.findSmallest(input, 3);
+    assertThat(actual).isEqualTo(expected);
+}
+```
+
+```java
+// @source https://stackoverflow.com/questions/5153496
+public static int findSmallest(String[] input, int startingIndex) {
+    int currentSmallest = startingIndex;                 // was 0
+    for (int i = startingIndex; i < input.length; i += 1) {   // was i = 0
+        int cmp = input[i].compareTo(input[currentSmallest]);
+        if (cmp < 0) {
+            currentSmallest = i;
+        }
+    }
+    return currentSmallest;
+}
+```
+
+Both the initialization and the loop start must change. Changing only one gives a subtly wrong method.
+
+### Example 7: The complete, correct code (lecture version)
+
+```java
+package lec5_testing;
+
 public class Sort {
     /** Sorts the array of strings destructively. */
     public static void sort(String[] x) {
@@ -445,148 +553,191 @@ public class Sort {
         swap(x, k, smallestIndex);
         sort(x, k + 1);
     }
-}
-```
 
-Two differences from the textbook's version are worth noting: the lecture code uses `k >= x.length` rather than `k == x.length` (defensive, and it also makes the empty-array case safe), and the lecture code leaves the helper `public static` rather than `private static` (the textbook recommends `private`).
+    // @source https://stackoverflow.com/questions/5153496
+    public static int findSmallest(String[] input, int startingIndex) {
+        int currentSmallest = startingIndex;
+        for (int i = startingIndex; i < input.length; i += 1) {
+            int cmp = input[i].compareTo(input[currentSmallest]);
+            if (cmp < 0) {
+                currentSmallest = i;
+            }
+        }
+        return currentSmallest;
+    }
 
-**Full trace of `Sort.sort({"hello", "whoa", "apple", "hola"})`:**
-
-| Call | Array on entry | `findSmallest(x, k)` | `swap` | Array on exit of that step |
-|---|---|---|---|---|
-| `sort(x, 0)` | `{hello, whoa, apple, hola}` | index 2 (`apple`) | swap 0,2 | `{apple, whoa, hello, hola}` |
-| `sort(x, 1)` | `{apple, whoa, hello, hola}` | index 2 (`hello`) | swap 1,2 | `{apple, hello, whoa, hola}` |
-| `sort(x, 2)` | `{apple, hello, whoa, hola}` | index 3 (`hola`) | swap 2,3 | `{apple, hello, hola, whoa}` |
-| `sort(x, 3)` | `{apple, hello, hola, whoa}` | index 3 (`whoa`) | swap 3,3 (no-op) | unchanged |
-| `sort(x, 4)` | `{apple, hello, hola, whoa}` | base case, returns | | |
-
-Final: `{"apple", "hello", "hola", "whoa"}`, which is exactly `expected` in `testSort`. Alphabetically, `"apple" < "hello" < "hola" < "whoa"`; note `"hello"` before `"hola"` because at index 1 we compare `'e'` against `'o'`.
-
-(Extra context: there are 4 calls that do work plus 1 base case, and the number of comparisons is 4 + 3 + 2 + 1 = 10; in general N(N+1)/2, so selection sort does roughly N²/2 comparisons. Running time analysis is a later lecture, not this one.)
-
-## Common Pitfalls
-
-- **Using `==` to compare arrays or strings.** `==` compares the bits in the boxes, i.e. addresses for objects. Use `.equals`, `java.util.Arrays.equals`, or a Truth assertion.
-- **Never watching your test fail.** The `x[2]` stub passed by accident. If you write a test and it is green on the first run against an unimplemented method, you have learned nothing. Break the code deliberately and confirm the test goes red.
-- **Swapping without a temp variable.** `x[a] = x[b]; x[b] = x[a];` loses one value and duplicates the other.
-- **Forgetting the base case in recursion.** Produces `ArrayIndexOutOfBoundsException` (here) or `StackOverflowError`.
-- **Helper methods that ignore the region parameter.** Adding `start` to `sort` but not to `findSmallest` was the subtlest bug in the lecture: every individual piece looked reasonable, but the interface between them was wrong.
-- **Returning the wrong kind of value.** `findSmallest` returning a `String` when the caller needs an index. Design the helper's return type around its caller's needs.
-- **Trying to slice arrays.** Java has no sub-array reference. Pass an index parameter instead.
-- **Comparing `String`s with `<`.** Compile error. Use `compareTo`, and remember it returns an `int`, not a `boolean`, so you must compare it against 0.
-- **Running all your ad hoc tests from one `main`.** The first failure kills the rest. Use `@Test`.
-- **Making `@Test` methods `static`.** The green arrows will not appear; JUnit needs instance methods.
-- **Forgetting the static import** `com.google.common.truth.Truth.assertThat`, or importing `org.junit.Test` (JUnit 4) instead of `org.junit.jupiter.api.Test` (JUnit 5, which the lecture code uses).
-- **Asserting on the return value of a destructive method.** `Sort.sort` and `Sort.swap` return `void`. Assert on the mutated array.
-- **Weak tests giving false confidence.** `testFindSmallest(input, 3) == 3` passes even for a stub that returns its argument. The chapter explicitly warns that incomplete unit tests give false confidence.
-- **Reversing the assertion arguments.** `assertThat(expected).isEqualTo(actual)` still catches bugs but mislabels which value is which in the failure message.
-
-## Likely Exam Points
-
-**1. `==` vs. content equality for arrays**
-
-*Q:* `String[] a = {"x", "y"}; String[] b = {"x", "y"};` What do `a == b` and `java.util.Arrays.equals(a, b)` evaluate to, and why?
-
-*A:* `a == b` is `false`: the two variables hold different addresses, since two separate array objects were created, and `==` compares the bits in the boxes. `Arrays.equals(a, b)` is `true`: it walks the arrays and compares corresponding elements with `.equals`. This is exactly why the ad hoc `testSort` uses a loop instead of `==`.
-
-**2. Trace selection sort**
-
-*Q:* Show the array after each swap when selection-sorting `{"dog", "bee", "cat", "ant"}`.
-
-*A:*
-- `sort(x, 0)`: smallest in `[0, 4)` is `"ant"` at index 3; swap 0 and 3 to get `{ant, bee, cat, dog}`.
-- `sort(x, 1)`: smallest in `[1, 4)` is `"bee"` at index 1; swap 1 and 1, no change.
-- `sort(x, 2)`: smallest in `[2, 4)` is `"cat"` at index 2; swap 2 and 2, no change.
-- `sort(x, 3)`: smallest in `[3, 4)` is index 3; swap 3 and 3, no change.
-- `sort(x, 4)`: `4 >= 4`, base case, return.
-
-Final: `{ant, bee, cat, dog}`.
-
-**3. Find the bug in `swap`**
-
-*Q:* Trace `swap(x, 0, 1)` on `{"a", "b"}` for the implementation `x[a] = x[b]; x[b] = x[a];`. What is the result and what is the fix?
-
-*A:* `x[0] = x[1]` gives `{"b", "b"}`; the address of `"a"` is lost. `x[1] = x[0]` reads the already-overwritten `x[0]`, which is `"b"`, giving `{"b", "b"}`. The fix is a temporary variable: `String temp = x[a]; x[a] = x[b]; x[b] = temp;`.
-
-**4. Why a private recursive helper with an index?**
-
-*Q:* Why can't `sort(String[] x)` call itself recursively on the rest of the array directly? What is the standard fix?
-
-*A:* Java has no sub-array references, so there is no way to pass "everything from index 1 onward" as an array (no slice notation like Python's `x[1:]`). The standard fix is an overloaded helper `sort(String[] x, int k)` that takes an index delineating the region to consider, with the public `sort(String[] x)` calling `sort(x, 0)` to set up the initial call.
-
-**5. The missing base case**
-
-*Q:* What happens if you remove the `if (k >= x.length) { return; }` from the lecture's `sort(String[], int)`?
-
-*A:* The recursion never terminates on its own. `k` keeps incrementing past the last index, and the first out-of-range access throws an `ArrayIndexOutOfBoundsException` (the chapter shows it thrown from inside `swap`, with value 4 on a length-4 array).
-
-**6. The `findSmallest` region bug**
-
-*Q:* Suppose `sort(String[] x, int k)` is correct but `findSmallest(x)` ignores `k` and always scans from index 0. On `{"hello", "whoa", "apple", "hola"}`, what goes wrong at `k = 1`?
-
-*A:* At `k = 1` the array is `{"apple", "whoa", "hello", "hola"}`. Scanning from 0, `findSmallest` returns index 0 (`"apple"`), so `swap(x, 1, 0)` yields `{"whoa", "apple", "hello", "hola"}`, dragging the already-placed `"apple"` out of position 0. The fix is to give `findSmallest` a `start` parameter and begin both `currentSmallest` and the loop at `start`.
-
-**7. Write a JUnit + Truth test**
-
-*Q:* Write a JUnit 5 test verifying that `Sort.findSmallest` returns index 2 for `{"hello", "whoa", "apple", "hola"}` starting at index 0.
-
-*A:*
-
-```java
-import org.junit.jupiter.api.Test;
-import static com.google.common.truth.Truth.assertThat;
-
-public class TestSort {
-    @Test
-    public void testFindSmallestFromZero() {
-        String[] input = {"hello", "whoa", "apple", "hola"};
-        int expected = 2;
-        int actual = Sort.findSmallest(input, 0);
-        assertThat(actual).isEqualTo(expected);
+    public static void swap(String[] input, int a, int b) {
+        String temp = input[a];
+        input[a] = input[b];
+        input[b] = temp;
     }
 }
 ```
 
-The method must be non-static and annotated `@Test`; `assertThat` takes the actual value, `isEqualTo` the expected.
+**Full trace on `{"hello", "whoa", "apple", "hola"}`** (the commented trace in the lecture's own source file):
 
-**8. TDD steps**
+- `sort(x)` calls `sort(x, 0)`.
+- `k = 0`: `findSmallest(x, 0)` returns 2 (`"apple"`). `swap(x, 0, 2)` gives `{apple, whoa, hello, hola}`. Recurse with `k = 1`.
+- `k = 1`: `findSmallest(x, 1)` scans indices 1..3 (`whoa, hello, hola`), returns 2 (`"hello"`). `swap(x, 1, 2)` gives `{apple, hello, whoa, hola}`. Recurse with `k = 2`.
+- `k = 2`: `findSmallest(x, 2)` scans `whoa, hola`, returns 3 (`"hola"`). `swap(x, 2, 3)` gives `{apple, hello, hola, whoa}`. Recurse with `k = 3`.
+- `k = 3`: `findSmallest(x, 3)` scans only `whoa`, returns 3. `swap(x, 3, 3)` is a no-op. Recurse with `k = 4`.
+- `k = 4`: `4 >= 4`, return. The recursion unwinds; nothing happens on the way back up (this is tail recursion, all the work is done on the way down).
+- Final: `{apple, hello, hola, whoa}`, matching `expected` in `testSort`. Green check.
 
-*Q:* List the steps of Test-Driven Development, and state whether 61B requires it.
+**Note on the lecture's final `testFindSmallest`:** it tests only `findSmallest(input, 3) == 3`. That's a thin test, and a fuller one would also check `findSmallest(input, 0) == 2`. The textbook version does check two cases. (extra context: it is good practice to include a case where the answer is *not* simply `startingIndex`, since `return startingIndex;` would pass the single-case test.)
 
-*A:* (1) Identify a new feature. (2) Write a unit test for it. (3) Run the test and see it fail. (4) Write code that passes the test. (5) Optionally refactor, with the tests as a safety net. TDD is **not required** in 61B, though unit testing in general is strongly recommended.
+---
 
-**9. Unit vs. integration testing**
+## Common Pitfalls
 
-*Q:* Distinguish unit testing from integration testing and give one drawback of each.
+1. **Using `==` to compare arrays or Strings.** `==` compares addresses (the literal bits in the memory boxes). Use `.equals`, `java.util.Arrays.equals`, or a Truth assertion.
 
-*A:* A unit test checks one piece of the program (often a single method) in isolation; an integration test checks that components work correctly together, at a higher level of abstraction. Drawback of unit testing: thorough tests take time and incomplete tests give false confidence; also hard when one unit depends on another. Drawback of integration testing: tedious to do manually, hard to automate, and easy to miss subtle or rare errors at that level of abstraction.
+2. **Writing a stub that accidentally returns the right answer.** `return x[2];` happened to be correct for one input, so the test silently passed and gave false confidence. Always verify that your new test **fails** before you write the implementation. That's step 3 of TDD for a reason.
 
-**10. `compareTo` semantics**
+3. **Backwards `assertThat`.** `assertThat(expected).isEqualTo(input)` compiles but reports failures backwards. The *actual* value goes inside `assertThat`.
 
-*Q:* What does `"apple".compareTo("hola")` return, sign-wise, and why can't we write `"apple" < "hola"`?
+4. **Forgetting `@Test`, or leaving the method `static`.** In the live demo, Josh's `testSwap` silently did not run because he forgot the `@Test` annotation. You need `@Test` **and** a non-static method for the runner to pick it up.
 
-*A:* Negative, because `"apple"` precedes `"hola"` alphabetically. Java's `<` only applies to primitives, so applying it to `String` is a compile error: `< cannot be applied to 'java.lang.String'`.
+5. **Running all tests from `main` in sequence.** The first assertion failure throws and kills the whole `main`; later tests never run. Use `@Test` so each test is run and reported independently.
 
-**11. One `main`, many tests**
+6. **`x[i] < smallest` on Strings.** Doesn't compile. Use `compareTo` and check the sign of the result.
 
-*Q:* If `main` calls `testSort(); testFindSmallest(); testSwap();` and `testSort` throws an `AssertionError`, what happens to the other two tests? How does JUnit avoid this?
+7. **Storing the value when you meant the index (or vice versa).** `smallest = x[i]` vs. `smallest = i`. Also `input[0]` vs. `input[i]` inside the loop, an error Josh made by accident in lecture.
 
-*A:* `main` terminates immediately, so `testFindSmallest` and `testSwap` never run. JUnit runs each `@Test` method independently and reports each result separately, so one failure does not hide the others.
+8. **Trying to slice arrays.** `sort(x[1:])` is Python, not Java. There is no reference to the middle of an array. Use a private helper with an index parameter.
+
+9. **Missing base case in recursion.** Produces `ArrayIndexOutOfBoundsException` from deep inside a helper. Always write the base case first.
+
+10. **Half-fixing a method when you add a parameter.** Adding `int startingIndex` to `findSmallest` requires changing *both* `int currentSmallest = startingIndex` *and* `for (int i = startingIndex; ...)`. Changing one leaves a subtle bug.
+
+11. **Designing helpers in isolation without thinking about how they'll be used.** `findSmallest` was wrong twice for this reason: first returning a `String` when the caller needed an index, then ignoring the sorted prefix. Iterating on design is normal; tests are what make it safe.
+
+12. **Not updating tests after changing a method's contract.** When `findSmallest` changed from returning `String` to returning `int`, both the implementation and `testFindSmallest` had to change together.
+
+13. **Choosing weak test inputs.** An input where element 0 is already in the right place barely exercises `sort`. Pick inputs that force movement.
+
+14. **Aimless stepping in the debugger.** Don't step hoping something looks weird. Predict the state, then check, and find the first divergence. Prefer Step Over to Step Into.
+
+15. **Pasting your assignment code into an LLM asking "what's wrong?"** Against 61B policy, and it robs you of the debugging practice the class is built around.
+
+---
+
+## Likely Exam Points
+
+### 1. Trace selection sort
+
+**Q:** Using the lecture's selection sort, list the array contents after each swap for `{"pear", "fig", "apple", "date"}`.
+
+**A:**
+- `k = 0`: `findSmallest(x, 0)` returns 2 (`"apple"`). Swap 0 and 2: `{apple, fig, pear, date}`.
+- `k = 1`: `findSmallest(x, 1)` scans `fig, pear, date`, returns 3 (`"date"`). Swap 1 and 3: `{apple, date, pear, fig}`.
+- `k = 2`: `findSmallest(x, 2)` scans `pear, fig`, returns 3 (`"fig"`). Swap 2 and 3: `{apple, date, fig, pear}`.
+- `k = 3`: `findSmallest(x, 3)` returns 3. Swap 3 and 3, no change.
+- `k = 4`: base case, return. Final: `{apple, date, fig, pear}`.
+
+### 2. Why `==` fails for arrays
+
+**Q:** A student writes `assertThat(input == expected).isTrue();` in `testSort` and it fails even though the arrays print identically. Why?
+
+**A:** `==` on reference types compares the literal bits in the memory boxes, i.e. the addresses. `input` and `expected` are two distinct array objects at two distinct addresses, so `input == expected` is `false` regardless of contents. Use `assertThat(input).isEqualTo(expected)`, which deep-compares the contents (or `java.util.Arrays.equals`, or an element-by-element loop with `.equals`).
+
+### 3. The buggy `swap`
+
+**Q:** Given `String[] a = {"x", "y", "z"};` and
+```java
+public static void swap(String[] x, int i, int j) {
+    x[i] = x[j];
+    x[j] = x[i];
+}
+```
+what is `a` after `swap(a, 0, 2)`? Fix the method.
+
+**A:** `x[0] = x[2]` makes the array `{"z", "y", "z"}` and destroys the only reference stored in box 0. Then `x[2] = x[0]` assigns `"z"` to box 2, which already holds `"z"`. Result: `{"z", "y", "z"}`. Fix with a temporary variable:
+```java
+String temp = x[i];
+x[i] = x[j];
+x[j] = temp;
+```
+
+### 4. `compareTo` semantics
+
+**Q:** What does `"apple".compareTo("hello")` return, and what does the sign mean? Why can't we write `"apple" < "hello"`?
+
+**A:** It returns a negative number, because `"apple"` is lexicographically less than `"hello"`. Negative means the receiver is smaller, 0 means equal, positive means the receiver is larger. Java does not define `<` for `String` (it's only for primitive numeric types), so `"apple" < "hello"` is a compile error: "operator `<` cannot be applied to `java.lang.String`."
+
+### 5. Recursion over arrays
+
+**Q:** Why can't `public static void sort(String[] x)` recurse directly on the rest of the array? What's the standard fix?
+
+**A:** Java has no sub-array references: you cannot take the address of the middle of an array, so there's no `x[1:]`. The standard fix is a private overloaded helper with an extra index parameter, `sort(String[] x, int k)`, that sorts only positions `k` and beyond, with the public method calling `sort(x, 0)`. This pattern is used generally for recursion on non-recursive data structures like arrays.
+
+### 6. Find the missing base case
+
+**Q:** The helper below throws `ArrayIndexOutOfBoundsException`. What is missing and why does the exception surface inside `swap`?
+
+```java
+private static void sort(String[] x, int k) {
+    int smallestIndex = findSmallest(x, k);
+    swap(x, k, smallestIndex);
+    sort(x, k + 1);
+}
+```
+
+**A:** There is no base case. The recursion continues with `k` equal to `x.length` and beyond, and `swap(x, k, ...)` indexes past the end of the array, which is where the exception is thrown (the *cause* is in `sort`, the *symptom* is in `swap`). Add at the top:
+```java
+if (k >= x.length) { return; }
+```
+
+### 7. The `findSmallest` scope bug
+
+**Q:** With `findSmallest(String[] x)` that always scans the whole array, `sort({"hello","whoa","apple","hola"})` produces `{"whoa","apple","hello","hola"}`. Explain what goes wrong on the second recursive call.
+
+**A:** After the first swap the array is `{apple, whoa, hello, hola}` and `k = 1`, so `"apple"` is supposed to be frozen. But `findSmallest` scans from index 0 and returns 0 (`"apple"`), so `swap(x, 1, 0)` moves the already-placed `"apple"` back out of position. The fix is to give `findSmallest` a `startingIndex` parameter, initializing `currentSmallest = startingIndex` and looping from `i = startingIndex`.
+
+### 8. What `@Test` does / why non-static
+
+**Q:** What does `@Test` do at runtime, and why must the annotated method be non-static?
+
+**A:** `@Test` is an annotation, a marker that does nothing on its own. A separate test runner uses the reflection library to enumerate the methods of the class, find every method carrying the annotation, and execute each one, collecting pass/fail results. The method must be non-static because in more complex setups the test class may have instance variables (fixtures) that the tests need, so the runner instantiates the class and invokes instance methods. Adding `@Test` also means you don't need a `main`, and each test runs independently, so one failure doesn't prevent the rest from running.
+
+### 9. TDD steps
+
+**Q:** List the steps of Test-Driven Development. Is TDD required in 61B?
+
+**A:** (1) Identify a new feature. (2) Write a unit test for it. (3) Run the test; it should fail (RED). (4) Write code that passes the test (GREEN). (5) Optional: refactor, using the passing tests as a safety net. TDD is **not** required in 61B, and you may not like it, but unit testing in general is definitely a good idea.
+
+### 10. Unit vs. integration testing
+
+**Q:** Distinguish unit testing from integration testing, with one benefit and one drawback of each.
+
+**A:** A unit test exercises one unit of code (usually one method) in isolation. Benefit: confidence in individual pieces and fast, localized debugging. Drawback: thorough tests take time, incomplete tests give false confidence, and units that depend on other units are hard to test. Integration testing verifies that components interact correctly as a whole system (as in Project 0's `ArrayDeque` tests). Benefit: catches interaction bugs that unit tests miss. Drawback: tedious to do manually, hard to automate, and at a high level of abstraction subtle or rare errors are easy to miss.
+
+### 11. Debugging methodology
+
+**Q:** What is the key idea when using a debugger, and where should you set a breakpoint in `sort`?
+
+**A:** Find the moment where **reality diverges from expectation**: before each step, predict the program state, then check. Don't step aimlessly hoping to notice something weird. Also prefer "Step Over" to "Step Into" so you compare whole function results against expectations rather than crawling line by line. In `sort`, set the breakpoint inside `swap`, since that's the elemental operation that actually transforms the array, letting you snapshot the array before and after each exchange.
+
+### 12. Why writing the test first is useful
+
+**Q:** Give two concrete benefits of having `testFindSmallest` while you are in the middle of writing `sort`.
+
+**A:** (1) When `sort` misbehaves, you can context-switch, run `testFindSmallest` alone to establish whether `findSmallest` is correct, and switch back, rather than inferring the behavior of a unit from the behavior of the whole program (the parachute-ripcord analogy: pull it on the ground rather than jumping out of a plane). (2) When you refactor or change `findSmallest`'s contract (e.g. `String` to `int`, or adding a `startingIndex` parameter), the test immediately tells you whether the revised unit still works, so later changes to basic units can't silently break them.
+
+---
 
 ## Summary
 
-- The lecture's "new way": **write the test first**, watch it fail, then write code until it passes.
-- A test that passes against a stub is not a test. The `return x[2];` accident proves it; break the code on purpose to verify the test.
-- `==` on objects compares addresses, not contents. Compare arrays with a loop plus `.equals`, `java.util.Arrays.equals`, or Truth.
-- Ad hoc tests work but are tedious, and running them all from one `main` means the first failure hides the rest.
-- JUnit supplies `@Test` (methods must be non-static for IntelliJ's green arrows: single arrow runs one test, double arrow runs all); Google Truth supplies `assertThat(actual).isEqualTo(expected)`.
-- Lecture imports: `org.junit.jupiter.api.Test` and `static com.google.common.truth.Truth.assertThat`.
-- Selection sort: find the smallest, swap it to the front, recurse on the rest.
-- `String` comparison uses `compareTo` (negative / zero / positive), not `<`; cite outside help with `@source`.
-- Java has no sub-array references, so recursion over an array uses a helper with an index parameter: public `sort(x)` calls `sort(x, 0)`.
-- Final `Sort`: `sort(x, k)` has base case `k >= x.length`, calls `findSmallest(x, k)`, `swap(x, k, smallestIndex)`, then `sort(x, k + 1)`.
-- Bugs the tests caught: `swap` without a temp variable, missing base case, and `findSmallest` scanning the whole array instead of the suffix from `k`.
-- Debug at a high level of abstraction: `Step Over` more than `Step Into`, comparing whole function results against expectations.
-- Unit tests reduce cognitive load (fix `findSmallest` without reasoning through `sort`), localize bugs, clarify each unit's contract, and make refactoring safe. Pull the ripcord on the ground.
-- Three correctness tools: autograders (convenient, but unreal and habit-forming), unit tests (confidence per unit, but time-consuming and possibly incomplete), integration tests (catch interaction bugs, but hard to automate).
-- TDD is optional in 61B; unit testing is not a bad idea ever. Write tests, but only when they might be useful.
+- **The new way:** you write your own tests. In the real world, no autograder exists; programmers (and LLMs) trust their code because of tests they wrote. Tests give strong evidence, never proof; full correctness is usually impossible to establish.
+- **Ad hoc tests** (manual comparison loop + print statements) work but are tedious and repetitive; the same boilerplate appears in every test.
+- **Truth** replaces all of it with `assertThat(actual).isEqualTo(expected)` after `import static com.google.common.truth.Truth.assertThat;`. Put the value you're evaluating inside `assertThat`.
+- **`@Test` + non-static method** gives green run arrows, removes the need for `main`, runs every test independently (so one failure doesn't hide the rest), and gamifies development: you win when every test has a green check. `@Test` is just a marker; a runner uses reflection to find and execute annotated methods.
+- **`==` compares addresses**, not contents. Use `.equals`, `Arrays.equals`, or a Truth assertion for arrays and Strings.
+- **Selection sort:** find the smallest item, swap it to the front, recurse on the rest. Trace: `6 3 7 2 8 1` → `1 3 7 2 8 6` → `1 2 7 3 8 6` → `1 2 3 7 8 6` → `1 2 3 6 8 7` → `1 2 3 6 7 8`. Correctness provable via invariants (later lecture).
+- **Strings compare with `compareTo`**, not `<`: negative if smaller, 0 if equal, positive if larger. Cite outside help with `@source`.
+- **`swap` needs a temp variable**, or the first assignment destroys the value you were trying to save.
+- **Java has no sub-array references**, so recursion on arrays uses a private helper with an extra index parameter: `sort(x)` calls `sort(x, 0)`; `sort(x, k)` sorts positions `k` onward and needs a base case `if (k >= x.length) return;`.
+- **Three bugs, three lessons:** broken `swap` (caught by unit test + debugger), `findSmallest` returning a `String` when an index was needed (caught by type mismatch at the call site), and `findSmallest` scanning the whole array instead of the suffix (caught by the debugger, by finding where reality diverged from expectation).
+- **Debugging method:** predict the state, step, compare, find the first divergence. Break where the action is. Prefer Step Over to Step Into.
+- **Philosophy:** autograders are slow, unreal, and encourage Autograder Driven Development; unit tests give confidence in each unit, faster debugging, clearer specs, and safe refactoring; integration tests check that units work together. TDD (RED, GREEN, refactor) is optional in 61B; unit testing is not a bad idea ever. Write tests, but only when they might be useful.
+- **Course policy:** do not paste your 61B code into an LLM asking what's wrong. Search for specific facts, ask pointed questions, and read answers carefully; cheap models may omit crucial details (e.g. what `compareTo`'s return value means).
