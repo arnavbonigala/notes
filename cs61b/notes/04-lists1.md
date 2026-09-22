@@ -1,162 +1,384 @@
-<!-- Wed, Sep 2, 2026 | sources: code (no transcript available) -->
-# Lecture 4: Lists 1
+<!-- Wed, Sep 02, 2026 | sources: slides + code + YouTube auto-transcript + textbook -->
+# Lecture 4: Packages, Recursion, IntLists
 
-This lecture builds the simplest possible linked list in Java, the `IntList`, from nothing but a single class with two instance variables: an `int first` holding this node's value and an `IntList rest` pointing at the remainder of the list. The whole point is to see that a recursive data structure falls directly out of the reference semantics established in Lecture 3 (variables hold addresses, `null` is the "points at nothing" address, and `new` creates a box somewhere in memory). Once the bare class exists, we discover it is painful to use directly (`L.rest.rest.rest = ...`), so we adopt the standard object-oriented move of adding helper methods: `size` (recursive), `iterativeSize` (loop-based, using a pointer variable because you cannot reassign `this` in Java), and `get(int i)` (recursive index lookup, which is linear time and hints at why we will later want arrays). The lecture closes with a first taste of list *transformation* via `IntListTools.incrementRecursiveNonDestructive`, which introduces the destructive vs. non-destructive distinction that will dominate the next lecture.
+## Overview
+
+This lecture closes out the 2D array material from Lecture 3 and then makes the leap into the real heart of CS 61B: building a list from scratch. Java, unlike Python, does not have lists as a core language feature (they were added roughly three years into the language's existence), so we ask what the Java designers had to do to make lists exist at all. The answer, surprisingly, is a two-field class: `public int first;` and `public IntList rest;`. That is an infinitely extendable list. Everything else in this lecture (and the next three) is about making that bare structure pleasant and safe to use: adding a constructor so we can prepend instead of writing `L.rest.rest.rest`, writing `size()` recursively and `iterativeSize()` with a walking pointer `p`, writing `get(i)` recursively via the insight "my ith item is my rest's (i-1)th item," and finally writing client code in a separate `IntListTools` class that distinguishes destructive from non-destructive operations. Packages were on the slides but explicitly labeled extra content and skipped in lecture; they explain how Java avoids duplicate class name collisions and what `public` versus package-private actually means. Throughout, the "Mystery of the Walrus" (reference semantics and the Golden Rule of Equals from Lecture 3) is the tool that makes all of this non-mysterious.
 
 ---
 
 ## Key Concepts
 
-### 1. A list is a recursive data structure
+### 1. Finishing 2D Arrays (carried over from Lecture 3)
 
-The entire `IntList` class is this:
+A 2D array in Java is **not** a matrix. It is an array of addresses of arrays.
+
+```java
+int[][] theMatrix = new int[4][];
+```
+
+Reason about this in bits:
+
+- The variable `theMatrix` is a **64-bit** box. It holds an address, not data. In our simplified model, every address in Java is 64 bits.
+- `new int[4][]` creates an array of **four 64-bit boxes**. Each of those is itself an address, specifically the address of an `int[]`.
+- Once you do `theMatrix[0] = new int[3];`, that creates an array of **three 32-bit boxes**, because those actually hold `int`s.
+
+So there are levels of indirection: a 64-bit box pointing at an array of 64-bit boxes, each of which points at an array of 32-bit `int` boxes.
+
+Two consequences Josh emphasized:
+
+1. **Rows can have different lengths.** Nothing forces `theMatrix[2]` to point at an array of length 3; it could be length 1000. This is why it is not really a matrix.
+2. **Aliasing across rows.** Consider:
+   ```java
+   int[] row0 = theMatrix[0];
+   row0[1] = -5;
+   ```
+   `row0` is a new 64-bit box, and `= theMatrix[0]` copies the *address* of the row array into it (Golden Rule of Equals). So `row0` and `theMatrix[0]` point at the **same** array, and `row0[1] = -5` genuinely changes `theMatrix`.
+
+There is also syntax for creating a 2D array with literal values in advance, but the lecture noted you will never need it in this class. Java also type-checks these: assigning a `double` where an `int[]` element is expected is a compile error ("double cannot be converted to int").
+
+*(Extra context)* Memory is reclaimed automatically in Java by the **garbage collector**; you never manually free objects. Josh cited this as one reason Java suits this course.
+
+### 2. Packages (Extra Content, skipped in lecture but on the slides)
+
+Josh explicitly called this "extra content" and said that for 61B purposes, whether you write `public` or not is basically irrelevant. Still, here is what the slides said.
+
+**The problem: duplicate classes.** If you have `Dog.java` in a `lec2_intro2` folder and another `Dog.java` in a `lec5_lists1` folder, Java gets upset because it sees two `Dog` classes.
+
+**The fix: declare a package.** Putting `package lec5_lists1;` as the first line of the file gives the class a new **canonical name**:
+
+- The one with no package declaration is just named `Dog`.
+- The one in the package is named `lec5_lists1.Dog`.
+
+**Importing is not strictly necessary.** You can always use the full canonical name:
+
+```java
+lec4_testing.Sort.sort(someArray);   // valid without any import
+```
+
+An `import` statement is purely shorthand. When you write `import lec4_testing.Sort;`, you are telling Java: "whenever I write `Sort`, that is shorthand for `lec4_testing.Sort`."
+
+You can also import **static members**. In `import static com.google.common.truth.Truth.assertThat;`:
+- `com.google.common.truth` is the package name,
+- `Truth` is a class in that package,
+- `assertThat` is a static method in `Truth`.
+
+**The CLASSPATH.** Java will not scan every folder on your computer looking for classes: too slow, and it might pick up things you did not want. Instead it looks only along the **CLASSPATH**. (In IntelliJ you can see yours by clicking the `…` in the terminal after running your code.)
+
+**`public` vs. package-private.**
+- Declared `public`: usable by code in any package.
+- `public` omitted: usable only by code in the **same package**.
+
+### 3. Why We Are Building a List at All
+
+In Java, lists come from the library, not the language:
+
+```java
+import java.util.List;
+import java.util.LinkedList;
+List<String> L = new LinkedList<>();
+L.add("a");
+L.add("b");
+```
+
+This feels clumsy compared to Python. The lecture kicks off a **four-lecture journey**: first a linked-list-based implementation, later an array-based one (which Josh described as clunkier but the more common approach for most purposes). Friday's lecture takes a break to cover automated testing, then lists resume the following week.
+
+The philosophical framing: it feels absurd to "build a list," like being told you will build a quark. But a list turns out to be constructible from abstractions we already have.
+
+### 4. The IntList Definition
+
+A list should be able to grow to arbitrary size, unlike an array, which has a fixed size. Here is the entire definition:
 
 ```java
 public class IntList {
-    public int first; // this is the first item in the list
-    public IntList rest; // this is the rest of the list
+    public int first;      // this is the first item in the list
+    public IntList rest;   // this is the rest of the list
+}
+```
+
+That's it. This is recursive in its very definition: an `IntList` contains an `int` and another `IntList`. The `rest` field holds a *reference* to another `IntList` object, not a copy of one, which is why this does not infinitely regress. The chain terminates when `rest` is `null`.
+
+**Size in bits:** an `IntList` object's instance variables take 96 bits total: 32 for `first` (an `int`) and 64 for `rest` (an address).
+
+### 5. Two Ways to Build a List
+
+**Adding to the end (ugly).** Without a constructor, you must poke fields one at a time:
+
+```java
+IntList L = new IntList();
+L.first = 5;
+L.rest = null;
+
+L.rest = new IntList();
+L.rest.first = 10;
+
+L.rest.rest = new IntList();
+L.rest.rest.first = 15;
+```
+
+This produces "lots of `.rest.rest.rest` nonsense." Imagine adding the 11th item.
+
+**Adding a constructor helps a little:**
+
+```java
+public IntList(int f, IntList r) {
+    first = f;
+    rest = r;
+}
+```
+
+Now each node comes into existence fully populated (`new IntList(5, null)`), so the debugger never even shows the temporary default values of `0` and `null`. But you still write `L.rest.rest = new IntList(15, null);` if you insist on appending.
+
+**Adding to the front (beautiful).** Build the list *backwards*:
+
+```java
+IntList L = new IntList(15, null);
+L = new IntList(10, L);
+L = new IntList(5, L);
+```
+
+Josh's framing: "whatever `L` used to be, that's going to be the new end, and the way you write that in code is just `L`." Each line creates a new node whose `rest` is the address currently in `L`, then reassigns `L` to point at the new node. No `.rest` chains at all. The lecture's own code used `5 -> 10 -> 3`; the textbook and slide version uses `5 -> 10 -> 15`.
+
+### 6. Recursion: `size()`
+
+The classroom demo: Josh asked a student in the front row what row they were in ("zero"), and the student behind said "that means I'm in row one," and so on, because "I'm one row further back than he is." That is exactly the recursion.
+
+```java
+/** Return the size of the list using... recursion! */
+public int size() {
+    if (rest == null) {
+        return 1;
+    }
+    return 1 + this.rest.size();
+}
+```
+
+- **Base case:** how do I know I'm at the end? `rest == null`. Then my size is 1 (me, myself).
+- **Recursive case:** ask the rest of the list how big it is, then add 1 for myself.
+
+Note the method takes **no arguments**. In Java it is idiomatic to write `L.size()` rather than `size(L)`; the list you are measuring is `this`.
+
+**Why not `if (this == null) return 0;`?** This is the textbook's exercise. The answer: you always call `size()` *on an object*, e.g. `L.size()`. If `L` were `null`, you'd get a `NullPointerException` before the method body ever ran. A method cannot detect that the object it was invoked on is null, because there is no object.
+
+A consequence of this design: `size()` as written cannot handle an empty list, since a "list" is always at least one node.
+
+### 7. Iteration: `iterativeSize()`
+
+```java
+/** Return the size of the list using no recursion! */
+public int iterativeSize() {
+    IntList p = this;
+    int totalSize = 0;
+    while (p != null) {
+        totalSize += 1;
+        p = p.rest;
+    }
+    return totalSize;
+}
+```
+
+(In lecture Josh spelled the variable `currentLocation`; the textbook and slides use `p`. The textbook recommends the name `p` to remind yourself that the variable holds a **pointer**.)
+
+**Why do we need `p` at all, if we already have `this`?** Because we need something that changes as we walk down the list, and **you cannot reassign `this` in Java**. `this` is a fixed reference to yourself. So we make a separate 64-bit box, initialize it to the same address, and inch it along.
+
+**Box-and-pointer reasoning for `p = p.rest;`:** `p.rest` is a 64-bit address sitting inside the node `p` currently points at. The Golden Rule of Equals says those 64 bits get **copied** into the box `p`. Nothing inside any node is modified. So `p` steps forward, node by node, and the list itself is untouched. Students often fear this will "break the list" because `p` started out equal to `this`; the reference model shows it cannot.
+
+The loop condition `p != null` is what lets this version, unlike `size()`, handle walking off the end cleanly.
+
+### 8. `get(int i)`
+
+The class challenge. Front item is the 0th item; assume the item exists.
+
+```java
+/** Return the ith item of this IntList. */
+public int get(int i) {
+    if (i == 0) {
+        return first;        // or this.first
+    }
+    return rest.get(i - 1);  // or this.rest.get(i - 1)
+}
+```
+
+The key insight, in Josh's words: **"my 5th item is my rest's 4th item."** Someone asks me for my 5th item; I ask the rest of the list for its 4th; that node asks for the 3rd; and so on until someone is asked for their 0th, which is just their `first`.
+
+**Performance:** `get` takes **linear time**. Getting the last item of a 1,000,000-item list takes far longer than getting the last item of a small one. A future lecture introduces an array-based list that avoids this.
+
+**On bounds checking:** you *could* guard with something like `if (i >= size()) throw new ...`, but as Josh noted, calling `size()` is itself linear, which would make `get` unnecessarily slow. The problem statement said not to worry about invalid `i`.
+
+### 9. Destructive vs. Non-Destructive Methods
+
+Definitions from the slides:
+
+- **Non-destructive:** the method does **not** modify the object it operates on. It returns a new, changed version while leaving the original intact.
+- **Destructive:** the method **is allowed to** modify the object, as a side effect. A destructive method might also return `void`.
+
+Josh's mnemonic: someone hands you their list and says "please take care of my baby." Writing `L.first = L.first + x;` is harmful to baby. Not allowed, if you promised to be non-destructive.
+
+This is also our first **client class**: `IntListTools` is a separate class containing `static` methods that operate on `IntList`s, as though someone else had already written `IntList` and we wanted to extend its abilities from outside.
+
+---
+
+## Definitions
+
+- **IntList:** a class with two instance variables, `int first` (the first item) and `IntList rest` (a reference to the rest of the list), forming a recursively defined, arbitrarily extendable list of integers.
+- **Linked list:** a list built as a chain of objects, each holding one value and a reference to the next. Terminated by `null`. (Known from CS 61A by this name.)
+- **Base case:** the case in a recursive method that returns an answer directly, without recursing. Required; without one, recursion never terminates and you get a `StackOverflowError`.
+- **Recursive case:** the case that computes the answer by calling the method on a smaller subproblem (here, `rest`) and combining the result.
+- **`this`:** an implicit reference to the object the method was invoked on. It cannot be reassigned in Java.
+- **Pointer / reference:** a 64-bit address of an object. In our box-and-pointer model, drawn as an arrow.
+- **`null`:** the absence of a reference; used here to mark the end of a list. Josh described it as "shorthand for when the address is actually zero," while noting Java does not formally treat `null` as the integer 0.
+- **Destructive method:** a method permitted to modify the object or structure passed to it, as a side effect.
+- **Non-destructive method:** a method that leaves its input unmodified, returning a new structure instead.
+- **Client class:** a class (like `IntListTools`) that uses another class's public API to provide additional functionality, rather than modifying that class.
+- **Package:** a named grouping of classes, declared with `package name;` at the top of a file. Prevents name collisions by giving classes canonical names like `lec5_lists1.Dog`. *(Extra content)*
+- **Canonical name:** a class's fully qualified name, `packageName.ClassName`. *(Extra content)*
+- **Import:** a shorthand declaration; `import p.C;` means "whenever I write `C`, I mean `p.C`." Never strictly required. *(Extra content)*
+- **CLASSPATH:** the set of locations Java searches for classes. Java does not search your whole filesystem. *(Extra content)*
+- **Package-private:** the default access level when `public` is omitted; visible only to code in the same package. *(Extra content)*
+- **Garbage collector:** the Java mechanism that automatically reclaims memory for objects nothing references anymore. *(Extra context, mentioned in Q&A)*
+
+---
+
+## Worked Examples
+
+### Example 1: Building a list by appending (and why it's painful)
+
+```java
+public class IntList {
+    public int first;
+    public IntList rest;
+
+    public static void main(String[] args) {
+        IntList L = new IntList();
+        L.first = 5;
+        L.rest = null;
+
+        L.rest = new IntList();
+        L.rest.first = 10;
+
+        L.rest.rest = new IntList();
+        L.rest.rest.first = 15;
+    }
+}
+```
+
+**Step by step, in boxes and pointers:**
+
+1. `new IntList()` builds an object with two boxes: `first` (32 bits, default 0) and `rest` (64 bits, default `null`). `new` returns the object's 64-bit address; the Golden Rule of Equals copies those 64 bits into the variable `L`, which is itself a 64-bit box. Draw an arrow from `L` to the object.
+2. `L.first = 5;` copies the 32 bits representing 5 into the `first` box of the object `L` points at.
+3. `L.rest = new IntList();` creates a second object (again `0`/`null`), and copies its 64-bit address into the `rest` box of the first object. Arrow from node 1 to node 2.
+4. `L.rest.first = 10;` follows `L`'s arrow, then follows that node's `rest` arrow, then writes 10 into `first`.
+5. Same again one level deeper for 15.
+
+Result: `L -> [5|•] -> [10|•] -> [15|null]`. It works, but accessing item *n* requires typing `.rest` *n* times.
+
+### Example 2: Building by prepending (the clean way)
+
+```java
+public class IntList {
+    public int first;
+    public IntList rest;
 
     public IntList(int f, IntList r) {
         first = f;
         rest = r;
     }
+
+    public static void main(String[] args) {
+        IntList L = new IntList(15, null);
+        L = new IntList(10, L);
+        L = new IntList(5, L);
+    }
 }
 ```
 
-The crucial and initially disorienting line is `public IntList rest;`. A class is defining a variable whose type is *the class itself*. This is legal precisely because of what we learned in Lecture 3: `rest` does not contain an `IntList`, it contains a **reference** to one (64 bits of address, or the special all-zeros `null`). If Java tried to physically nest an `IntList` inside an `IntList` you would need infinite memory. Because it only stores an address, the box is a fixed, finite size.
+**Step by step:**
 
-The definition reads naturally in English: *a list is a first item, followed by the rest of the list.* The base case, "the rest of the list is nothing," is represented by `rest == null`.
+1. `new IntList(15, null)` builds a node with `first = 15`, `rest = null`. `L` points at it. The list is `15`.
+2. `new IntList(10, L)`: the argument `L` is evaluated **first**, yielding the 64-bit address of the `15` node. A new node is created with `first = 10` and `rest` set to that address. Then, and only then, is `L` reassigned to the new node's address. The list is now `10 -> 15`. The `15` node was never touched; it just gained an incoming arrow.
+3. `new IntList(5, L)`: same again. The list is `5 -> 10 -> 15`.
 
-If you took CS 61A, this is the same idea as the `Link` class there; the textbook explicitly notes "You may remember something like this from 61a called a 'Linked List'."
+The subtlety worth internalizing: `L = new IntList(5, L);` looks circular but is not, because the right side is fully evaluated (using the *old* value of `L`) before the assignment copies the result into `L`.
 
-### 2. Box-and-pointer intuition
-
-Since the slides' diagrams did not survive PDF extraction, here is the picture in words for `IntList L = new IntList(5, new IntList(10, new IntList(3, null)))`:
-
-- `L` is a variable in the current stack frame holding an address.
-- That address points at an `IntList` object in the heap containing two fields: `first = 5` and `rest = <address2>`.
-- `<address2>` points at another `IntList` object with `first = 10`, `rest = <address3>`.
-- `<address3>` points at a third `IntList` with `first = 3`, `rest = null`.
-
-Drawn as arrows: `L -> [5 | *] -> [10 | *] -> [3 | X]` where `X` denotes `null`.
-
-Every node is an independent object in the heap. Nothing about the objects knows it is "the whole list": each node is simultaneously a node *and* the head of a perfectly valid list of its own suffix. This is why `rest.size()` makes sense: `rest` *is* a list.
-
-### 3. Building lists by hand is ugly (the motivation for everything after)
-
-The lecture demonstrates two ways to construct `5 -> 10 -> 3`.
-
-**Appending to the end** (the commented-out block in the lecture's `main`):
+### Example 3: `size()` traced
 
 ```java
-IntList L = new IntList(5, null);
-// let's make some space for the next item
-L.rest = new IntList(10, null);
-// let's make some space for the next next item
-L.rest.rest = new IntList(3, null);
-```
-
-This reads left to right in the same order as the list, which is nice, but the lecture's own comment names the problem: "we get lots of `.rest.rest.rest` nonsense." Adding the 100th item requires 99 `.rest`s.
-
-**Prepending to the front** (what the lecture actually runs):
-
-```java
-IntList L = new IntList(3, null);
-// let's put 10 at the front
-L = new IntList(10, L);
-// then let's put 5 at the front
-L = new IntList(5, L);
-// 5 -> 10 -> 3
-```
-
-The textbook calls this "slightly nicer but harder to understand code." Each line creates a brand new node whose `rest` is the old list, then reassigns `L` to point at the new node. Nothing is ever mutated; only `L` is repointed. You have to build the list backwards, which is the cognitive cost.
-
-Both are unpleasant enough that we do what object-oriented programmers do: add methods.
-
-### 4. Recursion on lists: the shape of the code follows the shape of the data
-
-Because the data is defined recursively ("a first, plus a rest"), the natural algorithms are recursive too.
-
-```java
-/** returns he size of this list. Me, that is. */
 public int size() {
     if (rest == null) {
         return 1;
     }
-    return 1 + rest.size();
+    return 1 + this.rest.size();
 }
 ```
 
-Read it as a claim about `this`: "If I have no rest, I am a list of size 1. Otherwise my size is 1 plus my rest's size."
+With `L` being `5 -> 10 -> 15`, calling `L.size()`:
 
-**Why the base case is `rest == null` and not `this == null`.** This is the lecture/textbook's favorite question. You might want to write:
+| Call | `this.first` | `rest == null`? | Action |
+|---|---|---|---|
+| `L.size()` | 5 | no | returns `1 + (10-node).size()` |
+| `(10-node).size()` | 10 | no | returns `1 + (15-node).size()` |
+| `(15-node).size()` | 15 | **yes** | returns `1` |
+
+Unwinding: the 15-node returns 1, so the 10-node returns 2, so `L` returns 3. Prints `3`.
+
+This is the "recursive leap of faith": when writing the recursive case, you trust that `rest.size()` returns the right answer for the shorter list, and you only handle your own contribution (the `+ 1`).
+
+### Example 4: `iterativeSize()` traced
 
 ```java
-if (this == null) { return 0; }   // WRONG
-```
-
-It cannot work. To *call* `size()` at all you must call it on an object: `L.size()`. If `L` is `null`, Java dereferences a null reference to find the method and you get a `NullPointerException` before a single line of your method body runs. The check is never reached. So the test has to be one level up, on `rest`, which you can safely compare to `null` without dereferencing it.
-
-A consequence worth noticing: `size()` cannot return 0. There is no way to represent an empty list with this design (an empty list would be `null`, and you cannot call a method on `null`). This is a real limitation of the "naked recursive" list and is exactly why later lectures will wrap `IntList` inside an `SLList` class.
-
-### 5. Iteration on lists: you need a pointer variable because you cannot reassign `this`
-
-```java
-// and not using recursion this time
-// we'll use a loop instead, less beautiful, but...
-// let's sully ourselves and write the code
 public int iterativeSize() {
+    IntList p = this;
     int totalSize = 0;
-    IntList currentLocation = this;
-
-    while (currentLocation != null) {
+    while (p != null) {
         totalSize += 1;
-        currentLocation = currentLocation.rest;
+        p = p.rest;
     }
-
     return totalSize;
 }
 ```
 
-The textbook's version names the variable `p` and recommends that convention: "when you write iterative data structure code ... use the name `p` to remind yourself that the variable is holding a pointer. You need that pointer because you can't reassign `this` in Java." Writing `this = this.rest;` is a compile error. `this` is effectively final.
+With `L` being `5 -> 10 -> 15`:
 
-Trace it on `5 -> 10 -> 3`:
+| Iteration | `p` points at | `totalSize` after increment | `p` after step |
+|---|---|---|---|
+| start | node 5 | 0 | - |
+| 1 | node 5 | 1 | node 10 |
+| 2 | node 10 | 2 | node 15 |
+| 3 | node 15 | 3 | `null` |
+| exit | - | 3 | - |
 
-| iteration | `currentLocation` points at | `totalSize` after body |
-|---|---|---|
-| start | node(5) | 0 |
-| 1 | node(5) -> then node(10) | 1 |
-| 2 | node(10) -> then node(3) | 2 |
-| 3 | node(3) -> then `null` | 3 |
-| check | `null`, loop exits | 3 |
+Returns 3.
 
-Note the loop condition is `!= null`, not `rest != null`. That is what lets this version correctly count and terminate, and it is the asymmetry with the recursive version: the recursive method stops *one node early* (at the last node) and returns 1, whereas the loop walks all the way off the end.
+**Box-and-pointer narration:** `IntList p = this;` creates a brand new 64-bit box holding the same address as `this`, so two arrows point at node 5. Each `p = p.rest;` reads the 64 bits out of the current node's `rest` field and copies them into `p`'s box. Nothing inside any node changes; only `p`'s box changes. In the visualizer you literally watch the `p` arrow inch rightward along the chain until it becomes `null`.
 
-Also note the assignment `currentLocation = currentLocation.rest;` does not modify the list at all. It only repoints a local variable. This is the key reading skill: `p.rest = q` mutates the heap; `p = p.rest` moves a local pointer.
-
-### 6. `get(int i)`: indexing a linked list
+### Example 5: `get(int i)` traced
 
 ```java
-// i'll do it recursively in class
 public int get(int i) {
     if (i == 0) {
-        return this.first; //return first;
+        return first;
     }
-    // my 5th item
-    // is my rest's 4th item
-    return this.rest.get(i - 1);
+    return rest.get(i - 1);
 }
 ```
 
-The comment in the code is the entire insight: **my ith item is my rest's (i-1)th item.** Each recursive call strips one node off the front and decrements the index in lockstep, so they hit zero together at exactly the right node.
+`L` is `5 -> 10 -> 15`. Call `L.get(2)`:
 
-The lecture explicitly does not handle invalid indices. The textbook says "It doesn't matter how your code behaves for invalid `i`, either too big or too small." In practice, `i` too large walks off the end and throws a `NullPointerException` when `this.rest` is `null`; negative `i` recurses until it falls off the end similarly.
+1. `L.get(2)`: `i` is 2, not 0, so return `(10-node).get(1)`.
+2. `(10-node).get(1)`: `i` is 1, not 0, so return `(15-node).get(0)`.
+3. `(15-node).get(0)`: `i` is 0, so return `first`, which is 15.
 
-**Cost.** The textbook flags this immediately: "the method we've written takes linear time! That is, if you have a list that is 1,000,000 items long, then getting the last item is going to take much longer than it would if we had a small list. We'll see an alternate way to implement a list that will avoid this problem in a future lecture." There is no way to jump to index 500,000; you must follow 500,000 arrows. This is the single biggest weakness of linked lists and the motivation for array-based lists later in the course.
+Each frame passes 15 back up. Result: 15. (`L.get(0)` is 5, `L.get(1)` is 10.)
 
-### 7. Destructive vs. non-destructive (first look)
+Notice the two things shrinking in lockstep: the index `i` counts down toward 0 while the list pointer walks forward toward the end. The base case fires when the index hits 0, not when the list ends.
+
+### Example 6: `incrementRecursiveNonDestructive`
+
+Lecture's client class:
 
 ```java
+package lec4_lists1;
+
 public class IntListTools {
     /** Returns a copy of L, with each value incremented by x.
      *  Because this is "non-destructive", the list at L should
@@ -173,314 +395,155 @@ public class IntListTools {
 }
 ```
 
-Two structural things changed compared to `size` and `get`:
+**Why it is written this way:**
 
-1. **This is a `static` method taking `L` as a parameter**, not an instance method. That is what lets the base case be `if (L == null) return null;`. Because we never call a method *on* `L`, checking `L == null` is safe. This is the workaround for the "you can't check `this == null`" problem from §4, and it means this version correctly handles the empty list.
-2. **Every node is freshly allocated with `new`.** The original list is read (`L.first`, `L.rest`) but never written to. No line in this method has the form `L.first = ...` or `L.rest = ...`. That is precisely what "non-destructive" means.
+- It is `static` and takes `L` as a parameter, because it lives in a *different class* than `IntList`. (In lecture Josh initially forgot `static` and had to add it so he could call `IntListTools.incrementRecursiveNonDestructive(L, 10)`.)
+- The illegal move would be `L.first = L.first + x;`. That mutates the caller's list: destructive, and forbidden by this method's contract.
+- Instead, we allocate a **brand new node** for each node of the original. The original nodes are read from but never written to.
 
-Trace on `L = 5 -> 10 -> 3` with `x = 10`:
+**Tracing with `L` being `5 -> 10 -> 3` and `x = 10`:**
 
-- `incRND(node(5), 10)`: `L != null`, build `new IntList(15, null)`. Call `incRND(node(10), 10)` for its rest.
-  - `incRND(node(10), 10)`: build `new IntList(20, null)`. Call `incRND(node(3), 10)`.
-    - `incRND(node(3), 10)`: build `new IntList(13, null)`. Call `incRND(null, 10)`.
-      - `incRND(null, 10)`: returns `null`. (This is the base case doing real work: it supplies the terminating `null`.)
-    - sets `13`'s rest to `null`, returns node(13).
-  - sets `20`'s rest to node(13), returns node(20).
-- sets `15`'s rest to node(20), returns node(15).
+1. `L` is not null. Build new node `[15|null]`. Recurse on `10 -> 3`.
+2. Not null. Build new node `[20|null]`. Recurse on `3`.
+3. Not null. Build new node `[13|null]`. Recurse on `null`.
+4. `L == null`, return `null`. So node `[13]`'s `rest` becomes `null`; return the `13` node.
+5. Node `[20]`'s `rest` becomes the `13` node; return the `20` node.
+6. Node `[15]`'s `rest` becomes the `20` node; return the `15` node.
 
-Result: a brand-new chain `15 -> 20 -> 13`, with `L` still pointing at the untouched `5 -> 10 -> 3`. Six nodes now exist in the heap.
+`L2` is `15 -> 20 -> 13`, and `L` is still `5 -> 10 -> 3`.
 
-*(extra context)* A common stylistic compression of this method writes it as a single line, `return new IntList(L.first + x, incrementRecursiveNonDestructive(L.rest, x));`, which behaves identically. The lecture's two-step version (allocate, then fill in `rest`) is easier to trace, which is presumably why it was written that way.
+**The bug hunt from lecture (worth studying):** Josh first wrote the method with *no* base case and got a `StackOverflowError`, because the recursion eventually calls the method on `null` and dereferences `null.first`... or rather, recurses forever. A student suggested the base case `if (L.rest == null) return null;`. Running it produced `15 -> 20` : the last element, 3, was silently dropped, because that base case throws away the final node instead of copying it. The correct base case is `if (L == null) return null;`, which produces `15 -> 20 -> 13`. The lesson: pick the base case that corresponds to "there is nothing left to copy," not "there is one thing left."
 
----
-
-## Definitions
-
-- **IntList:** A class representing a non-empty list of `int`s, consisting of a public `int first` (this node's value) and a public `IntList rest` (a reference to the remainder of the list, or `null` if there is no remainder). Sometimes called a "naked recursive data structure" because users manipulate the nodes directly.
-
-- **Linked list:** A list built out of nodes where each node stores a value and a reference to the next node. The same structure called `Link` in CS 61A.
-
-- **Recursive data structure:** A data structure whose definition refers to itself. `IntList` is recursive because one of its fields has type `IntList`. Legal in Java only because object variables store references, not the objects themselves.
-
-- **`first`:** The `int` value stored in this particular node.
-
-- **`rest`:** A reference to the `IntList` containing everything after this node. `null` means this node is the last.
-
-- **`null`:** The reference value meaning "points at no object." Used here as the terminator of a list and as the base-case marker. Dereferencing it (calling a method on it or reading a field of it) throws a `NullPointerException`.
-
-- **Base case:** The non-recursive branch of a recursive method, which returns an answer without calling itself. For `size()` it is `rest == null`; for `get` it is `i == 0`; for `incrementRecursiveNonDestructive` it is `L == null`.
-
-- **`this`:** The implicit reference to the object on which an instance method was invoked. It cannot be reassigned in Java, which is why iterative traversal requires a separate local pointer variable.
-
-- **Pointer variable (conventionally `p`):** A local variable of reference type used to walk a data structure, e.g. `IntList p = this;` followed by `p = p.rest;`. Reassigning it moves the traversal; it does not modify the list.
-
-- **`iterativeSize`:** A method computing the list's length using a `while` loop rather than recursion.
-
-- **`get(int i)`:** Returns the value at index `i`, zero-indexed, so `L.get(0)` is the first item. Behavior on out-of-range `i` is unspecified in this lecture.
-
-- **Non-destructive method:** A method that produces its result without modifying the input data structure; it allocates new objects instead of writing to existing ones.
-
-- **Destructive method:** *(extra context, named in the lecture's method name by contrast but developed in Lists 2)* A method that modifies the input data structure in place, so the caller's list is changed after the call.
-
-- **Linear time:** Runtime proportional to the number of items. `size`, `iterativeSize`, `get` on a late index, and `incrementRecursiveNonDestructive` are all linear in the list's length.
-
----
-
-## Worked Examples
-
-### Example 1: Building `5 -> 10 -> 3` two ways
-
-**Backwards / prepending (the version the lecture runs):**
-
-```java
-IntList L = new IntList(3, null);
-L = new IntList(10, L);
-L = new IntList(5, L);
-```
-
-Step by step, in terms of boxes and arrows:
-
-1. `new IntList(3, null)` allocates a node in the heap with `first = 3`, `rest = null`. `L` is assigned that node's address. Picture: `L -> [3 | X]`.
-2. `new IntList(10, L)` is evaluated **before** the assignment. Java evaluates the right-hand side first, so the argument `L` is the *old* value, the address of node(3). A new node is allocated with `first = 10` and `rest = <address of node(3)>`. Only then is `L` reassigned to the new node. Picture: `L -> [10 | *] -> [3 | X]`. Node(3) itself was never touched.
-3. Same thing again with 5: `L -> [5 | *] -> [10 | *] -> [3 | X]`.
-
-This right-hand-side-first evaluation order is what makes the idiom work and is worth stating explicitly, because it looks circular at first glance ("L is defined in terms of L").
-
-**Forwards / appending (the commented-out version):**
-
-```java
-IntList L = new IntList(5, null);
-L.rest = new IntList(10, null);
-L.rest.rest = new IntList(3, null);
-```
-
-1. `L -> [5 | X]`.
-2. `L.rest = new IntList(10, null)` **mutates** node(5), overwriting its `rest` field from `null` to the address of the new node(10). Now `L -> [5 | *] -> [10 | X]`.
-3. `L.rest.rest = ...` requires two dereferences to reach node(10), then overwrites its `rest`. Now `L -> [5 | *] -> [10 | *] -> [3 | X]`.
-
-Both produce the same picture, but the second requires one more `.rest` for each additional element. Hence the lecture comment: "we get lots of `.rest.rest.rest` nonsense."
-
-### Example 2: The lecture's `main`
-
-```java
-static void main() {
-    IntList L = new IntList(3, null);
-    L = new IntList(10, L);
-    L = new IntList(5, L);
-
-    // 5 -> 10 -> 3
-
-    // should print 3
-    IO.println(L.iterativeSize());
-    IO.println(L.get(2));
-
-    // L is 5 -> 10 -> 3
-    IntList L2 = IntListTools.incrementRecursiveNonDestructive(L, 10);
-
-    // L2 should be 15 -> 20 -> 13
-}
-```
-
-Output line by line:
-
-- `L.iterativeSize()` walks three nodes and prints `3`.
-- `L.get(2)` prints `3` as well, but for a completely different reason: it is the *value* at index 2, which happens to also be 3. The lecture's comment "should print 3" applies to the size; the coincidence is worth noticing so you do not confuse the two. (In the `get_exercise` variant of the file, the list is `5 -> 10 -> 15` and `L.get(2)` prints `15`, which makes the distinction clearer.)
-- `incrementRecursiveNonDestructive(L, 10)` builds a separate three-node list `15 -> 20 -> 13` and binds `L2` to it. After this line, `L` still shows `5 -> 10 -> 3`.
-
-*(extra context)* `static void main()` with no `String[] args` and the `IO.println` helper are features of recent Java preview/simplified-launch syntax used in the course's 2026 code; the `get_exercise` file uses the traditional `public static void main(String[] args)` with `System.out.println`. Either is fine for your own code; match whatever your skeleton uses.
-
-### Example 3: Tracing `size()` on `5 -> 10 -> 3`
-
-Call `L.size()` where `L` points at node(5).
-
-1. Frame 1: `this` = node(5). `rest` is node(10), not null, so evaluate `1 + rest.size()`. Suspend and call.
-2. Frame 2: `this` = node(10). `rest` is node(3), not null, so evaluate `1 + rest.size()`. Suspend and call.
-3. Frame 3: `this` = node(3). `rest` is `null`, base case hit, **return 1**.
-4. Back in frame 2: `1 + 1 = 2`, return 2.
-5. Back in frame 1: `1 + 2 = 3`, return 3.
-
-Three stack frames were live at the deepest point. Contrast with `iterativeSize`, which uses one frame and one extra local variable regardless of list length. *(extra context)* For very long lists the recursive version can overflow the stack while the iterative one will not; this is the practical argument for "sullying ourselves" with a loop.
-
-### Example 4: Tracing `get(2)` on `5 -> 10 -> 3`
-
-1. `L.get(2)`: `this` = node(5), `i = 2`, not 0, so return `this.rest.get(1)`.
-2. `node(10).get(1)`: `i = 1`, not 0, so return `this.rest.get(0)`.
-3. `node(3).get(0)`: `i == 0`, base case, return `this.first`, which is `3`.
-4. The 3 propagates back up unchanged through both frames. Final answer: `3`.
-
-Notice the index and the position advance together: we moved forward 2 nodes and decremented `i` by 2.
-
-**What happens on `L.get(3)`?** Frames for `i = 3, 2, 1` bring us to node(3) with `i = 0`... no: `L.get(3)` gives node(10) `i=2`, node(3) `i=1`, and node(3) is not the base case, so it evaluates `this.rest.get(0)` where `this.rest` is `null`. Calling `get` on `null` throws a `NullPointerException`. The lecture does not require you to guard against this.
-
-### Example 5: Writing `get` iteratively *(extra context, the natural companion exercise)*
-
-The lecture only does `get` recursively ("i'll do it recursively in class"), but the iterative version uses exactly the `p` pattern from `iterativeSize`:
-
-```java
-public int iterativeGet(int i) {
-    IntList p = this;
-    while (i > 0) {
-        p = p.rest;
-        i -= 1;
-    }
-    return p.first;
-}
-```
-
-Each loop iteration advances the pointer one node and burns one unit of index, mirroring the recursive call. When `i` reaches 0 we are standing on the right node.
-
-### Example 6: The `get_exercise` skeleton
-
-The repository includes a stripped version for you to fill in:
-
-```java
-public int get(int i) {
-    // TODO: Make this work
-    return 0;
-}
-
-public static void main(String[] args) {
-    IntList L = new IntList(15, null);
-    L = new IntList(10, L);
-    L = new IntList(5, L);
-
-    System.out.println(L.iterativeSize()); // 3
-    System.out.println(L.get(2));          // should print 15
-}
-```
-
-Here the list is `5 -> 10 -> 15`, so `get(0) == 5`, `get(1) == 10`, `get(2) == 15`, matching the textbook's example exactly. Fill in the body with either the recursive or iterative version above.
+**Second goal (stated on the slides, left as an exercise):** `incrementRecursiveDestructive(IntList L, int x)` returns an incremented version of `L` and **also** changes `L` as a side effect. The destructive version would mutate `L.first` in place and recurse on `L.rest`, with no new nodes allocated.
 
 ---
 
 ## Common Pitfalls
 
-1. **Writing `if (this == null) return 0;` as your base case.** It is unreachable. You already had to dereference a reference to get into the method, so if that reference were `null` you would have thrown a `NullPointerException` at the call site. Check `rest == null` instead, or make the method `static` and take the list as a parameter (as `IntListTools` does).
+1. **Forgetting a base case.** Any recursive method without one eventually blows the call stack: `StackOverflowError`. This happened live in lecture.
 
-2. **Forgetting that `size()` can never return 0.** With this design there is no empty `IntList`; the empty list is represented by `null`, on which you cannot call methods. Do not write test cases expecting `emptyList.size() == 0`.
+2. **Picking the wrong base case.** `if (L.rest == null) return null;` in the increment method looks plausible but drops the last element. Always ask: for the smallest possible input, does my base case return the right thing?
 
-3. **Confusing `p = p.rest` with `p.rest = q`.** The first moves a local pointer and changes nothing in the heap. The second overwrites a field inside an object and changes the list for everyone holding a reference to it. Mixing these up is the number one source of linked-list bugs.
+3. **Writing `if (this == null) return 0;`.** You cannot test whether `this` is null. You invoked the method *on* an object; if the reference were null you would already have a `NullPointerException`. This is the textbook's explicit exercise.
 
-4. **Trying to write `this = this.rest;`.** Compile error. `this` cannot be reassigned. You must introduce a local variable.
+4. **Trying to reassign `this`.** Java forbids it. That's exactly why `iterativeSize` needs a separate pointer variable `p`.
 
-5. **Off-by-one in the loop condition.** `iterativeSize` must test `p != null`, not `p.rest != null`. Testing `p.rest != null` would undercount by one. Conversely the recursive `size` tests `rest == null`, not `this == null`. The two methods use structurally different tests for good reasons; do not copy one into the other.
+5. **Fearing that `p = p.rest;` mutates the list.** It does not. It copies 64 bits into `p`'s own box. Only assignments of the form `someNode.rest = ...` or `someNode.first = ...` change the list.
 
-6. **Assuming `get` is fast.** It is linear. Writing a loop like `for (int i = 0; i < L.size(); i++) { ... L.get(i) ... }` walks the list from the front every single iteration, and also recomputes `size()` every iteration. That innocent-looking loop is quadratic.
+6. **Confusing `L = new IntList(5, L);` with something circular.** The right-hand side is evaluated with the old `L` before assignment.
 
-7. **Getting the prepend idiom backwards.** `L = new IntList(5, L);` puts 5 at the **front**. If you want `5 -> 10 -> 15` you must create it in the order 15, 10, 5. Many students write the lines in list order and get a reversed list.
+7. **Mutating a list inside a method documented as non-destructive.** Writing `L.first = L.first + x;` changes the caller's data. The caller entrusted you with their list.
 
-8. **Thinking a non-destructive method can just edit `L.first`.** Writing `L.first += x;` inside `incrementRecursiveNonDestructive` would mutate the caller's list, which is exactly what "non-destructive" forbids. Non-destructive means every node in the result is created with `new`.
+8. **Assuming `get(i)` is fast.** It is linear. Getting the last item of a million-element IntList walks a million nodes.
 
-9. **Forgetting the `null` base case in a static list helper.** Without `if (L == null) return null;`, `incrementRecursiveNonDestructive` would try to read `L.first` off `null` and crash at the end of the list. That base case is also what supplies the result list's terminating `null`.
+9. **Adding a bounds check with `size()`.** Correct but expensive: `size()` is itself linear, so `get` would become two linear passes for no good reason.
 
-10. **Assuming `L.get(2)` prints the size.** In the lecture's `main` the size and `get(2)` both print `3` purely by coincidence, since the last element happens to be the value 3.
+10. **Forgetting `static` on a method in a client class** that you intend to call as `IntListTools.method(...)` without constructing an `IntListTools` object.
+
+11. **Treating a 2D array as a rectangle.** Rows are independent arrays and may have different lengths, or be aliased by other variables.
+
+12. **Duplicate class names across folders.** Java complains if two `Dog` classes are visible; declare packages to give them distinct canonical names. *(Extra content)*
 
 ---
 
 ## Likely Exam Points
 
-### 1. Box-and-pointer diagrams for list construction
+### 1. Box-and-pointer diagrams for IntList construction
 
-Given a sequence of `IntList` statements, draw the heap or answer what a variable points at.
-
-**Practice.** After the following code, what does `A.get(1)` return, and how many `IntList` objects exist in the heap?
-
+**Q:** After running the code below, how many `IntList` objects exist, and what does `L` print as a sequence?
 ```java
-IntList A = new IntList(1, null);
-IntList B = new IntList(2, A);
-A = new IntList(3, B);
+IntList L = new IntList(15, null);
+IntList M = new IntList(10, L);
+L = new IntList(5, M);
 ```
+**A:** Three objects. `M` points at `10 -> 15`, and `L` points at `5 -> 10 -> 15`. No object is orphaned: the `15` node has two incoming references paths (from `M.rest` and from `L.rest.rest`, which are the same node). Note that reassigning `L` did not change what `M` sees; `M` still refers to `10 -> 15`.
 
-**Answer.** Build it up: `A -> [1|X]`. Then `B -> [2|*] -> [1|X]`. Then `new IntList(3, B)` creates a node with `first = 3`, `rest = B`, and reassigns `A` to it, so `A -> [3|*] -> [2|*] -> [1|X]`. `A.get(1)` walks one node and returns `2`. Three `IntList` objects exist; note that `B` still points into the middle of `A`'s list, and the old binding of `A` to node(1) was replaced but node(1) is still reachable as the last node.
+### 2. Bit-size questions about memory boxes
 
-### 2. The `this == null` question
+**Q:** In `int[][] x = new int[4][6];`, how many bits is the box named `x`, how many bits is each box in the length-4 array, and how many bits is each box in a length-6 array?
+**A:** 64 bits (an address), 64 bits each (each is an address of an `int[]`), and 32 bits each (each is an `int`). An `IntList` object's fields total 96 bits: 32 for `first`, 64 for `rest`.
 
-This is asked almost verbatim in the textbook, so it is fair game.
+### 3. Writing `size()` recursively / spotting a broken base case
 
-**Practice.** Why can't `size()` be written as `if (this == null) return 0; return 1 + rest.size();`?
-
-**Answer.** Because `size()` is an instance method, calling it requires a receiver object: `L.size()`. If `L` is `null`, the JVM throws a `NullPointerException` at the call, before the method body executes, so the `this == null` test never runs. `this` is never `null` inside a method. The fix is to check `rest == null` (base case is a one-element list) or to use a static helper that takes the list as an argument so the `null` check happens on a parameter.
-
-### 3. Convert recursive to iterative, or iterative to recursive
-
-**Practice.** Write `iterativeGet(int i)` for `IntList` without recursion.
-
-**Answer.**
+**Q:** Why does the following fail, and on what input?
 ```java
-public int iterativeGet(int i) {
-    IntList p = this;
-    while (i > 0) {
-        p = p.rest;
-        i -= 1;
-    }
-    return p.first;
+public int size() {
+    return 1 + rest.size();
 }
 ```
-Each iteration advances one node and decrements the remaining index; when `i` hits 0, `p` is on the target node. (Equivalently, a `for` loop running `i` times.)
+**A:** No base case. On any list, it eventually calls `size()` on `null` via `rest.size()` where `rest` is `null`, throwing a `NullPointerException`. Fix: `if (rest == null) return 1;` first.
 
-### 4. Runtime of `get` and `size`
+### 4. Iterative traversal and the role of `p`
 
-**Practice.** For an `IntList` of length N, what is the runtime of `L.get(N - 1)`? What about `L.get(0)`? Why is this a problem?
+**Q:** Why can't `iterativeSize` be written as `while (this != null) { totalSize += 1; this = this.rest; }`?
+**A:** Because `this` cannot be reassigned in Java, so `this = this.rest;` does not compile. You need a separate local reference variable, conventionally named `p`, initialized to `this`.
 
-**Answer.** `L.get(N - 1)` is linear in N: you must follow N-1 `rest` pointers because there is no way to jump directly to a position. `L.get(0)` is constant time. The problem is that code which indexes into a list in a loop becomes quadratic; the textbook promises "an alternate way to implement a list that will avoid this problem in a future lecture" (array-based lists, where indexing is constant time).
+### 5. Writing `get(i)` and reasoning about the base case
 
-### 5. Destructive vs. non-destructive
-
-**Practice.** After running the lecture's `main`, what does `L` print as, and what does `L2` print as? Justify.
-
-**Answer.** `L` is still `5 -> 10 -> 3` and `L2` is `15 -> 20 -> 13`. `incrementRecursiveNonDestructive` only *reads* `L.first` and `L.rest`; every node in the returned list is freshly built with `new IntList(...)`. No field of any node of `L` is ever assigned to, so `L` is unchanged. Six `IntList` objects exist in total, and they share no nodes.
-
-### 6. Write a recursive list method from scratch
-
-**Practice.** Write a static, non-destructive method `IntList square(IntList L)` returning a new list with each element squared, leaving `L` unmodified.
-
-**Answer.**
+**Q:** Write `get(int i)` recursively, then explain in one sentence what the recursive call means.
+**A:**
 ```java
-public static IntList square(IntList L) {
-    if (L == null) {
-        return null;
+public int get(int i) {
+    if (i == 0) {
+        return first;
     }
-    return new IntList(L.first * L.first, square(L.rest));
+    return rest.get(i - 1);
 }
 ```
-The `null` base case both terminates the recursion and supplies the new list's terminating `null`. Using `new` for every node guarantees non-destructiveness.
+The recursive call means: my ith item is my rest's (i-1)th item.
 
-### 7. Reading a trace / counting recursive calls
+### 6. Runtime of `get`
 
-**Practice.** How many times is `size()` invoked (counting the initial call) when you run `L.size()` on a list of length N? How deep does the call stack get?
+**Q:** If an IntList has N elements, how long does `L.get(N - 1)` take, roughly?
+**A:** Linear in N: the call chain visits every node. This is a known weakness of linked lists and motivates array-based lists later in the course.
 
-**Answer.** N invocations and N frames deep at the deepest point: one per node, with the last node hitting the base case. `iterativeSize` by contrast uses a single frame and one extra pointer variable regardless of N.
+### 7. Destructive vs. non-destructive
 
-### 8. Spot the bug
-
-**Practice.** What is wrong with this `iterativeSize`?
-
+**Q:** Which of these is destructive? For the non-destructive one, how many new `IntList` objects does it allocate on a list of length N?
 ```java
-public int iterativeSize() {
-    IntList p = this;
-    int totalSize = 0;
-    while (p.rest != null) {
-        totalSize += 1;
-        p = p.rest;
-    }
-    return totalSize;
+// (a)
+public static IntList incA(IntList L, int x) {
+    if (L == null) return null;
+    L.first += x;
+    incA(L.rest, x);
+    return L;
+}
+// (b)
+public static IntList incB(IntList L, int x) {
+    if (L == null) return null;
+    return new IntList(L.first + x, incB(L.rest, x));
 }
 ```
+**A:** (a) is destructive: it mutates `L.first` in place, so the caller's list changes and it allocates 0 new objects. (b) is non-destructive and allocates exactly N new `IntList` objects, one per element of the original. Note (b) is a more compact but equivalent form of the lecture's `incrementRecursiveNonDestructive`.
 
-**Answer.** It undercounts by one. The loop stops when `p` is the last node, so the last node is never counted; on `5 -> 10 -> 3` it returns 2. The condition must be `p != null`. (It would also throw a `NullPointerException` if `this` could somehow be `null`, but as established, it cannot.)
+### 8. Finding the base-case bug
+
+**Q:** A student writes a non-destructive increment with the base case `if (L.rest == null) return null;`. On the input `5 -> 10 -> 3` with `x = 10`, what is the output, and what is wrong?
+**A:** Output is `15 -> 20`. The base case fires while there is still a node (`3`) left to copy, and returns `null` instead of copying it, silently dropping the last element. Correct base case: `if (L == null) return null;`.
+
+### 9. Why not check `this == null`
+
+**Q:** Explain why `if (this == null) return 0;` is not a valid way to handle empty lists.
+**A:** `size()` is invoked on an object, e.g. `L.size()`. If `L` were `null`, the JVM throws a `NullPointerException` at the call site, before any method body executes. A method can never observe that `this` is null.
+
+### 10. Packages and imports *(Extra content, less likely to be tested given it was skipped)*
+
+**Q:** True or false: you must `import` a class to use it.
+**A:** False. Importing is purely shorthand; you can always write the full canonical name, e.g. `lec4_testing.Sort`. Separately: omitting `public` makes a class or member visible only within its own package.
 
 ---
 
 ## Summary
 
-- `IntList` is a minimal linked list: `public int first` plus `public IntList rest`, with a two-argument constructor. It is legal for a class to have a field of its own type because object variables hold **references**, not objects.
-- A list is defined recursively: "a first item, plus the rest of the list." `rest == null` marks the end.
-- Building lists by hand is painful: appending gives `.rest.rest.rest` chains; prepending (`L = new IntList(5, L);`) is terser but forces you to build the list back to front. This ugliness motivates adding helper methods.
-- `size()` is recursive with base case `rest == null` returning 1. You **cannot** use `this == null` as a base case, because calling a method on `null` throws a `NullPointerException` before the body runs.
-- Consequently there is no empty `IntList`; `size()` never returns 0.
-- `iterativeSize()` uses a local pointer (`IntList p = this;`, conventionally named `p`) and loops while `p != null`, doing `p = p.rest`. A local pointer is required because `this` cannot be reassigned in Java.
-- `p = p.rest` moves a pointer and changes nothing; `p.rest = q` mutates the heap. Keep them straight.
-- `get(int i)` is recursive: base case `i == 0` returns `first`, otherwise "my ith item is my rest's (i-1)th item." Zero-indexed. Invalid indices are unspecified and generally throw `NullPointerException`.
-- `get` is **linear time**, so linked lists are bad at random access. A future lecture introduces an array-based alternative with constant-time indexing.
-- `IntListTools.incrementRecursiveNonDestructive(L, x)` is **static** (so `L == null` is a safe base case) and **non-destructive**: it allocates a new node for every element and never writes to `L`. On `5 -> 10 -> 3` with `x = 10` it returns a separate list `15 -> 20 -> 13`, leaving `L` intact.
-- The destructive/non-destructive distinction introduced here is the main thread picked up in Lists 2.
+- Lecture opened by finishing 2D arrays: `int[][]` is a 64-bit reference to an array of 64-bit references to `int[]`s, rows may differ in length, and aliasing a row (`int[] row0 = theMatrix[0];`) lets you mutate the original.
+- **Packages were explicitly extra content and skipped in lecture.** Key points from slides: `package p;` gives a class the canonical name `p.ClassName` and resolves duplicate-class conflicts; `import` is just shorthand and never required; Java searches only the CLASSPATH; `public` means visible from any package, omitting it means package-private only.
+- Java lists are a library feature, not a language feature. This is lecture 1 of 4 building lists ourselves: linked-list-based first, array-based later.
+- An `IntList` is just `int first` plus `IntList rest`, a recursively defined, arbitrarily extendable list. `null` terminates it. Object fields total 96 bits.
+- Appending without a constructor produces `.rest.rest.rest` chains. Adding the constructor `IntList(int f, IntList r)` enables the clean prepend idiom: `L = new IntList(5, L);`, building the list backwards.
+- `size()` recursive: base case `rest == null` returns 1; recursive case returns `1 + rest.size()`. The "recursive leap of faith" is trusting the subproblem's answer.
+- `iterativeSize()` uses a separate pointer `p`, initialized to `this`, advanced by `p = p.rest;` until `null`. The separate variable is needed because `this` cannot be reassigned. Advancing `p` never modifies the list.
+- `get(int i)`: base case `i == 0` returns `first`; otherwise `rest.get(i - 1)`. "My ith item is my rest's (i-1)th item." Runtime is linear.
+- `IntListTools` demonstrates a client class with `static` methods operating on `IntList`s.
+- **Non-destructive** means leaving the input untouched (allocate new nodes); **destructive** means mutating it as a side effect (and may return `void`).
+- The live-coded bug: missing base case gives `StackOverflowError`; the base case `L.rest == null` silently drops the last element; the correct one is `L == null`.
+- Every step is explained by the Mystery of the Walrus / Golden Rule of Equals: assignment copies bits, and for objects those bits are a 64-bit address.
