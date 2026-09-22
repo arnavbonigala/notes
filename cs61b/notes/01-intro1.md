@@ -1,206 +1,180 @@
-<!-- Wed, Aug 26, 2026 | sources: code + YouTube auto-transcript + your recording -->
-# Lecture 1: Intro 1
+<!-- Wed, Aug 26, 2026 | sources: slides + code + YouTube auto-transcript + your recording + textbook -->
+# Lecture 1: Welcome to 61B, Intro to Java
 
-CS 61B opens by locating itself one layer of abstraction below CS 61A: in 61A you *used* Python lists, and in 61B you learn how something like a list is actually built. Josh Hug framed this with Plato's allegory of the cave (the programmer who only sees shadows versus the one who walks behind the screen to see the machinery), and noted that CPython's `listobject.c` is roughly 4,000 lines of code that someone had to write. The course has two goals: writing code that runs efficiently (good algorithms and data structures), and writing code efficiently by hand (design, build, test, and debug large programs using Git, IntelliJ, JUnit, and command line tools). The language is Java, chosen because it is faster than Python, has static typing, has arrays (fixed length, unlike lists), and has subtype polymorphism as a tool for managing complexity. The technical content of the day was a three-program tour comparing Java against Python side by side: `hello_world`, `hello_numbers`, and `larger`. Those three programs surface Java's defining early features: braces instead of indentation, semicolons as statement terminators, code living inside a `main` method, variables that must be declared with an explicit type, function definitions that declare parameter types and a return type, and, most importantly, the fact that Java checks types *before* the program runs rather than blowing up mid-execution the way Python does.
+## Overview
+
+This first lecture does two things: it frames what CS 61B is about, and it introduces Java by translating three tiny Python programs into Java. The framing idea is **layers of abstraction**: in 61A you learned to *use* a list (`x = [3, 4, 5]; x.append(6)`) but never saw how one is built; in 61B you drop down a layer and build lists yourself, two radically different ways, over the first five weeks. The course is about writing code that runs efficiently (good algorithms and data structures) and writing code efficiently by hand (design, build, test, debug, using git, IntelliJ, JUnit/Truth, and command line tools). The language is Java, chosen because it is fast, extremely popular, and has features Python lacks: **static typing**, **arrays**, and **subtype polymorphism**. The technical core of the lecture is three demos (`HelloWorld`, `HelloNumbers`, `LargerDemo`) that surface Java's syntax rules (curly braces, semicolons, a `main` function) and, more importantly, the central idea that Java variables and functions have **declared types that never change and are checked by the compiler before the program ever runs**. The lecture closes with logistics (grading, phases, attendance, the LLM policy) and the IntelliJ workflow, with HW1 (set up your computer) due Friday.
 
 ---
 
 ## Key Concepts
 
-### 1. Peeling back a layer of abstraction
+### 1. Layers of abstraction, and where 61B sits
 
-61A taught programming in layers of abstraction and handed you a `list`. Nobody showed you where the list came from. In 61B the first five weeks are spent building *two radically different ways of implementing a list*. The point is explicitly not that you will build lists professionally (that work is done). Lists and maps are **exemplars**: classic problems whose solutions build habits of mind (decomposition, seeing layers) that transfer to designing any system. If you continue as a CS major, 61C peels back another layer and asks how the computer itself works.
+In 61A you wrote `x = [3, 4, 5]` and `x.append(6)` without ever asking what happens underneath. Josh's point: someone actually wrote that list. CPython's `listobject.c` is roughly 4,000 lines of real code sitting under the one-line abstraction you used. 61B moves you one layer down: you become the person who implements the list, not just the person who calls it.
+
+He illustrated this with **Plato's allegory of the cave**: the people in the cave see shadows and believe they are the world; behind them, others manipulate the objects casting those shadows. The Python programmer using a list lives with the shadows; in 61B you turn around and see the machinery. And the layers keep going, 61C asks how the computer itself works.
+
+The important nuance: you are not learning to build lists because your job will involve building lists (that work is long done). Lists and maps are **exemplars** of important solved problems. Working through them by hand builds habits of decomposition and reasoning that transfer to any system you build later.
 
 ### 2. What the course is actually about
 
-Two things, in Hug's own phrasing:
+Two goals, stated as a pair:
 
-- **Code that runs efficiently**: good algorithms and good data structures. Asymptotic analysis, resizing arrays, tree structures, some graph theory, and P vs NP at the very end.
-- **Code written efficiently, by hand**: getting into the programmer's flow state, and learning to design, build, test, and debug large programs with professional tooling (Git, IntelliJ, JUnit, command line tools).
+- **Writing code that runs efficiently**: good algorithms, good data structures.
+- **Writing code efficiently by hand**: designing, building, testing, and debugging large programs, plus tooling (git, IntelliJ, JUnit/Truth, command line tools). The phrase "by hand" is deliberate this semester: you are learning the flow state of writing programs yourself, not orchestrating an agent.
 
-The target outcome: the confident sense that you could build any software by hand if you chose to, so that even when LLMs generate most of your professional code, you understand what is happening under the hood.
+Assumed background: object oriented programming, recursion, lists, maps, and trees. ("Maps" is the 61B word for what you called a Python dictionary. Trees are less vital since the course picks them up along the way; OOP is the main hurdle if you came from E7.)
 
-### 3. Assumed background and the LLM policy
+AI workflows will not be covered in depth, though there may be an optional project or a couple of labs for the curious.
 
-Assumed: object-oriented programming, recursion, lists, maps (what Python calls dictionaries), and trees. Trees are less vital since the course rebuilds them. Students from E7 will hit classes as the early hurdle and should use the bridge section.
+### 3. Why Java
 
-On LLMs, the stated policy was strong and specific: use them minimally. No LLM plugins in IntelliJ, no Cursor or Claude Code for this class, no LLM-written code turned in no matter how small, do not feed assignment specs to an LLM for a reword (reading specs is part of the skill), and preferably do not paste code in and ask "where is the bug?" Using an LLM as a *tutor* ("I'm confused about hash tables, here's my thinking") is more reasonable, though talking to staff and fellow students is richer. The justification given was empirical: on a past fall paper midterm where students had to write code by hand, roughly 10% of students scored under 10%, attributed to shaky foundations propped up by LLM assistance. The analogy offered: doing LLM-assisted Chinese homework and then being asked to speak Chinese unaided.
+- Runs much faster than Python.
+- Has language features Python lacks: **static typing**, **arrays** (fixed length, unlike a list), **subtype polymorphism** (a tool for managing complexity, covered later).
+- Extremely popular.
 
-### 4. Why Java instead of Python
+The language arc across the lower division: 61A uses Python, Scheme, SQL; 61B uses Java; 61C uses C and assembly.
 
-| Reason | Detail from lecture |
-|---|---|
-| Speed | Java code runs faster than Python (the *why* is a 61C topic) |
-| Static typing | Not taught in the predecessor courses; the central new idea today |
-| Arrays | Fixed-length, unlike a Python list |
-| Subtype polymorphism | A tool for managing complexity, covered later |
-| Popularity | Less popular than Python, but still very widely used |
+### 4. Java's surface rules (from Hello World)
 
-Java is old-fashioned (nobody has a recent Java tattoo), but it is a solid workhorse that keeps improving.
+Three syntactic facts, discovered by watching the compiler complain:
 
-### 5. Java syntax basics (from `HelloWorld`)
+1. **Curly braces `{ }` delimit the beginning and ending of things** (functions, loops, if-blocks), where Python uses indentation. A consequence: you can legally cram an entire Java program onto one line and it still works. Indentation in Java is for humans only.
+2. **Statements end with a semicolon.**
+3. **The code you want to run must be inside a function called `main`.** As a student put it in lecture, `main` is the **entry point**: it tells Java what is actually supposed to run.
 
-Three structural facts, discovered by watching the compiler reject each intermediate attempt:
+A historical note from the live demo: Josh first typed a bare `IO.println(...)` and got `class, interface, annotation type, enum, record, method, or field expected`, then wrapped it in `public class HelloWorld`, then got `illegal start of type` until he added `void main()`. He then pointed out that in modern Java **the class is technically no longer required**, and the rest of the lecture's code has no class at all. (In older Java, and in code you may have seen before, everything had to live inside a class.)
 
-- **Braces, not indentation.** Python uses indentation to mark the beginning and end of blocks; Java uses `{` and `}`. A consequence: you can legally cram an entire Java program onto one line and it still works. Indentation in Java is purely for human readers.
-- **Semicolons end statements.** Each statement such as `IO.println("Hello World");` ends in `;`.
-- **Code must live inside a method, normally `main`.** A bare line of code at file level produces the error `class, interface, annotation type, enum, record, method, or field expected`. A student suggested the term **entry point** for `main`, which Hug accepted: `main` tells the system what is actually supposed to run.
+`IO.println` is the course's printing call. "IO" is the input/output library; Java makes you say *whose* `println` it is. The older, more verbose `System.out.println` also works. `println` adds a newline; `IO.print` does not (in the demo, using `print` put all ten numbers on one line).
 
-A note on the class wrapper: historically you had to write `public class HelloWorld { ... }` around everything, and if you write only the class with no `main` you get `illegal start of type` style complaints until a method is added. Very recent Java allows a top-level `void main()` with no enclosing class, and the lecture code files use exactly that form, so the rest of the day's examples have no `class` line.
+### 5. Declaration before use (from Hello Numbers)
 
-On printing: `IO.println` is the course's printing call. `IO` is the input/output library, and Java will not let you just say `println` on its own because it needs to know *whose* `println`. The older, more traditional spelling `System.out.println` also works and is fine. `print` versus `println`: `println` appends a newline, `print` does not, which is why an early run of the numbers program put everything on one line.
-
-### 6. Variable declaration (from `HelloNumbers`)
-
-In Java, before you can use a variable you must **declare** it. The declaration form used in this class is: **type, then name, then semicolon**.
+In Python, `x = 0` creates `x` on the spot. In Java, the compiler rejected `x = 0` with `cannot find symbol: variable x`. Before you can use a Java variable, you must **declare** it: write its **type**, then its **name**, then a semicolon.
 
 ```java
-int x;
+int x;   // declaration
+x = 0;   // assignment
 ```
 
-Skipping this yields `cannot find symbol` / `symbol: variable x`. Hug pointed out that this compiler message is not especially helpful: it does not tell you where the symbol should have been declared. Declaration and assignment are two separate processes conceptually, which is why the lecture wrote them on separate lines, but a student asked whether they could be combined and the answer is yes, `int x = 0;` is legal Java.
+You may combine the two into `int x = 0;`. The lecture code split them apart deliberately, for pedagogical reasons, to show that declaration and assignment are two separate operations. That distinction matters later when you reason about what a variable holds versus what box exists.
 
-Also from this program: `while` in Java requires parentheses around its condition, `while (x < 10) { ... }`. Forgetting them gives a `'(' expected` error, and Hug noted the compiler is good about yelling at you for this one.
+**Box-and-pointer intuition in words (building on lecture's framing):** think of `int x;` as the compiler setting aside a labeled box, sized and shaped for integers, with the label `x`. The box exists but contains nothing usable yet. `x = 0;` puts a 0 into that box. The box's *shape* (its type) is fixed at declaration time and can never be reshaped; only the contents can change, and only to something that fits an `int`-shaped box. This is exactly why `x = "horse";` fails: you cannot put a horse in an integer box.
 
-### 7. Static typing: the central idea of the lecture
+### 6. Static typing: the heart of the lecture
 
-Four properties, as summarized on the reflection slide:
+> **Java is statically typed:** all variables, parameters, and methods have a declared type; that type can never change; expressions also have types (e.g. `larger(5, 10) + 3` has type `int`); and the compiler checks that all types in your program are compatible **before the program ever runs**.
 
-1. Variables must be **declared** before use.
-2. Variables have a **specific type**.
-3. That type **cannot change**.
-4. Types are **verified before the code runs**.
+The demo that makes this vivid: take the same badly typed operation and run it in both languages.
 
-Property 4 is the one Hug pushed hardest on, and he made students find it themselves. Both `hello_numbers.py` and the Java equivalent contain a deliberate type error (`x = x + "horse"`). The Python version **prints 0 through 9 and then crashes**: it ran, produced output, and exploded partway through. The Java version **never runs at all**: the compiler analyzes the program, finds the bad type, and refuses to produce a running program. One student first answered "it's trying to convert it here and complaining about addition there," which is a real difference but not the fundamental one; the fundamental one is *when* the failure happens.
+- **Python** (`hello_numbers.py`): the program prints `0 1 2 3 4 5 6 7 8 9`, and *then* crashes on `x = x + "horse"`. The type check happened **during** execution.
+- **Java**: the program prints **nothing**. It never runs at all. The compiler refuses it.
 
-Why this matters beyond the classroom: if you ship an app to someone's phone, a Python-style latent type error can crash on the user's device. Java's compiler gives the program a stamp of approval on types before it ever leaves your machine. Python was described as a duck-typed language where "I could do whatever the hell I want" and make `x` a horse later.
+Josh pushed the class past the surface answer ("one complains about converting, one about adding") to the fundamental one: **Python runs and then explodes.** That is dangerous, because if you ship an app to someone's phone, a lurking type error can crash on the user's device. In Java, the compiler analyzes the program first and gives it a stamp of approval saying all the types are fine.
 
-**Benefits of static typing:** prevents whole classes of type bugs from reaching users; code runs faster (details in 61C); code is easier to read and reason about. Hug's industry anecdote: messed-up types of parameters being passed in was a significant real-world problem, and after this course you will miss knowing your argument types when you return to Python.
+Also note: `String x = "horse";` after `int x = 0;` also fails. You cannot redeclare `x` with a different type. The type is static, meaning unchanging.
 
-**Costs of static typing:** verbosity, and you may need more than one function to cover what one Python function covered. `larger` for `int`s will not accept strings, so supporting strings requires writing a second `larger` that takes two `String`s. When Hug asked for the downside, the student answer was "verbosity."
+### 7. Static typing: the tradeoff
 
-### 8. Function definitions in Java (from `LargerDemo`)
+**The good (Josh's answers):**
+- Catches certain classes of errors, making debugging easier.
+- Type errors can (almost) never occur on the end user's computer.
+- Makes code easier to read and reason about. (Josh's industry anecdote: mixed-up parameter types were a major real-world problem, and after 61B you will go back to Python wishing you knew your arguments' types.)
+- Code can run more efficiently, since there is no need for expensive runtime type checks. (More on why in 61C.)
 
-The Java function declaration rule: **return type, then name, then parenthesized parameters each with their own declared type**. There is no `def` keyword. If a function returns nothing, its return type is `void`, which is why `main` is written `void main()`.
+**The bad:**
+- Code is much more verbose.
+- Code is less general. A `larger` that takes two `int`s cannot compare `5.5` or two strings; you would need a separate function for each type.
 
-Hug's framing: Java functions feel more like mathematical functions. `int larger(int x, int y)` has a domain of pairs of integers (the Cartesian product of the integers with themselves) and a codomain of integers, and the signature states this explicitly. Calling `larger("a", "z")` is rejected at compile time: you cannot put strings in an integer box, so the code crashes before it even runs. The Python `larger` happily handles strings and returns `"z"`.
+### 8. Defining functions in Java (from Larger)
 
-### 9. Tooling
+- There is **no `def` keyword**. You write the **return type**, then the name, then the typed parameters.
+- **Every parameter must have a declared type.**
+- **The return value must have a declared type**, and a Java function returns only **one** value. Use `void` when there is nothing to return.
+- If conditions must be in parentheses: `if (x > y) { ... }`, not `if x > y:`.
+- The lecture notes there will be "alternate ways of defining functions later."
 
-So far Hug has been editing in Sublime Text and running from the command line, but students will use an **IDE (integrated development environment)**, specifically IntelliJ: a heavier program where you edit and run code in one place. Homework 1 is setting this up.
+Josh's framing for the math-minded: a Java function feels more like a mathematical function, with an explicit domain and codomain. `int larger(int x, int y)` has domain "pairs of integers" and returns an integer.
+
+### 9. Compilation (skipped this semester)
+
+The slides contained a compilation section, and the Fall 2026 slide deck explicitly says: **"We skipped these slides. We'll return to them in a much later lecture."** For completeness, the content is:
+
+Java separates compilation and interpretation into two steps: `Hello.java` goes through the compiler (`javac`) to produce `Hello.class`, which the interpreter (`java`) then executes. Why produce a `.class` file at all?
+- It has been type checked, so distributed code is safer.
+- `.class` files are simpler for a machine to execute, so distributed code is faster.
+- Minor benefit: it protects intellectual property, since you need not give out source. (Though `.class` files are easily reversible into similar-looking Java files.)
+
+The command line version (`javac HelloWorld.java`, then `java HelloWorld`) was described as "a very old school (but sometimes useful) way of interacting with Java code. We won't do this in 61B."
+
+### 10. Workflow: IntelliJ
+
+Three workflow styles were compared:
+- **Text editor plus command line** (61A, CS88): write in the editor, run on the command line. This is what Josh used in the live demo, with Sublime Text.
+- **Jupyter notebooks** (Data 8, E7): write and run in the same environment.
+- **Integrated Development Environment** (61B): write and run in the same environment, plus a debugger, autocomplete, continuous syntax checking, decompilation from `.class` to `.java`, and more. The screenshot's highlighted feature: IntelliJ automatically and continuously detects syntax errors as you type.
+
+**Admonition from the slides:** the expectation is that everyone uses IntelliJ. It is not strictly required, but staff will provide **no support** for other tools or workflows.
 
 ---
 
 ## Definitions
 
-- **Abstraction layer**: a level of description that hides the machinery beneath it. A Python programmer using `list` sits one layer above the C code that implements `list`; 61B moves you one layer down.
-- **Declaration**: a statement that brings a variable into existence by stating its type and its name, for example `int x;`. Required in Java before any use of the variable.
-- **Static typing**: the property that every variable and expression has a declared type, that the type never changes, and that the types are checked by the compiler before the program is executed.
-- **Dynamic typing (duck typing)**: Python's approach, where a variable can hold a value of any type and can be rebound to a different type at any time; type errors surface only when the offending line actually executes.
-- **Compiler**: the program that analyzes Java source before execution, reports type errors and syntax errors, and, if everything checks out, produces a runnable program. Failure at this stage means the program never runs.
-- **`main`**: the method that serves as the program's **entry point**, the code that actually gets run when you run the program.
-- **`void`**: the return type written for a function that returns no value.
-- **Return type**: the type of the value a function hands back, written immediately before the function's name in its declaration.
-- **`IO.println` / `IO.print`**: the course's output calls. `IO` stands for the input/output library. `println` appends a newline; `print` does not. `System.out.println` is the older equivalent of `IO.println`.
-- **Semicolon**: the statement terminator in Java.
-- **Curly braces `{ }`**: Java's delimiters for the beginning and end of a block, filling the role that indentation plays in Python.
-- **Array**: (previewed only) a Java data structure like a list but with a fixed length.
-- **Subtype polymorphism**: (previewed only) a Java feature for managing complexity, to be covered later.
+- **Abstraction layer**: a level of a system that you use through an interface without knowing its implementation. Using `x.append(6)` is one layer; implementing what `append` does is the layer below.
+- **Statically typed language**: a language in which every variable, parameter, and method has a declared type, that type never changes, and the compiler verifies type compatibility before the program runs. Java is statically typed.
+- **Dynamically typed language**: (contrast drawn in lecture; Josh called Python "duck typed") a language where type checks are performed *during* execution, so a variable can hold values of different types over its lifetime and type errors surface at runtime.
+- **Declaration**: a statement introducing a variable by stating its type followed by its name, e.g. `int x;`. Required before a variable can be used in Java.
+- **Type**: the kind of value a variable, parameter, expression, or return value holds, e.g. `int`, `String`. Expressions have types too: `larger(5, 10) + 3` has type `int`.
+- **`main`**: the function in which the code you want to run must live; the program's **entry point**.
+- **`void`**: the return type written when a function returns no value, as in `void main()`.
+- **Semicolon**: the statement terminator in Java; every statement ends with one.
+- **Curly braces `{ }`**: delimiters marking the beginning and ending of things (functions, loops, conditionals). Java's replacement for Python's significant indentation.
+- **`IO.println`**: the course's output call, printing its argument followed by a newline. `IO` is the input/output library. `IO.print` omits the newline. `System.out.println` is the older-school equivalent.
+- **Array**: a Java data structure with a **fixed length**, distinguishing it from a Python list. (Named in lecture as a reason to use Java; covered in detail later.)
+- **Subtype polymorphism**: a Java feature described as a tool for managing complexity, absent in Python, to be covered later in the course.
+- **Compiler** (`javac`): the tool that turns `.java` source into a type-checked `.class` file. (From the skipped section.)
+- **Interpreter** (`java`): the tool that executes a `.class` file. (From the skipped section.)
+- **IDE (Integrated Development Environment)**: a single program for both writing and running code, with a debugger, autocomplete, continuous syntax checking, and decompilation. 61B uses IntelliJ.
 
 ---
 
 ## Worked Examples
 
-### Example 1: Hello World, built up error by error
+All three are from the lecture code repository: https://github.com/Berkeley-CS61B/lectureCode-fa26
 
-Python side:
+### Example 1: Hello World
 
+**Python (`hello_world.py`):**
 ```python
 print("hello world!!")
 ```
 
-Java side, as it was reached in class. Attempt 1, a bare statement in a file:
-
-```java
-IO.println("Hello World");
-```
-
-The compiler responds: `class, interface, annotation type, enum, record, method, or field expected`. Reading that message: Java expects the top level of a file to contain a *declaration* of something, not an *action*. A lone statement has no home.
-
-Attempt 2, wrap it in a class (the historically required form):
-
-```java
-public class HelloWorld {
-    IO.println("Hello World");
-}
-```
-
-Still wrong: a statement cannot float directly inside a class body either. The fix is to put it inside a method.
-
-Final form (lecture file `HelloWorld.java`, using the modern no-class style):
-
+**Java (`HelloWorld.java`):**
 ```java
 void main() {
-    IO.println("Hello World");
+	IO.println("Hello World");
 }
 ```
 
-Step by step, what this does:
+**Step by step, following the live demo's discovery process:**
 
-1. `void main()` declares a function named `main` that takes no arguments and returns nothing (`void`).
-2. `{` opens the body of `main`.
-3. `IO.println("Hello World");` asks the input/output library to print the string and then a newline. The semicolon ends the statement.
-4. `}` closes the body.
-5. Running the program invokes `main`, the entry point, which prints `Hello World`.
+1. Josh first typed just the printing line with nothing around it. The compiler said `class, interface, annotation type, enum, record, method, or field expected`. Meaning: a Java file cannot simply be a loose line of code that does something. It must contain a declaration of some kind.
+2. He wrapped it in `public class HelloWorld { ... }`. Now the error became `illegal start of type`, because a bare statement still cannot float directly inside a class body.
+3. He added `void main() { ... }` around the print. Now it runs.
+4. He then noted that in modern Java the surrounding class is **technically not required**, which is why the file as posted is just `void main() { ... }`.
 
-**Why it is shaped this way:** every piece of runnable code in Java lives inside a method, and `main` is where execution begins. Compare to Python, where the file itself is the program and `print(...)` at top level simply runs. Java trades that convenience for structure.
+**Why each piece is there:**
+- `void` is the return type: `main` gives nothing back.
+- `main` is the entry point; the runtime looks for it to know what to execute.
+- `{` and `}` mark where the function body begins and ends, since Java does not read your indentation.
+- `IO.println` is a call into the input/output library. Java will not accept a bare `print`; you must say whose `println` this is.
+- The `;` ends the statement.
 
-### Example 2: Hello Numbers, and the declaration requirement
+Running it prints `Hello World` and a newline.
 
-Python (`hello_numbers.py`, ignoring the last line for a moment):
+### Example 2: Hello Numbers
 
-```python
-x = 0
-while x < 10:
-	print(x)
-	x = x + 1
-```
-
-Prints 0 through 9. Note: no declaration, no type, no parentheses, no braces, no semicolons. Indentation defines the loop body.
-
-The Java translation was built by pasting the Python in and fixing what the compiler complained about, in this order:
-
-1. Wrap everything in `void main() { ... }` and convert indentation into braces.
-2. Add semicolons to the ends of statements.
-3. `print` becomes `IO.print` / `IO.println`.
-4. Compiler error `'(' expected` on the `while` line: Java requires parentheses around the loop condition, so `while x < 10` becomes `while (x < 10)`.
-5. Compiler error `cannot find symbol, symbol: variable x`: `x` was never declared. There is no way to tell the compiler "x is on line 2, column 5"; you must actually declare it.
-
-Final form (lecture file `HelloNumbers.java`):
-
-```java
-void main() {
-	// before we can use a variable
-	// in Java, we must declare it
-	// we'll always do so by
-	// saying its type and then its name
-	// and then a semi-colon
-	int x;
-
-	x = 0;
-	while (x < 10) {
-		IO.println(x);
-		x = x + 1;
-	}
-}
-```
-
-Reasoning about it in environment/box terms, in words: the declaration `int x;` creates a box labelled `x` that is permanently stamped "holds an `int`" and nothing else. The stamp is applied at compile time and never comes off. `x = 0;` drops the value 0 into that box. Each loop iteration reads the box, prints its contents, computes contents-plus-one, and puts the result back in the same box. After the iteration where `x` becomes 10, the condition `10 < 10` is false and the loop exits. Output: the digits 0 through 9, one per line (with `println`; with `print` they all ran together on one line, which is exactly what happened in class before the fix).
-
-### Example 3: The horse, or when type errors are caught
-
-Python, with the full file:
-
+**Python (`hello_numbers.py`):**
 ```python
 x = 0
 while x < 10:
@@ -210,56 +184,51 @@ while x < 10:
 x = x + "horse"
 ```
 
-Run it. Output:
-
-```
-0
-1
-2
-3
-4
-5
-6
-7
-8
-9
-Traceback (most recent call last):
-  ...
-TypeError: unsupported operand type(s) for +: 'int' and 'str'
-```
-
-The program **ran**, did nine useful things, and then died. (extra context: the exact traceback text above is the standard CPython message; the lecture only showed that it printed 0 through 9 and then crashed.)
-
-Now the analogous Java, adding `x = x + "horse";` at the end of `main`:
-
+**Java (`HelloNumbers.java`):**
 ```java
 void main() {
+	// before we can use a variable
+	// in Java, we must declare it
+	// we'll always do so by
+	// saying its type and then its name 
+	// and then a semi-colon
 	int x;
+
 	x = 0;
 	while (x < 10) {
 		IO.println(x);
-		x = x + 1;
+		x = x + 1;		
 	}
-	x = x + "horse";   // rejected by the compiler
 }
 ```
 
-Output:
+**Step by step, again following the compiler errors as Josh hit them:**
 
+1. He transliterated the Python directly, adding braces and semicolons, and wrote `while x < 10`. Error: **`'(' expected`**. Java requires parentheses around the loop condition. (Josh's joke: "Python requires you to put parentheses, and the compiler is good about yelling at you about it," meaning Java requires them.) Fix: `while (x < 10)`.
+2. Next error: **`cannot find symbol: variable x`**. In Python, `x = 0` both creates and assigns. In Java, `x` was never introduced, so the compiler does not know what `x` is. He noted the message is not especially helpful: it does not point you at "x on line 2, column 5."
+3. Fix: **declare** `x` first. `int x;` sets up an integer-shaped box named `x`. Then `x = 0;` fills it. The program now runs and prints `0` through `9`, one per line.
+4. Josh showed `IO.print` instead of `IO.println`: same values, but all on a single line, since `print` does not emit a newline.
+5. He confirmed a student's question: yes, you can compress declaration and assignment into `int x = 0;`. He was splitting them only to show that they are two distinct processes.
+
+**Environment / box reasoning in words:** trace the loop. After `int x;` there is an `int` box labeled `x`, uninitialized. `x = 0;` makes it hold 0. The condition `0 < 10` is true, so the body runs: print 0, then `x = x + 1` evaluates `0 + 1` to 1 and stores 1 back in the same box. This repeats. When `x` holds 10, `10 < 10` is false, the loop exits, and `main` ends. The box was never reshaped, only refilled, ten times.
+
+**The type-failure experiment (the point of the whole example):**
+
+```java
+int x = 0;
+while (x < 10) {
+    IO.println(x);
+    x = x + 1;
+}
+x = "horse";        // doesn't work: cannot assign a String to an int variable
+String x = "horse"; // doesn't work: x is already declared, and its type cannot change
 ```
-(nothing: the program never runs)
-```
 
-The compiler rejects the assignment because the right-hand side is a `String` and `x` is an `int`. Nothing is printed, not even the 0 through 9 that would have come first.
+Run the Python analog and you see `0 1 2 3 4 5 6 7 8 9` printed, **then** a crash. Run the Java version and you see **nothing at all**, because the program never starts. That difference (crash during execution versus refusal before execution) is the lecture's central takeaway about static typing.
 
-**The subtle, fundamental difference to internalize:** it is not that one language complains about conversion and the other about addition. It is **when** the complaint happens. Python detects the problem at the moment the bad line executes, which may be on a user's device, months after shipping, after the program has already done real work. Java detects it before the program can run at all. The compiler analyzes the whole program and, in Hug's phrase, gives it a stamp of approval that all the types are fine.
+### Example 3: Larger
 
-(A related smaller demo: writing `x = "horse";` after `int x;` also fails to compile. You cannot put a horse in an `int` box. In Python you can rebind `x` to a horse whenever you like.)
-
-### Example 4: `larger`, and typing function signatures
-
-Python (`larger.py`):
-
+**Python (`larger.py`):**
 ```python
 def larger(x, y):
 	if x > y:
@@ -269,28 +238,12 @@ def larger(x, y):
 print(larger(5, 10))
 ```
 
-Prints `10`. And `larger("a", "z")` prints `z`, because `>` works on strings too. One function, any comparable types.
-
-Java, first attempt, transliterated without types:
-
-```java
-larger(x, y) {
-	if (x > y) {
-		return x;
-	}
-	return y;
-}
-```
-
-The compiler rejects this. Two things are missing: the **types of the parameters** and the **return type of the function**.
-
-Final form (lecture file `LargerDemo.java`):
-
+**Java (`LargerDemo.java`):**
 ```java
 int larger(int x, int y) {
 	if (x > y) {
 		return x;
-	}
+	}	
 	return y;
 }
 
@@ -299,136 +252,190 @@ void main() {
 }
 ```
 
-Step by step:
+**Step by step:**
 
-1. `int larger(int x, int y)` declares a function named `larger`. The leading `int` is the return type: calling this function produces an `int`. `int x` and `int y` declare two parameters, each an `int`. There is no `def`.
-2. `if (x > y)` needs parentheses around the condition, same rule as `while`.
-3. `return x;` hands the value back and exits the function immediately.
-4. If the `if` did not fire, control falls through to `return y;`. No `else` is needed precisely because `return` exits.
-5. `main` calls `larger(5, 10)`. Since `5 > 10` is false, the first `return` is skipped and `10` is returned. `IO.println` prints `10`.
+1. Josh first wrote `larger(x, y) { ... }` with no types at all. The compiler complained: Java needs not just names but **types**, for both the parameters and the return value.
+2. He added parameter types: `larger(int x, int y)`. Still incomplete, since the return type is missing.
+3. He added the return type on the front: `int larger(int x, int y)`. Now it compiles. Note there is **no `def`**; the return type takes that slot.
+4. `if (x > y)` needs parentheses, as with `while`.
+5. `main` calls `IO.println(larger(5, 10))`. (The slides show `larger(-5, 10)`; the posted code uses `larger(5, 10)`. Either way the answer is 10.)
 
-**The math framing:** the signature `int larger(int x, int y)` states the function's domain (pairs of integers) and its range (integers) up front, which a Python `def` does not.
+**Tracing `larger(5, 10)`:** `x` holds 5, `y` holds 10, each in its own `int`-shaped box created for this call. `5 > 10` is false, so the `if` body is skipped and control reaches `return y`, returning 10. That 10 is the value of the expression `larger(5, 10)`, which `IO.println` then prints.
 
-**The cost, demonstrated:**
+**The limitation demo:** in Python, `larger("a", "z")` happily returns `"z"`, because Python compares strings at runtime and nothing forbids it. In Java:
 
 ```java
 IO.println(larger("a", "z"));   // does not compile
 ```
 
-The compiler refuses: you declared a function taking two `int`s and you handed it two `String`s. Supporting strings requires writing a second, separate `larger` that takes two `String` parameters and returns a `String`. Python needed only one function. This is the verbosity tax you pay for compile-time safety.
+The compiler refuses, because `larger` takes two `int`s and you handed it two `String`s. Josh: "You can't take strings and put them in the integer box." **The code will crash before it even runs.** If you want string comparison, you must write a second `larger` that takes two `String`s. That verbosity and loss of generality is exactly the "bad" column of the static typing tradeoff.
+
+**Expression types:** the slides make the point that expressions have types too. `larger(5, 10) + 3` has type `int`, so `String x = larger(5, 10) + 3;` fails to compile. The compiler can determine this purely by reading the code, without running anything.
 
 ---
 
 ## Common Pitfalls
 
-- **Forgetting to declare a variable.** Using `x` without `int x;` first gives `cannot find symbol: variable x`. The message does not tell you where to declare it, so learn to read it as "you never created this box."
-- **Forgetting semicolons.** Java statements end in `;`. Indentation and line breaks are irrelevant to the compiler.
-- **Using indentation to define blocks.** Pretty indentation with missing braces is a Java program that means something different (or does not compile). Braces alone delimit blocks. Conversely, a correctly braced program crammed onto one line works fine, which is exactly why indentation cannot be trusted as structure.
-- **Omitting parentheses around `if` / `while` conditions.** `while x < 10` is a syntax error; `while (x < 10)` is correct.
-- **Writing `print` or `println` bare.** Java needs to know whose `println`: `IO.println(...)` (or the older `System.out.println(...)`).
-- **Confusing `print` with `println`.** `IO.print` in a loop puts all output on one line. This happened live in lecture.
-- **Writing `def`.** There is no `def` keyword in Java. The function declaration begins with its return type.
-- **Forgetting the return type, or forgetting `void`.** A function that returns nothing still needs `void` written out.
-- **Expecting a Python-style crash.** Do not assume that because your program printed nothing, your logic is broken. If it failed to compile, it never ran. Read the compiler output before assuming the program executed.
-- **Assuming one function covers all types.** An `int larger` will not accept `String`s, no matter how sensible `>` would be on them.
-- **Expecting a variable to change type.** Once `x` is an `int`, it is an `int` for the rest of its life.
+- **Forgetting the semicolon.** Every statement needs one. IntelliJ flags this continuously, which is one reason the course insists on an IDE.
+- **Relying on indentation for structure.** Java reads only braces. Well-indented code with wrong braces is wrong; badly indented code with right braces is right (Josh demonstrated that you can put an entire program on one line). Indent anyway, for the humans.
+- **Writing `while x < 10` or `if x > y` without parentheses.** Java requires `while (x < 10)` and `if (x > y)`.
+- **Using a variable without declaring it.** `x = 0;` alone gives `cannot find symbol`. And note Josh's warning: **Java compiler messages are often not very helpful**. `cannot find symbol` does not tell you that you forgot a declaration; you have to learn to read the errors.
+- **Assuming a variable's type can change.** Neither `x = "horse";` nor `String x = "horse";` works after `int x = 0;`. The first is a type mismatch; the second is an illegal redeclaration. The type is fixed at declaration forever.
+- **Expecting a runtime crash for type errors.** In Java there is no partial output before the failure. Nothing runs. If you are looking for "it printed some numbers and then died," you are thinking in Python.
+- **Omitting the return type or the parameter types on a function.** There is no `def`; the return type occupies that position, and every parameter needs its own type.
+- **Trying to return more than one value.** Java functions return exactly one value.
+- **Forgetting `void`** when the function returns nothing. `main` is `void main()`, not `main()`.
+- **Using `IO.print` when you wanted line breaks.** Use `IO.println`.
+- **Writing bare `print` or `println`.** Java wants to know whose: `IO.println` (or the older `System.out.println`).
+- **Assuming you still need `public class Whatever` around everything.** In modern Java you do not, and the lecture's code omits it. If you have prior Java experience, this may look wrong to you; it is not.
 
 ---
 
 ## Likely Exam Points
 
-Note: this is the first lecture and its content is foundational rather than heavily examined on its own, but the following are the pieces that recur and that exams reliably lean on. Remember that exams in this course are **on paper**, so handwriting syntactically correct Java is itself the skill being tested.
+### 1. Static versus dynamic typing: when are type errors caught?
 
-**1. When are type errors caught, and why does it matter?**
+Commonly tested by asking you to predict program *output*, not just whether it errors.
 
-> *Q: A Python program and an equivalent Java program each contain a statement that adds an integer to a string, placed after a loop that prints 0 through 9. Describe the observable difference in behavior when each is run, and explain why the Java behavior is preferable for shipped software.*
->
-> A: The Python program runs, prints 0 through 9, and then raises a `TypeError` when it reaches the bad statement. The Java program does not run at all: the compiler detects the type mismatch before execution and refuses to produce a running program, so no output appears. Java's behavior is preferable for shipped software because a latent type error in Python may not surface until the program is running on a user's device, potentially long after release, whereas Java surfaces it on the developer's machine at compile time.
+**Practice question.** Two programs do the same thing. The Python version:
+```python
+x = 0
+while x < 3:
+    print(x)
+    x = x + 1
+x = x + "horse"
+```
+The Java version:
+```java
+void main() {
+    int x = 0;
+    while (x < 3) {
+        IO.println(x);
+        x = x + 1;
+    }
+    x = x + "horse";
+}
+```
+What does each print?
 
-**2. Fix the broken Java.**
+**Answer.** Python prints `0`, `1`, `2`, and then crashes with a runtime type error, because Python checks types during execution. Java prints **nothing**: the compiler rejects the program before any code runs, so there is no partial output. This is the key difference, and the practical consequence is that a Java type error can (almost) never occur on an end user's machine.
 
-> *Q: Identify every error in the following and write the corrected version.*
-> ```java
-> void main() {
->     x = 0
->     while x < 10 {
->         print(x);
->         x = x + 1;
->     }
-> }
-> ```
->
-> A: Four problems: (a) `x` is never declared, needs `int x;` (or `int x = 0;`); (b) `x = 0` is missing a semicolon; (c) the `while` condition needs parentheses; (d) `print` must be `IO.println` (or `System.out.println`). Corrected:
-> ```java
-> void main() {
->     int x = 0;
->     while (x < 10) {
->         IO.println(x);
->         x = x + 1;
->     }
-> }
-> ```
+### 2. Identifying and fixing Java syntax/type errors in a snippet
 
-**3. Translate a Python function definition to Java.**
+**Practice question.** Find all the errors:
+```java
+void main() {
+    x = 0
+    while x < 5 {
+        IO.println(x)
+        x = x + 1
+    }
+}
+```
 
-> *Q: Translate the following to Java.*
-> ```python
-> def larger(x, y):
-> 	if x > y:
-> 		return x
-> 	return y
-> ```
->
-> A:
-> ```java
-> int larger(int x, int y) {
->     if (x > y) {
->         return x;
->     }
->     return y;
-> }
-> ```
-> The key additions are the return type `int` before the name, the type `int` on each parameter, the parentheses around the `if` condition, the braces, and the semicolons. The `def` keyword is dropped.
+**Answer.** Four categories of problem:
+1. `x` is never declared. Needs `int x = 0;` (or `int x;` then `x = 0;`).
+2. Missing semicolons after `x = 0`, after `IO.println(x)`, and after `x = x + 1`.
+3. The `while` condition needs parentheses: `while (x < 5)`.
 
-**4. State the properties of static typing.**
+Corrected:
+```java
+void main() {
+    int x = 0;
+    while (x < 5) {
+        IO.println(x);
+        x = x + 1;
+    }
+}
+```
 
-> *Q: List the four properties of Java's type system as presented in lecture, and give one advantage and one disadvantage.*
->
-> A: (1) Variables must be declared before use; (2) each variable has a specific type; (3) that type cannot change; (4) types are verified before the code runs. Advantage (any one of): type errors cannot reach the user's device, code runs faster, code is easier to read and reason about. Disadvantage: greater verbosity, and you may need multiple versions of a function to cover multiple types (for example a separate `larger` for `String`s).
+### 3. Writing a correct Java function signature
 
-**5. Why does this not compile?**
+**Practice question.** Translate this Python function to Java:
+```python
+def smaller(a, b):
+    if a < b:
+        return a
+    return b
+```
 
-> *Q: Given `int larger(int x, int y)` as defined above, what happens when you write `IO.println(larger("a", "z"));` and why?*
->
-> A: It fails to compile. `larger` is declared to take two `int` arguments, and `"a"` and `"z"` are `String`s. The type mismatch is caught by the compiler, so the program never runs. To handle strings you would need a separate function taking two `String` parameters.
+**Answer.**
+```java
+int smaller(int a, int b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
+```
+Points to hit: no `def`; the **return type** `int` comes first; **every parameter is individually typed** (`int a, int b`, not `int a, b`); the `if` condition is parenthesized; returns are semicolon-terminated.
 
-**6. Structure of a Java program.**
+### 4. Reasoning about expression types
 
-> *Q: Why can a Java file not consist of just the single line `IO.println("Hello World");`? What is the minimal legal structure?*
->
-> A: Java requires code to live inside a method rather than at the top level of a file; a bare statement produces an error along the lines of `class, interface, annotation type, enum, record, method, or field expected`. The minimal structure puts the statement inside `main`, the program's entry point: `void main() { IO.println("Hello World"); }`. Historically this also had to be wrapped in a class such as `public class HelloWorld { ... }`.
+**Practice question.** Given `int larger(int x, int y) { ... }`, does `String s = larger(5, 10) + 3;` compile? Why or why not?
 
-**7. Conceptual: what is 61B about?**
+**Answer.** No. `larger(5, 10)` has type `int`, so `larger(5, 10) + 3` also has type `int`. Assigning an `int` expression to a `String` variable is a type mismatch, and the compiler detects this statically, before running anything. The slides list this exact case.
 
-> *Q: In one or two sentences, what does it mean to say 61B moves you "one layer down" from 61A?*
->
-> A: In 61A you used data structures like Python's `list` as black boxes provided to you. In 61B you learn how such structures are implemented, starting with two different ways of building a list, so that you understand and can reason about the machinery beneath the abstractions you use.
+### 5. The tradeoffs of static typing
+
+**Practice question.** Give two advantages and two disadvantages of static typing.
+
+**Answer.** Advantages: it catches certain error classes early, easing debugging; type errors essentially cannot reach the end user's computer; code is easier to read and reason about since types are documented in the source; code runs more efficiently because no expensive runtime type checks are needed. Disadvantages: code is more verbose; code is less general, for instance you would need a separate `larger` to handle `5.5` or two strings.
+
+### 6. Declaration versus assignment
+
+**Practice question.** What does `int x;` do, and how does it differ from `x = 0;`? Can they be combined?
+
+**Answer.** `int x;` is a **declaration**: it introduces the name `x` and fixes its type as `int` permanently. `x = 0;` is an **assignment**: it stores the value 0 into the already-declared `x`. They can be combined as `int x = 0;`. The lecture separated them to emphasize they are two distinct processes.
+
+### 7. Java structural rules
+
+**Practice question.** Name the three reflections the lecture drew from Hello World.
+
+**Answer.** (1) We use `{ }` to delineate the beginning and ending of things, rather than indentation. (2) Statements end with a semicolon. (3) The code we want to run must be inside a function called `main` (the entry point).
+
+### 8. (extra context) Why the lecture's Java has no `public class`
+
+**Practice question.** Older Java tutorials wrap everything in `public class HelloWorld { public static void main(String[] args) { ... } }`. The lecture's file is just `void main() { IO.println("Hello World"); }`. Is the lecture's version valid Java?
+
+**Answer.** Yes. Josh noted explicitly that **until very recently** Java required the enclosing class, and that technically it is no longer needed; the lecture code from this point on omits it. Knowing both forms is useful since you will encounter the older style in the wild, and `System.out.println` is likewise the older-school equivalent of `IO.println`. *(Marked extra context: this practice framing goes slightly beyond what the lecture asked you to do with the fact.)*
 
 ---
 
 ## Summary
 
-- 61B goes one abstraction layer below 61A: you used `list`, now you learn how a list is built. The first five weeks cover two radically different list implementations, treated as exemplars for thinking about design and decomposition.
-- Two course goals: code that **runs** efficiently (algorithms, data structures, asymptotics) and code written efficiently **by hand** (design, build, test, debug with Git, IntelliJ, JUnit, command line tools).
-- Java is used because it is faster than Python, is statically typed, has fixed-length arrays, offers subtype polymorphism, and is widely used.
-- Java syntax essentials: braces delimit blocks (not indentation), semicolons terminate statements, `if` and `while` conditions need parentheses, and runnable code lives inside a method, with `main` as the entry point.
-- Printing is `IO.println` (newline) or `IO.print` (no newline); `System.out.println` is the older equivalent. `IO` is the input/output library.
-- Variables must be declared before use: **type, then name, then semicolon**, as in `int x;`. Declaring and assigning on one line (`int x = 0;`) is legal.
-- **Static typing** means: variables are declared, have a specific type, that type never changes, and types are checked **before the code runs**.
-- The headline contrast: Python runs and *then* explodes on a type error; Java refuses to run at all. Catching errors at compile time keeps them off users' devices.
-- Function declarations give a **return type** (or `void`), a name, and explicitly typed parameters: `int larger(int x, int y)`. There is no `def`. Java functions resemble math functions with a stated domain and range.
-- The cost of static typing is verbosity and needing separate functions per type: `int larger` cannot take `String`s.
-- Logistics touched on: three paper exams (mini midterm 1, midterm 2, final) with a clobber policy and an uncurved ~65% target mean; homeworks, four mini projects, two design projects, weekly surveys, opt-in discussion and lab attendance points, capped point categories, and lecture attendance yielding exam recovery points.
-- LLM policy: use minimally, no LLM-written code turned in, no IDE plugins, no feeding specs to an LLM; tutor-style use is more acceptable but talking to humans is better.
-- Homework 1 (set up IntelliJ) is due Friday; Lab 1 is a Java warm-up and is drop-in this week; the bridge section is recommended if you got a B or less in the prerequisite or came from E7.
-- Practice, not innate talent, is what makes you good at this (the Dance Dance Revolution lesson): most of your learning happens in the ~200 hours outside lecture.
+**Course framing**
+- 61B moves you one layer of abstraction down: from *using* a list to *implementing* one. Two radically different list implementations over the first five weeks.
+- The course is about writing code that runs efficiently (algorithms, data structures) **and** writing code efficiently by hand (design, build, test, debug; git, IntelliJ, JUnit/Truth, command line tools).
+- Assumes OOP, recursion, lists, maps, and trees. AI workflows are not covered in depth.
+- Language arc: 61A (Python, Scheme, SQL) → 61B (Java) → 61C (C, assembly).
+- Java is used because it is fast, popular, and has static typing, arrays (fixed length), and subtype polymorphism.
+
+**Java syntax**
+- `{ }` delimit blocks; indentation is meaningless to the compiler.
+- Statements end with `;`.
+- Runnable code lives in `main`, the program's entry point.
+- `if` and `while` conditions require parentheses.
+- `IO.println` prints with a newline; `IO.print` does not. `System.out.println` is the older equivalent.
+- The wrapping `public class` is no longer required in modern Java, and the lecture code omits it.
+
+**Static typing (the core idea)**
+- Variables must be **declared** before use: type, then name, then semicolon (`int x;`).
+- Every variable, parameter, and method has a declared type, and that type **never changes**.
+- Expressions have types too (`larger(5, 10) + 3` is an `int`).
+- The compiler checks all types **before the program runs**. Java refuses to run a badly typed program at all; Python runs and then explodes mid-execution.
+- Good: catches errors early, keeps type errors off users' machines, easier to read and reason about, runs faster (no runtime type checks).
+- Bad: more verbose, less general (a second `larger` is needed for strings or doubles).
+
+**Functions**
+- No `def`. Write the return type, then the name, then fully typed parameters: `int larger(int x, int y)`.
+- `void` means no return value. Java functions return exactly one value.
+
+**Workflow and logistics**
+- 61B uses **IntelliJ**; other tools are allowed but unsupported by staff.
+- Compilation (`javac` producing a type-checked `.class` file, then `java` running it) was on the slides but **skipped**, to be revisited in a much later lecture.
+- Three phases: weeks 1-5 Java and data structures (solo, very fast, two mini-projects, programming midterm), weeks 6-10 data structures (solo, one design project, theoretical midterm), weeks 11-15 algorithms and software engineering (paired final project, slower).
+- Grading: 6150 points total; surveys/HWs/mini-projects/design projects are effort-based with 100% medians; exams target a 65% mean and are uncurved; the final can replace midterms. Attendance points depend on opting into discussion and/or lab; lecture attendance gives 6 exam recovery points each (max 150), helpful only if your exam score is under 70%.
+- Late work: 5% off per 12 hours; capped point categories absorb small losses. Weekly surveys get no extensions (lowest 4 effectively dropped).
+- **LLM policy:** use LLMs minimally. No IntelliJ LLM plugins, no Cursor or Claude Code. LLMs should write none of the code you turn in. Do not give assignment specs to LLMs. Avoid "where is the bug?" unless genuinely stuck. Using an LLM as a tutor is reasonable, but talking to staff and classmates is richer. Provenance tracking begins after HW1.
+- **Action items:** HW1 (set up IntelliJ) due Friday 11:59 PM; start HW2 by Friday; Lab 1 is drop-in this week only; fill out the discussion/lab matching form; Bridge Section Mondays 5-7 PM if your foundations are shaky (B or lower in 61A/CS88, or coming from E7).
