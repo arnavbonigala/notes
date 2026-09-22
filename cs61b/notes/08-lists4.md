@@ -1,64 +1,301 @@
-<!-- Mon, Sep 14, 2026 | sources: code (no transcript available) -->
-# Lecture 8: Lists 4
+<!-- Mon, Sep 14, 2026 | sources: slides + code + YouTube auto-transcript + textbook -->
+# Lecture 8: Resizing and Circular Arrays
 
-This lecture finishes the array-based list (`AList`) and turns it into something that is actually fast. We start from the naive `AList` that resizes by exactly one slot every time it fills up (`resize(size + 1)`), observe experimentally that this is catastrophically slow (inserting 100,000 items takes seconds, while an `SLList` doing the same work finishes instantly), and diagnose why: additive resizing forces us to copy the entire array on every single `addLast`, so N inserts cost roughly 1 + 2 + 3 + ... + N ≈ N²/2 array-box copies. The fix is **geometric resizing**: multiply the capacity instead of adding to it (`resize(size * 2)` or `resize((int) (size * 1.1))`), which makes copying rare enough that the average cost per `addLast` becomes constant. Along the way we make `AList` generic (with the awkward `(T[]) new Object[n]` cast that Java forces on us), discuss the "usage ratio" and downsizing so a list that shrinks does not hoard memory, and discuss **loitering**: nulling out removed references so the garbage collector can actually reclaim them. The lecture also introduces the experimental methodology used throughout: timing with `System.currentTimeMillis()`, and printing a table of N vs. time where N grows by factors of 10, which lets you *see* linear vs. quadratic growth in the numbers.
+## Overview
+
+This lecture completes the `AList` (array-based list) story that began in Lecture 7, fixing three problems in sequence. First, arrays in Java have a fixed length, so to support unlimited elements we "resize": allocate a brand new, larger array, copy the old contents over, and repoint `items` at the new array. Second, we discover through a computational experiment that resizing by a constant additive amount (`resize(size + 1)`) is catastrophically slow, taking roughly 500,000 memory-box writes just to reach 1,000 items, because the total work grows like a parabola; the fix is geometric resizing (`resize(size * RFACTOR)`), which is what Python's `list` actually does under the hood. We also add downsizing based on a "usage ratio" so we do not waste memory after mass removals. Third, we generify `AList` (with the awkward `(Glorp[]) new Object[8]` cast, plus nulling out deleted items to avoid loitering) and finally speed up front operations by letting the list float inside the array with `nextFirst` / `nextLast` pointers that wrap around, the circular array design required for Project 2 (ArrayDeque).
+
+---
 
 ## Key Concepts
 
-### 1. The array-based list, and the meaning of `size` vs. `length`
+### 1. Why arrays need "resizing" at all
 
-An `AList` stores items in a Java array `items` plus an `int size`. These are two very different numbers, and confusing them is the single most common source of `AList` bugs:
+The key idea of an `AList` is: store items in the **front part** of the array, leaving empty space at the end for later items. `size` tracks how many real items there are; `items.length` is the physical capacity of the array.
 
-- `items.length` is the **capacity**: how many boxes the underlying array physically has. It is fixed at array-creation time and can never change.
-- `size` is the **number of items the list logically contains**. Everything from `items[0]` to `items[size - 1]` is real data; everything from `items[size]` to `items[items.length - 1]` is junk (zeros or `null`s) that the user must never see.
+An array's length is fixed at creation. Java gives us a fixed-size tool, and our job at the `AList` level of abstraction is to *cheat*: pretend to the user that the list can grow forever, and hide the fact that behind the scenes we occasionally throw out one array and build a bigger one.
 
-The lecture code states the two key invariants in a comment:
+Why not just allocate an array of four billion up front? Because it wastes enormous memory for a list that may only ever hold ten items. Why not tell the user "you're full"? Some data structures do exactly that, but a list is supposed to be unbounded.
+
+"Resizing" is a **misnomer**: the array never changes size. Josh's analogy from lecture: resizing a shirt would mean altering the shirt you're wearing; what we actually do is sew a bigger shirt and put it on.
+
+### 2. The three steps of a resize
+
+When `size == items.length` and someone calls `addLast(11)`:
+
+1. `int[] resized = new int[size + 1];` - a new array, all slots filled with Java's default value (`0` for `int`, `null` for references). They are zeros because we haven't assigned anything yet.
+2. Copy every existing item from `items` into `resized`. This genuinely costs time: the machine physically reads each value and writes it into a new location.
+3. `items = resized;` - this copies the 64-bit **address** of the new array into the `items` box. `items` now points to the bigger array.
+
+Then `items[size] = 11; size += 1;`.
+
+Note on step 3 (box-and-pointer reasoning): `items` never holds the address of element 0 in any meaningful sense you can manipulate; it holds the address of the **entire array object**. After the reassignment, nothing references the old 100-element array, so Java's garbage collector reclaims it automatically. There is no `free` or `delete` in Java.
+
+A consequence raised in lecture: during the copy, **both** arrays are alive simultaneously, so a resize temporarily needs roughly double the memory. If your list already occupies half your RAM, resizing can run you out of memory.
+
+Also asked in lecture: why can't Java just tack extra boxes onto the end of an existing array? Because the memory immediately after the array may already be occupied by something else. Arrays are fast precisely because they are **contiguous** in memory, so indexing is a simple address computation. (Covered in more depth in CS 61C.)
+
+### 3. Factoring out `resize` as a private helper
+
+Both the inline version and the helper version work, but the helper is "much better":
+- Easier to read: "if the array is too full, resize the array."
+- Easier to test each function's correctness independently.
+- Reusable from other methods (e.g. downsizing, `removeLast`).
+
+It is **private** because the capacity of the backing array is an implementation detail. A user of `AList` should not be thinking about capacity; ideally they shouldn't even know it exists.
+
+### 4. Why naive (additive) resizing is unusably slow
+
+Counting memory boxes created and filled:
+
+- Starting full at 100, one `addLast`: create 101 boxes, fill 101 boxes.
+- The next `addLast`: create 102, fill 102.
+- Two `addLast` calls: **203** boxes total.
+- Going from capacity 100 up to size 1000: `101 + 102 + ... + 1000`.
+
+Using `1 + 2 + ... + N = N(N+1)/2`, this sum is close to **500,000** (exact answer from lecture's Wolfram Alpha check: 495,450). So a mere 1,000 inserts costs about half a million units of work.
+
+The intuition Josh emphasized: picture the computer saying "okay, copy all 100 things... oh, copy all 101 things... oh, copy all 102 things..." forever. Each individual `addLast` does linear work, so the **total** is quadratic, a parabola.
+
+Since the integral of a constant is a line, a straight total-time graph means each operation is constant time (that is `SLList`). Since the integral of a line is a parabola, a parabolic total-time graph means each operation is linear time (that is the naive `AList`).
+
+Empirical numbers from lecture (machine-dependent, and the live demo values differed slightly from the slide values):
+
+| N | SLList (ms) | naive AList (ms) |
+|---|---|---|
+| 10,000 | 1 | 19 |
+| 100,000 | 3 | 903 |
+| 1,000,000 | 71 | 70,227 |
+| 10,000,000 | 875 | (too slow to finish) |
+
+Sanity check on magnitudes: inserting 100,000 items requires roughly 5,000,000,000 new memory boxes; computers do on the order of a billion things per second (GHz), so seconds of runtime is exactly what you'd expect.
+
+### 5. Geometric resizing
+
+Larger additive constants help, but only shift the parabola:
+
+- `resize(size + 1000)`: N=100,000 drops from 602 ms to 6 ms, but N=10,000,000 still takes 6,097 ms.
+- `resize(size * 2)`: N=100,000 takes 2 ms, N=10,000,000 takes 25 ms.
+
+The rough intuition given: **as the array grows larger, we resize exponentially less often**. You still do an expensive thing occasionally, but "occasionally" becomes exponentially rarer, so the per-operation cost is amortized away. A full proof is deferred (Josh said roughly three lectures after the midterm; the textbook defers it to the final chapter).
+
+Key results stated in lecture:
+- Additive (`resize(size + RFACTOR)`): **unusably bad** for large N, no matter the constant.
+- Multiplicative (`resize(size * RFACTOR)`): **great performance**, even for a small factor like 1.1 (the lecture code uses `resize((int) (size * 1.1))`). This is how the Python list is implemented.
+- Josh noted in Q&A that the amortized per-operation cost is *constant*, "not even log N" (details after the midterm).
+
+### 6. Memory efficiency and the usage ratio
+
+Problem #2: insert 1,000,000,000 items, then remove 990,000,000. The operations run fast, but afterwards 99% of the array sits unused.
+
+Define the **usage ratio** `R = size / items.length`. Typical solution: **halve the array when R < 0.25**.
+
+Why 0.25 and not 0.5? If you halve at R = 0.5, the array is immediately full (R = 1) after shrinking, so a single `addLast` forces a grow. An adversarial `add, remove, add, remove, ...` pattern would then resize on every single operation. You want buffer room on both sides so you are never "right on the edge."
+
+An `AList` should be efficient in **time and space**; the course will revisit this tradeoff repeatedly.
+
+### 7. Generic ALists
+
+Parameterize the class and replace `int` with the type parameter everywhere:
 
 ```java
-// [3, 4, 2, 0, 0, 0, ....]
-//           ^ (size = 3)
-// size is the location of the next add
-// size - 1 location of the last item
+public class AList<Glorp> {
+    private Glorp[] items;
+    private int size;
+    ...
+}
 ```
 
-That is the whole design in two lines. `addLast` writes at `items[size]`, then increments; `getLast` reads `items[size - 1]`; `removeLast` decrements `size`.
-
-### 2. Why `removeLast` is (almost) free
+The one syntactic hitch: **Java does not allow generic array creation.** `new Glorp[cap]` produces a "generic array creation" compilation error. Instead:
 
 ```java
-public int removeLast() {
-    int itemToReturn = getLast();
+Glorp[] items = (Glorp[]) new Object[8];
+```
+
+This is a **cast** (the only cast used in this course) and produces an "unchecked cast" compiler *warning*, which you should ignore. Java's own `ArrayList` does something different internally; this is the cleaner-but-dirty approach for us. The reason is an obscure consequence of how generics are implemented (see Angelika Langer's 356-page Java Generics FAQ if curious).
+
+### 8. Loitering: null out deleted items
+
+With `int[]`, leaving a stale value behind after `removeLast` costs nothing. With generics, it costs **memory**: Java only destroys an object once the last reference to it is lost. If `items[2]` still points to a multi-megabyte image, that image cannot be garbage collected even though the list logically no longer contains it.
+
+Keeping references to unneeded objects is called **loitering**. Save memory: don't loiter.
+
+```java
+public Glorp removeLast() {
+    Glorp returnItem = getLast();
+    items[size - 1] = null;
     size -= 1;
-    return itemToReturn;
+    return returnItem;
 }
 ```
 
-Nothing is erased. The item is still physically sitting in the array, but because `size` shrank, it is now in the "junk" region past the end of the list, so no legal operation can observe it, and the next `addLast` will overwrite it. This is why array lists are so fast at the back end: the entire deletion is one decrement. (For a *generic* `AList` this exact code is a memory bug, see loitering below.)
+Decrementing `size` alone yields a *correct* list; nulling makes it a *memory-efficient* one.
 
-### 3. Arrays cannot grow, so we fake it
+### 9. Circular arrays: making front operations fast
 
-Java arrays have a fixed length. There is no way to make `new int[100]` become `new int[101]`. So "resizing" is a misnomer, what we really do is:
+`AList` was built to make `get(i)` fast, which fixed the `DLList`'s weakness. But is `ArrayList` strictly better? No:
+- `addFirst` and `removeFirst` are faster for linked lists (constant time, versus shifting every element for a naive `AList`).
+- Less important: linked list end-operations are *always* fast, whereas `ArrayList` operations occasionally trigger a linear-time resize (negligible in practice).
 
-1. Allocate a brand new, bigger array.
-2. Copy the existing items over.
-3. Reassign `items` to point at the new array.
-4. Let the old array become garbage.
+**The fix:** don't force the list to start at index 0. Leave empty space at the *front* too, and track where the list begins. Now `addFirst` just writes to the slot before the front and decrements the front pointer, no shifting.
 
-Both versions of the copy appear in this lecture's code. The generic `AList` copies by hand:
+**Wraparound:** when the front pointer would go below index 0, wrap it to the end of the array. Java has no negative indices (unlike Python), so you need modular arithmetic. Conceptually the array is a **circle**: imagine gluing the last slot to the first.
+
+**The representation is not unique.** The logical list `[11, 13, 6, 5, 3, 1, 7, 81]` can sit in the array starting at any offset; every rotation is equally valid. Think of it as snipping the conceptual circle at different points and straightening it out. On Project 2 you may put your first item anywhere you want, including after a resize.
+
+**Recommended design for Project 2:** four instance variables, `items`, `nextFirst`, `nextLast`, `size`. Technically you don't need both pointers, but it's a nice idea. `nextFirst` is the index where the next `addFirst` will write; `nextLast` is where the next `addLast` will write.
+
+### 10. Note on Python lists
+
+Python lists do **not** use the circular abstraction, which is why `x.insert(0, "hi")` is slow. Josh's answer for why: front insertion is too rare to justify the extra code complexity and the performance penalty it would impose on all the other operations.
+
+Users who need fast front operations should pick the right data structure: `LinkedList` instead of `ArrayList` in Java, `collections.deque` instead of `list` in Python. (Fun fact from the slides: CPython's `deque` is actually a linked list of blocks, not a circular array.)
+
+### 11. A note on `System.arraycopy`
+
+Two ways to copy arrays: item-by-item in a loop, or `System.arraycopy`, which takes five parameters: source array, start position in source, target array, start position in target, number to copy.
 
 ```java
-private void resize(int capacity) {
-    T[] resized = (T[]) new Object[capacity];
-    for (int i = 0; i < size; i++) {
-        resized[i] = items[i];
+System.arraycopy(items, 0, a, 3, 2);   // in Python: a[3:5] = items[0:2]
+```
+
+`arraycopy` is likely faster (especially for large arrays) and more compact, but arguably harder to read. **Recommendation from lecture: do not use it on Project 2**, because with a circular array the items you need to copy are not one contiguous run, so the index arithmetic becomes a trap.
+
+---
+
+## Definitions
+
+- **AList / ArrayList:** a list implementation that stores its items in the front part (or, once circular, some contiguous-modulo-length run) of a backing array, with unused capacity left over for future items.
+- **`size`:** the number of items currently in the list. In a non-circular `AList`, also the index where the next `addLast` writes, and `size - 1` is the index of the last item.
+- **`items.length`:** the **capacity**, i.e. the physical length of the backing array. Distinct from `size`.
+- **Resizing:** creating a new array of a different capacity, copying the existing items into it, and reassigning the instance variable to point at the new array. A misnomer: the original array is never altered.
+- **Additive resizing:** growing by a fixed constant, `resize(size + RFACTOR)`. Yields quadratic total cost; unusably bad for large N.
+- **Geometric / multiplicative resizing:** growing by a multiplicative factor, `resize(size * RFACTOR)`. Yields linear total cost; used by Python's list.
+- **`RFACTOR`:** the resizing factor, the constant added or multiplied when growing the array.
+- **Usage ratio (R):** `size / items.length`. A measure of how much of the allocated array is actually in use.
+- **Downsizing:** halving the array capacity when the usage ratio falls below a threshold (typically R < 0.25) to avoid wasting memory.
+- **Generic array creation error:** the compile error Java emits for `new Glorp[n]`; worked around with `(Glorp[]) new Object[n]`, which produces an unchecked-cast warning.
+- **Loitering:** retaining a reference to an object that is no longer needed, preventing garbage collection and wasting memory.
+- **Garbage collection:** Java's automatic reclamation of objects once the last reference to them is lost. No manual `free`/`delete` is required.
+- **Circular array:** an array treated as if its last index were adjacent to its first, so the logical list can wrap around the end. Requires modular index arithmetic.
+- **`nextFirst` / `nextLast`:** indices of the empty slots immediately before the front and immediately after the back of the logical list; the destinations for the next `addFirst` and `addLast` respectively.
+- **Contiguous:** occupying consecutive memory locations. Arrays are contiguous, which is what makes indexing fast and why arrays cannot simply be extended in place.
+
+---
+
+## Worked Examples
+
+### Example 1: Naive resizing, inline
+
+This is the version written live in lecture, starting from the non-resizing `addLast`.
+
+```java
+public void addLast(int x) {
+    if (size == items.length) {                   // (1) is the array full?
+        int[] resized = new int[size + 1];        // (2) new, one-bigger array
+        for (int i = 0; i < size; i++) {          // (3) copy everything over
+            resized[i] = items[i];
+        }
+        items = resized;                          // (4) repoint items
     }
-    items = resized;
+    items[size] = x;                              // (5) write the new item
+    size += 1;                                    // (6) update size
 }
 ```
 
-and the speedtest `AList` uses the built-in library call, which does exactly the same thing but faster:
+Step by step, with `items` of length 100 and `size == 100`:
+
+1. `size == items.length` is `100 == 100`, true, so we resize.
+2. `new int[101]` allocates 101 boxes, every one initialized to Java's default `0`. In the environment, `resized` is a local variable holding the address of this new array object.
+3. The loop runs `i = 0 .. 99`, reading from the old array and writing into the new one. This is 100 real memory reads and 100 real memory writes; it is not free.
+4. `items = resized` copies the 64-bit address out of `resized` into the instance variable `items`. Draw two arrows: before, `items` points at the 100-array; after, both `items` and `resized` point at the 101-array, and nothing points at the 100-array. When `addLast` returns, `resized` goes out of scope; the old array, now unreferenced, becomes eligible for garbage collection.
+5. `items[100] = 11` fills the one empty slot. This is legal now and would have been an `ArrayIndexOutOfBoundsException` before.
+6. `size` becomes 101.
+
+**Common bug caught live in the demo:** Josh initially wrote `resize(size)` instead of `resize(size + 1)`, which created a new array of the *same* capacity. The array was still full, `items[size] = x` ran off the end, and Java threw `ArrayIndexOutOfBoundsException`.
+
+### Example 2: Refactored into a private helper (recommended for the project)
 
 ```java
+public class AList {
+    private int[] items;
+    private int size;
+
+    /** Resizes the underlying array to the target capacity. */
+    private void resize(int capacity) {
+        int[] resized = new int[capacity];
+        for (int i = 0; i < size; i++) {
+            resized[i] = items[i];
+        }
+        items = resized;
+    }
+
+    /** Inserts x into the back of the list. */
+    public void addLast(int x) {
+        if (size == items.length) {
+            resize(size + 1);
+        }
+        items[size] = x;
+        size += 1;
+    }
+}
+```
+
+Identical behavior, but `addLast` now reads like English. Note the loop bound is `i < size`, not `i < items.length`: we only copy real items. Note also that `resize` is `private`: capacity is nobody's business but `AList`'s.
+
+### Example 3: Counting memory boxes (the two attendance/warmup questions)
+
+**Q (warmup):** full array of size 100, call `addLast` twice. How many total array memory boxes must be created and filled?
+
+Trace it:
+- Start: an array of 100 boxes, full.
+- First `addLast`: create an array of 101, copy 100 in, write the new item. **101 boxes created and filled.**
+- Second `addLast`: the 101-array is now full, so create an array of 102, copy 101 in, write the new item. **102 boxes.**
+
+Total: 101 + 102 = **203**.
+
+**Bonus:** the maximum number of array boxes Java tracks at any one time, assuming garbage collection is immediate, is also **203**: during the second resize, the 101-array and the 102-array coexist (the original 100-array was already collected). When the second `addLast` finishes, only the 102-array remains.
+
+**Q (main):** full array of size 100, call `addLast` until `size == 1000`. Roughly how many boxes?
+
+- 100 → 101 costs 101 boxes
+- 101 → 102 costs 102
+- ...
+- 999 → 1000 costs 1000
+
+Total: `101 + 102 + ... + 1000`. Using `1 + 2 + ... + N = N(N+1)/2`, this is `1000 * 1001 / 2` minus the first hundred terms, which is close to **500,000** (answer choice B; exactly 495,450). The first hundred terms are negligible because they are the *smallest* ones.
+
+*Why the formula holds* (the hidden slide's argument): pair up the terms from the outside in. `1 + N`, `2 + (N-1)`, `3 + (N-2)`, ... Each pair sums to `N + 1`, and there are `N/2` such pairs, so the total is `N(N+1)/2`.
+
+### Example 4: Geometric resizing, the one-line fix
+
+```java
+public void addLast(int x) {
+    if (size == items.length) {
+        resize(size * RFACTOR);      // instead of resize(size + RFACTOR)
+    }
+    items[size] = x;
+    size += 1;
+}
+```
+
+The lecture code actually used a fractional factor, which requires a cast because array lengths must be `int`:
+
+```java
+private int size;
+private int[] items;
+
+public void addLast(int x) {
+    if (size == items.length) {
+        resize((int) (size * 1.1));
+        // other resizing strategies:
+        //   resize(size + 1000);
+        //   resize(size * 2);
+    }
+    items[size] = x;
+    size += 1;
+}
+
 private void resize(int newSize) {
     int[] a = new int[newSize];
     System.arraycopy(items, 0, a, 0, size);
@@ -66,239 +303,79 @@ private void resize(int newSize) {
 }
 ```
 
-`System.arraycopy(src, srcPos, dest, destPos, length)` copies `length` items starting at `src[srcPos]` into `dest` starting at `destPos`. Note we copy `size` items, not `items.length` items: copying the junk region would be a waste.
+With a factor of 1.1 and capacity 100: resize to 110, then 121, then 133, and so on. Even this small factor is fast, because the *gaps between resizes* grow geometrically. With a factor of 2, the lecture demo ran out of memory before the code ever became slow.
 
-In box-and-pointer terms: before `resize`, the `AList` object's `items` box holds an arrow into an old array object. After `resize`, that box holds an arrow into a new, longer array object whose first `size` boxes hold copies of the old contents (for a generic list, copies of the *references*, not of the objects themselves). The old array now has no arrows pointing to it and is eligible for garbage collection.
-
-### 4. The naive strategy and why it is quadratic
-
-The `AList.java` in `lec8_lists4` (the generic one) does the naive thing:
+### Example 5: Generic AList, before and after
 
 ```java
-if (size == items.length) {
-    resize(size + 1);
-}
+// BEFORE                                  // AFTER
+public class AList {                       public class AList<Glorp> {
+    private int[] items;                       private Glorp[] items;
+    private int size;                          private int size;
+
+    public AList() {                           public AList() {
+        items = new int[8];                        items = (Glorp[]) new Object[8];
+        size = 0;                                  size = 0;
+    }                                          }
+
+    public void resize(int capacity) {         public void resize(int cap) {
+        int[] resized = new int[capacity];         Glorp[] resized = (Glorp[]) new Object[cap];
+        for (int i = 0; i < size; i++) {           for (int i = 0; i < size; i++) {
+            resized[i] = items[i];                     resized[i] = items[i];
+        }                                          }
+        items = resized;                           items = resized;
+    }                                          }
+
+    public int get(int i) {                    public Glorp get(int i) {
+        return items[i];                           return items[i];
+    }                                          }
+}                                          }
 ```
 
-This grows the array by exactly one box each time it is full. Once the array is full, it is full again immediately after the next insert, so *every subsequent* `addLast` triggers a full copy of the whole array.
+Every `int` that referred to a *stored item* becomes `Glorp`. The `int size` and `int i` stay `int`, because they are counters, not items. The only nonmechanical change is the array creation line.
 
-Count the work for N inserts starting from a full array: the 1st insert copies 1 item, the 2nd copies 2, ..., the Nth copies N. Total ≈ N(N+1)/2, which is quadratic in N. Each individual `addLast` therefore costs time proportional to the current size (linear), not constant.
+The lecture code file uses `T` instead of `Glorp`; the name of the type parameter does not matter, though `T` is conventional.
 
-The same problem occurs with `resize(size + RFACTOR)` for any constant like 1000: you only amortize the cost over 1000 inserts, so the total is still ≈ N²/(2·1000), still a parabola, just with a smaller constant. **Adding a constant is never enough; you must multiply.**
+### Example 6: Linear trace of a circular array
 
-The textbook's graph makes this visual: plotting total time vs. number of operations gives a *straight line* for `SLList.addFirst` (constant time per op, since the integral of a constant is a line) and a *parabola* for the naive array list (linear time per op, since the integral of a line is a parabola). For 100,000 items the naive list does on the order of 100,000 times more work.
+Start with `items` of length 8, `nextFirst = 4`, `nextLast = 5`, `size = 0`. (Those starting values are arbitrary; any pair of adjacent slots works.)
 
-### 5. Geometric resizing: the fix
+| Operation | Conceptual list | Array contents (indices 0..7) | size | nextFirst | nextLast |
+|---|---|---|---|---|---|
+| *(start)* | `[]` | `_ _ _ _ _ _ _ _` | 0 | 4 | 5 |
+| `addLast("a")` | `[a]` | `_ _ _ _ _ a _ _` | 1 | 4 | 6 |
+| `addLast("b")` | `[a, b]` | `_ _ _ _ _ a b _` | 2 | 4 | 7 |
+| `addFirst("c")` | `[c, a, b]` | `_ _ _ _ c a b _` | 3 | 3 | 7 |
+| `addLast("d")` | `[c, a, b, d]` | `_ _ _ _ c a b d` | 4 | 3 | 0 |
+| `addLast("e")` | `[c, a, b, d, e]` | `e _ _ _ c a b d` | 5 | 3 | 1 |
+| `addFirst("f")` | `[f, c, a, b, d, e]` | `e _ _ f c a b d` | 6 | 2 | 1 |
+| `addLast("g")` | `[f, c, a, b, d, e, g]` | `e g _ f c a b d` | 7 | 2 | 2 |
+| `addLast("h")` | `[f, c, a, b, d, e, g, h]` | `e g h f c a b d` | 8 | 2 | 3 |
 
-```java
-if (size == items.length) {
-    resize(size * 2);        // or (int) (size * 1.1)
-}
+Things to notice:
+
+- `addLast` writes at `nextLast` and then advances `nextLast`; `addFirst` writes at `nextFirst` and then retreats `nextFirst`. **`addFirst` does not touch `nextLast`, and `addLast` does not touch `nextFirst`.** Exactly three memory boxes change per add: the array slot, one pointer, and `size`.
+- Going from `nextLast = 7` to `nextLast = 0` is the wraparound: index 7 is "adjacent" to index 0.
+- After `addLast("e")`, the logical list is physically split: `f c a b d` occupies 3..7 and `e g h` occupies 0..2, but read circularly starting at index 3 it is one continuous run.
+- After `addLast("h")` the array is full (`size == 8 == items.length`) and `nextFirst`/`nextLast` now point at occupied cells. The next add of either kind requires a resize.
+
+### Example 7: Non-uniqueness of the representation
+
+The list `[11, 13, 6, 5, 3, 1, 7, 81]` in an array of length 10 can be stored as any of:
+
+```
+13  6  5  3  1  7  81  _   _  11     (front = 9, wraps around)
+11 13  6  5  3  1   7  81  _   _     (front = 0, no wrap)
+ 1  7 81  _  _ 11  13   6  5   3     (front = 5, wraps around)
 ```
 
-Now the capacity doubles: 100, 200, 400, 800, ... Resizes become exponentially rarer as the list grows. To reach size N you perform about log₂(N) resizes, and the copies cost N/2 + N/4 + N/8 + ... < N boxes *in total*. So N inserts cost O(N) work overall, meaning an **average** of constant work per insert, even though individual inserts occasionally do a lot of work. This "expensive rarely, cheap usually, constant on average" idea is called amortized constant time; the lecture uses the geometric strategy and defers the full formal analysis to later in the course.
+All three are equally valid. Picture snipping the conceptual circle at different points and straightening it out; each snip gives a different linear picture of the same circle.
 
-The lecture code enumerates the candidate strategies side by side so you can compare them:
+This matters for **resize**: after you build the new bigger array, you can lay the items out however you like. The slides show three valid post-resize layouts for `[f, c, a, b, d, e, g, h, Z]`. The one the lecture recommended considering is putting the items at index 0 in logical order, i.e. "unrotate" the list during the copy. That makes the new `nextFirst` and `nextLast` trivial to compute.
 
-```java
-// other resizing strategies:
-//  resize(size + 1000);          // additive: still quadratic overall
-//  resize(size * 2);             // geometric: linear overall
-//  resize((int) (size * 1.1));   // geometric with a smaller factor
-```
+**This is exactly why `System.arraycopy` is a trap on Project 2:** in the wrapped case the items are two separate runs, so a single `arraycopy` call copies the wrong thing. Writing a loop with `get(i)` is easier to get right, and the lecture explicitly hinted that **`get` is a useful tool inside `resize`**.
 
-`size * 1.1` is still geometric (still multiplicative), so it is still amortized constant time; the tradeoff is that it does about 7x more resize events than doubling (log base 1.1 instead of log base 2) but wastes at most ~10% of memory instead of up to ~50%.
-
-> Caution (extra context): `resize((int) (size * 1.1))` only works because the starting capacity is 100. If `size` were small, `(int)(size * 1.1)` could round back down to `size`, producing a "new" array of the same length and an infinite loop or an out-of-bounds crash. Robust implementations use something like `Math.max(size + 1, (int)(size * 1.1))`.
-
-### 6. Memory performance: the usage ratio and downsizing
-
-Geometric growth solves time but creates a space problem in the other direction. Insert 1,000,000,000 items, then remove 990,000,000 of them: `size` is now 10,000,000 but `items.length` is still around a billion, so 99% of the memory is wasted.
-
-Define the **usage ratio** R = size / items.length. A typical implementation halves the array's capacity when R drops below 0.25. Why 0.25 rather than 0.5? (extra context) If you halved at exactly R = 0.5, a workload that alternates `addLast`/`removeLast` at the boundary would resize on every single operation, destroying the amortized guarantee. Leaving a gap between the grow threshold and the shrink threshold prevents this thrashing.
-
-### 7. Generics in an array-backed list
-
-Making `AList` generic is mostly the same as for `SLList`: put `<T>` after the class name and replace `int` with `T`:
-
-```java
-public class AList<T> {
-    public T[] items;
-    public int size;
-```
-
-But Java forbids creating an array of a generic type. You cannot write `new T[11]`. Instead you must write:
-
-```java
-items = (T[]) new Object[11];
-```
-
-This creates an array of `Object` and lies to the compiler about its type. It produces an unchecked-cast compilation **warning**, not an error, and the course's position for now is that we simply live with it (the underlying reason, type erasure, is covered in a later chapter).
-
-Also note the generic `SLList` in this lecture uses `Mustard` as the type parameter name:
-
-```java
-public class SLList<Mustard> {
-    private class MustardNode {
-        public Mustard item;
-        public MustardNode next;
-```
-
-The point of choosing a silly name is pedagogical: the type parameter is just a placeholder identifier, there is nothing magic about `T` or `E`. (`T` is the conventional choice in real code.)
-
-### 8. Loitering
-
-For an `int[]`, `removeLast` can leave the stale value in the array harmlessly. For a `T[]` holding object references, it cannot. Java's garbage collector reclaims an object only when the **last reference to it is lost**. If a deleted item's reference is still sitting in `items[size]`, the array keeps that object alive forever even though the list "no longer contains" it. That is **loitering**: memory held by a reference we will never use again.
-
-The fix is to null out the slot when deleting:
-
-```java
-public T removeLast() {
-    T itemToReturn = items[size - 1];
-    items[size - 1] = null;   // prevents loitering
-    size -= 1;
-    return itemToReturn;
-}
-```
-
-The textbook calls this a subtle bug you are unlikely to notice unless you look for it, but one that can waste significant memory. (Note the `AList<T>` in this lecture's code has no `removeLast` yet, so there is nothing to null out there; the point applies as soon as you add one.)
-
-### 9. Measuring performance experimentally
-
-The lecture's speedtest classes establish the methodology used for the rest of the course:
-
-- Record `System.currentTimeMillis()` before and after, subtract to get elapsed milliseconds.
-- Run one fixed N (100,000) to get a single number, as in `SpeedTestAList` / `SpeedTestSLList`.
-- Better: run a *table* of increasing N, multiplying N by 10 each round and stopping once a round exceeds 5000 ms, as in `SpeedTestAListTable` / `SpeedTestSLListTable`.
-
-The table is the important idea. If time is linear in N, multiplying N by 10 multiplies the time by about 10. If time is quadratic, multiplying N by 10 multiplies the time by about 100. You can read the asymptotic behavior straight off the column of numbers without ever plotting anything.
-
-Note the comparison is deliberately apples-to-apples on cost, not on operation name: `SpeedTestSLList` uses `addFirst` (which is genuinely constant time for a singly linked list) while `SpeedTestAList` uses `addLast`. The `SLList` in this package has no sentinel-tail/`last` pointer and no caching, so its `addLast` walks the entire list with `while (p.next != null) p = p.next;`, which is itself linear and would give a quadratic total. `addFirst` is the fair representative of "fast linked list operation."
-
-## Definitions
-
-- **AList (array list):** A list implementation that stores items in a contiguous backing array `items` together with an `int size`, where the list's contents are exactly `items[0]` through `items[size - 1]`.
-- **size:** The number of items currently in the list. Also the index at which the next `addLast` will write.
-- **length / capacity:** `items.length`, the physical number of boxes in the backing array. Always ≥ `size`.
-- **Resizing:** Creating a new array of a different length, copying the existing `size` items into it, and reassigning the `items` reference to the new array. The old array is not changed, it is discarded.
-- **Additive (naive) resizing:** Growing the array by a fixed constant number of boxes, e.g. `resize(size + 1)` or `resize(size + 1000)`. Leads to Θ(N²) total work for N inserts.
-- **Geometric (multiplicative) resizing:** Growing the array by a multiplicative factor RFACTOR > 1, e.g. `resize(size * 2)` or `resize((int)(size * 1.1))`. Leads to Θ(N) total work for N inserts, i.e. constant time per insert on average.
-- **RFACTOR:** The resizing factor, the constant used in the resizing rule (added in the naive scheme, multiplied in the geometric scheme).
-- **Usage ratio (R):** R = size / items.length, the fraction of the backing array actually in use. A typical implementation halves the capacity when R < 0.25.
-- **Loitering:** Retaining a reference to an object that the program will never use again, preventing the garbage collector from reclaiming it. Avoided by setting deleted array slots to `null`.
-- **Garbage collection:** Java's automatic reclamation of objects once the last reference to them is lost.
-- **`System.arraycopy(src, srcPos, dest, destPos, length)`:** Library method that copies `length` elements from `src` beginning at `srcPos` into `dest` beginning at `destPos`.
-- **Type parameter:** The placeholder type name in angle brackets in a generic class declaration (`<T>`, or `<Mustard>` in this lecture's `SLList`), substituted with a real reference type at instantiation.
-- **Amortized constant time (extra context, named informally here):** A cost guarantee where any individual operation may be expensive but the average cost over a long sequence of operations is constant.
-
-## Worked Examples
-
-### Example 1: Tracing the naive generic `AList`
-
-```java
-public class AList<T> {
-    public T[] items;
-    public int size;
-
-    public AList() {
-        items = (T[]) new Object[11];
-        size = 0;
-    }
-
-    private void resize(int capacity) {
-        T[] resized = (T[]) new Object[capacity];
-        for (int i = 0; i < size; i++) {
-            resized[i] = items[i];
-        }
-        items = resized;
-    }
-
-    public void addLast(T x) {
-        if (size == items.length) {
-            resize(size + 1);
-        }
-        items[size] = x;
-        size += 1;
-    }
-
-    public T get(int i) {
-        return items[i];
-    }
-}
-```
-
-Step by step for `AList<String> L = new AList<>();` followed by 12 `addLast` calls:
-
-1. **Construction.** `new Object[11]` allocates an 11-box array, every box holding `null`. The cast `(T[])` does not change the object at all, it only changes what the compiler believes about the type of the expression. `items` points at this array; `size = 0`.
-2. **`addLast("a")`.** `size` (0) `!= items.length` (11), so no resize. Write `items[0] = "a"` (the box now holds a reference to the string object, not the characters themselves). `size` becomes 1.
-3. **`addLast("b")` through `addLast("k")`.** Same thing each time, filling `items[1]` through `items[10]`. After the 11th call, `size == 11` and every box is occupied.
-4. **`addLast("l")` (the 12th).** Now `size == items.length == 11`, so `resize(12)` runs: allocate a 12-box `Object[]`, loop `i` from 0 to 10 copying each reference over, then point `items` at the new array. The old 11-box array is now unreachable and will be garbage collected. Back in `addLast`, write `items[11] = "l"` and set `size = 12`.
-5. **`addLast("m")` (the 13th).** `size == items.length == 12` again immediately, so we copy all 12 items into a 13-box array. And so on, forever. **Every insert past 11 copies the whole list.** This is the quadratic behavior.
-
-Notice what `get` does *not* do: it never checks `i < size`. `L.get(11)` right after step 3 would return `null` (a junk box), not throw. Real implementations add bounds checking.
-
-### Example 2: Counting boxes (textbook Exercises 2.5.5 and 2.5.6)
-
-*Suppose we have a full array of size 100 and we call `addLast` twice under naive `resize(size + 1)` resizing.*
-
-- First `addLast`: create an array of 101 boxes, fill 100 of them by copying, then fill the 101st with the new item. Boxes created: 101.
-- Second `addLast`: `size == 101 == items.length`, so create an array of 102 boxes, copy 101, fill the last. Boxes created: 102.
-- **Total boxes created and filled across the process: 100 + 101 + 102 = 303** counting the original array, or 203 newly created.
-- **Boxes in existence at any one time:** at the peak of the first resize, both the 100-box array and the 101-box array exist simultaneously (201 boxes), because the copy loop needs both. As soon as `items = a` executes and the old reference is lost, the old array becomes garbage, so we drop back to 101.
-
-*Starting from an array of size 100, how many boxes get created and filled over 1,000 `addLast` calls?*
-
-Roughly 101 + 102 + ... + 1100, which is about (1100 + 101) × 1000 / 2 ≈ 600,000 boxes, to store 1,000 items. That is the parabola.
-
-Now redo it with doubling from capacity 100: resizes happen at capacity 100 → 200 → 400 → 800 → 1600, copying 100 + 200 + 400 + 800 = 1,500 items total across 4 resizes. Roughly 400x less copying, and the gap widens as N grows.
-
-### Example 3: The speedtest `AList` with geometric resizing
-
-```java
-public class AList {
-    private int size;
-    private int[] items;
-
-    public AList() {
-        size = 0;
-        items = new int[100];
-    }
-
-    public void addLast(int x) {
-        if (size == items.length) {
-            resize((int) (size * 1.1));
-        }
-        items[size] = x;
-        size += 1;
-    }
-
-    private void resize(int newSize) {
-        int[] a = new int[newSize];
-        System.arraycopy(items, 0, a, 0, size);
-        items = a;
-    }
-
-    public int getLast() { return items[size - 1]; }
-    public int get(int i) { return items[i]; }
-
-    public int removeLast() {
-        int itemToReturn = getLast();
-        size -= 1;
-        return itemToReturn;
-    }
-}
-```
-
-What happens as we insert:
-
-- Inserts 1 through 100 are pure writes, no resizing at all.
-- At insert 101, `size == 100 == items.length`, so `resize(110)`: allocate 110 ints, `System.arraycopy` moves the 100 existing values, `items` is repointed. Then the write proceeds.
-- The next resize is not until insert 111, then 122, then 135, and so on. The gap between resizes *grows by 10% each time*, so resizes become steadily rarer relative to the number of inserts.
-- Total copying to reach N items is 100 + 110 + 121 + ... , a geometric series whose sum is bounded by about 11N, i.e. linear in N. Compare with the naive version's N²/2.
-
-Note this is an `int[]`, not a generic array, so no cast is needed and `removeLast` can safely leave the stale int behind. Also note this class is *not* generic while the other `AList` in the lecture is; the speedtest version deliberately uses primitive `int`s to keep the timing focused on the resizing cost.
-
-### Example 4: The single-N speed tests
+### Example 8: The speed test harness
 
 ```java
 public class SpeedTestAList {
@@ -318,199 +395,140 @@ public class SpeedTestAList {
 }
 ```
 
-and its linked-list counterpart:
+The pattern: stamp the clock, do N operations, stamp the clock again, print the difference. `SpeedTestSLList` is identical but uses `L.addFirst(i)` on an `SLList<Integer>`. The `...Table` variants wrap this in a loop that multiplies N by 10 each round and stops once a single round exceeds 5000 ms, which is how the timing tables above were produced.
 
-```java
-public class SpeedTestSLList {
-    public static void main(String[] args) {
-        long startTime = System.currentTimeMillis();
+Note that this is a **computational experiment**, not a proof. It demonstrates conclusively that the naive `AList` is bad, and it motivates the asymptotic analysis machinery that arrives after the midterm.
 
-        SLList<Integer> L = new SLList<>();
-        int i = 0;
-        while (i < 100000) {
-            L.addFirst(i);
-            i = i + 1;
-        }
-
-        long endTime = System.currentTimeMillis();
-        System.out.println("Total runtime: " + (endTime - startTime) + " ms");
-    }
-}
-```
-
-Both do the same number of logical insertions. With the **naive** `AList`, the array version takes several seconds while the `SLList` finishes essentially instantly, which is the observation that motivates the whole lecture. With the **geometric** `AList` (the code as shipped, using `size * 1.1`), the array version also finishes so fast you can barely measure it.
-
-Two things to notice about `SpeedTestSLList` (extra context): `L.addFirst(i)` autoboxes each `int i` into an `Integer` object, since generics only work with reference types. And single-run millisecond timings on the JVM are noisy (JIT warm-up, garbage collection), which is exactly why the table version below is more informative.
-
-### Example 5: The table-based speed test, and how to read it
-
-```java
-public class SpeedTestAListTable {
-    public static void main(String[] args) {
-        System.out.printf("%-15s %-15s\n", "N", "Time (ms)");
-
-        int currentN = 10_000;
-
-        while (true) {
-            long timeForCurrentN = measureAndPrintForN(currentN);
-
-            if (timeForCurrentN > 5000) {
-                break; // Stop if the test took more than 5000 ms
-            }
-
-            currentN *= 10; // Increase N by a factor of 10
-        }
-    }
-
-    private static long measureAndPrintForN(int N) {
-        AList L = new AList();
-
-        long startTime = System.currentTimeMillis();
-        for (int i = 0; i < N; i++) {
-            L.addLast(i);
-        }
-        long endTime = System.currentTimeMillis();
-        long totalTime = endTime - startTime;
-
-        System.out.printf("%-15d %-15d\n", N, totalTime);
-        return totalTime;
-    }
-}
-```
-
-The structure to learn: build a **fresh** list for each N (reusing one list would contaminate the measurement), time only the insertion loop, print N and the time, and multiply N by 10 until a run exceeds 5 seconds.
-
-How to interpret the output. Suppose N = 10,000 takes about 1 ms. Then:
-
-- If the implementation is **linear overall** (geometric resizing, or `SLList.addFirst`), N = 100,000 is about 10 ms, N = 1,000,000 about 100 ms, N = 10,000,000 about 1000 ms. Each row is roughly **10x** the previous. You get many rows before hitting 5 seconds.
-- If the implementation is **quadratic overall** (naive `resize(size + 1)`), each row is roughly **100x** the previous: 1 ms, 100 ms, 10,000 ms. The loop terminates after only two or three rows.
-
-So the diagnostic is: *look at the ratio between consecutive rows.* A ratio near 10 means linear, a ratio near 100 means quadratic. `SpeedTestSLListTable` is identical in structure but builds an `SLList<Integer>` and calls `addFirst`, giving you the linear baseline to compare against.
-
-One caveat visible in the source: `SpeedTestSLListTable`'s comment says "more than 500 ms" while the code checks `> 5000`. The code is what runs; the comment is stale.
-
-### Example 6: Box-and-pointer reasoning through a resize
-
-Consider `AList<String> L` with `items` pointing to a 2-box array `["a", "b"]` and `size = 2`, and we call `L.addLast("c")` under `resize(size + 1)`.
-
-- `size == items.length`, so `resize(3)` is called.
-- A new 3-box `Object[]` is allocated somewhere else in the heap: `[null, null, null]`.
-- The loop copies **references**: `resized[0]` now points to the same `"a"` object that `items[0]` points to, and likewise for `"b"`. The strings themselves are never duplicated. If these were mutable objects, both arrays would be aliasing the same objects during the copy.
-- `items = resized` redirects the `AList`'s `items` arrow to the new array. The old 2-box array now has zero incoming arrows: it is garbage.
-- Back in `addLast`, `items[2] = "c"` and `size = 3`.
-
-The key takeaway: a resize changes *which array the list points at*, not the array itself, and it copies references, not objects.
+---
 
 ## Common Pitfalls
 
-1. **Confusing `size` with `items.length`.** Writing `for (int i = 0; i < items.length; i++)` when iterating the list walks into the junk region. Writing `resize` with `items.length` instead of `size` in the copy loop copies garbage (and crashes when shrinking). The copy loop bound must be `size`.
-2. **Believing an array can grow.** `items.length` is immutable. Every "resize" is a fresh allocation plus a copy plus a reassignment. Forgetting the reassignment (`items = resized;`) means you built a new array and threw it away, leaving the list unchanged.
-3. **Thinking `resize(size + 1000)` is fast.** Any *additive* growth is asymptotically quadratic. It only changes the constant factor. Only *multiplicative* growth gives constant amortized cost.
-4. **Checking `size > items.length` instead of `size == items.length`.** By the time `size` exceeds `length`, you have already written out of bounds. The check must happen *before* the write, and the correct condition is equality (the invariant guarantees `size` never exceeds `length`).
-5. **`new T[n]`.** Illegal in Java. You must write `(T[]) new Object[n]`, and you must accept the resulting unchecked-cast warning.
-6. **Forgetting to null out on delete in a generic list.** `size -= 1` alone is correct for `int[]` but causes loitering for `T[]`: the removed object stays reachable through the array and is never garbage collected.
-7. **Growing but never shrinking.** Without a downsizing rule, a list that peaks at a billion items and then drops to ten million permanently holds the billion-box array. Halve the capacity when the usage ratio falls below 0.25.
-8. **Halving as soon as R < 0.5.** (extra context) Too aggressive: alternating add/remove at the threshold triggers a resize on every operation. The gap between the grow and shrink thresholds is what prevents thrashing.
-9. **Assuming `SLList.addLast` is constant time.** The `SLList` in this lecture has no tail pointer, so `addLast` walks the list: linear per call, quadratic for N calls. That is why the speed tests use `addFirst`.
-10. **Assuming the multiplicative factor must be 2.** 1.1 is also geometric and also amortized constant. The factor trades resize frequency against wasted memory.
-11. **No bounds checking in `get`.** The lecture's `get(int i)` returns `items[i]` with no check against `size`, so `get` of an index in the junk region silently returns `null` or a stale value instead of erroring.
-12. **Timing a reused list.** In a table-based experiment, each N must get a freshly constructed list, or earlier work skews later rows.
+1. **Confusing `size` and `items.length`.** `size` is how many items the list holds; `items.length` is how many it *could* hold. The resize condition is `size == items.length`, and `get(i)` should be valid only for `i < size`.
+
+2. **`resize(size)` instead of `resize(size + 1)`.** Caught live in the lecture demo. Allocating the same capacity leaves the array full, and the very next `items[size] = x` throws `ArrayIndexOutOfBoundsException`. Whatever your growth strategy, make sure the new capacity is strictly greater than `size`.
+
+3. **Copying `items.length` elements instead of `size` elements.** The loop bound must be `i < size`. Using `items.length` reads past the meaningful data (and can go out of bounds on the new array if you shrink).
+
+4. **Forgetting `items = resized;`.** You built and filled a beautiful new array, then dropped it on the floor. The instance variable still points at the old, full array.
+
+5. **Thinking the array literally grows.** It does not. Resizing means a *new* array object plus a pointer reassignment. Keep the box-and-pointer picture straight: `items` holds an address.
+
+6. **Assuming a bigger additive constant fixes the problem.** `resize(size + 1000)` looks great for N = 100,000 and is still terrible for N = 10,000,000. Additive is asymptotically the same shape (a shifted parabola) no matter the constant. Only *multiplying* changes the shape.
+
+7. **Using `new Glorp[cap]`.** Compile error ("generic array creation"). Use `(Glorp[]) new Object[cap]` and ignore the unchecked-cast warning.
+
+8. **Panicking about the unchecked-cast warning.** It is a warning, not an error, and it is expected here.
+
+9. **Forgetting to null out removed items in a generic list.** The list is still *correct* if you only decrement `size`, but you are loitering, and the held objects (which could be megabytes each) can never be garbage collected.
+
+10. **Halving at R < 0.5.** This leaves the array instantly full, so alternating add/remove thrashes resize on every operation. Halve at R < 0.25.
+
+11. **Assuming negative array indices work.** `items[-1]` is not Python; Java throws. Circular arrays need explicit wraparound logic or modular arithmetic.
+
+12. **Assuming the circular representation is unique.** Any rotation is valid; do not write tests or reasoning that depend on the first item being at index 0.
+
+13. **Letting `addFirst` modify `nextLast` (or vice versa).** Each add moves exactly one of the two pointers.
+
+14. **Using `System.arraycopy` in a circular `resize`.** A wrapped list is two runs, not one. The lecture explicitly recommends against `arraycopy` on Project 2.
+
+15. **Writing the entire Project 2 before testing any of it.** The lecture advice: build incrementally, comment out what is unnecessary if overwhelmed, get it working *without* resizing first (resizing is a performance optimization), and do not be afraid to throw the code away and start over, since there isn't that much of it.
+
+---
 
 ## Likely Exam Points
 
-### 1. Count the copies under a given resizing strategy
+### 1. Counting memory boxes for additive resizing
 
-**Q:** An `AList` starts with a backing array of length 4 and uses `resize(size + 1)`. Starting from an empty list, how many total item-copies are performed by `resize` over the first 10 `addLast` calls?
+**Q:** An `AList` has a full backing array of capacity 50 and uses `resize(size + 1)`. You call `addLast` until `size == 60`. How many total array boxes are created and filled?
 
-**A:** No resize happens for the first 4 adds (capacity 4). The 5th add triggers `resize(5)`, copying 4 items. The 6th triggers `resize(6)`, copying 5. And so on through the 10th, which copies 9. Total = 4 + 5 + 6 + 7 + 8 + 9 = **39 copies** for 10 inserts. Compare with doubling (4 → 8 → 16), which would copy 4 + 8 = 12.
+**A:** Each `addLast` from capacity `k` creates an array of `k + 1` and fills all `k + 1` boxes. So the calls cost 51, 52, ..., 60. That is `(51 + 60) * 10 / 2 = 555` boxes.
 
-### 2. Identify the asymptotic behavior from a timing table
+### 2. Max boxes alive at once
 
-**Q:** You run a table-based speed test and get: N = 10,000 → 2 ms; N = 100,000 → 210 ms; N = 1,000,000 → 21,300 ms. What resizing strategy is the implementation most likely using, and why?
+**Q:** Starting from a full array of capacity 100 with `resize(size + 1)`, you call `addLast` three times. Assuming garbage collection is immediate, what is the maximum number of array boxes Java tracks at any one moment?
 
-**A:** Each 10x increase in N multiplies the time by about 100, which is the signature of quadratic total runtime, i.e. linear time per `addLast`. That means **additive resizing** (something like `resize(size + c)`). A geometric strategy would give ratios near 10 per row.
+**A:** During the third resize the 102-array and the new 103-array coexist, giving 205. (Check the earlier steps: during resize 1 it's 100 + 101 = 201; during resize 2 it's 101 + 102 = 203; during resize 3 it's 102 + 103 = 205.) So **205**. Generalize: during a resize both the old and new arrays are alive, so peak memory is roughly double the list size.
 
-### 3. Fix the naive `addLast`
+### 3. Additive vs. geometric asymptotics
 
-**Q:** Rewrite this `addLast` so that N inserts take time linear in N overall, and explain the change in one sentence.
+**Q:** Someone proposes `resize(size + 1000000)` and argues it is just as good as doubling because the constant is huge. Refute this.
 
-```java
-public void addLast(T x) {
-    if (size == items.length) {
-        resize(size + 1);
-    }
-    items[size] = x;
-    size += 1;
-}
-```
+**A:** For N below a million it looks fine, since only a handful of resizes occur. But the total work to reach N items is `1M + 2M + 3M + ...`, still a quadratic in N, just with a large constant divisor. For sufficiently large N it degrades into the same parabola. Doubling changes the *shape*: the resizes occur exponentially less often, giving linear total work (constant amortized per operation). It also wastes up to a million slots for a tiny list.
 
-**A:**
+### 4. Usage ratio and downsizing thresholds
 
-```java
-public void addLast(T x) {
-    if (size == items.length) {
-        resize(size * 2);
-    }
-    items[size] = x;
-    size += 1;
-}
-```
+**Q:** An `AList` has `size = 30` and `items.length = 200`. What is R? Under the standard policy, what happens, and why is the halving threshold 0.25 rather than 0.5?
 
-Multiplying the capacity means resizes happen only about log₂(N) times and the copy costs form a geometric series summing to less than 2N, so the total work is linear and the per-insert cost is constant on average. (Caveat: if the initial capacity could be 0, use `Math.max(1, size * 2)`, since `0 * 2 == 0`.)
+**A:** `R = 30/200 = 0.15`, which is below 0.25, so the array is halved (to length 100; R becomes 0.30, still below 0.25? no: 0.30 > 0.25, so it stops). Threshold 0.25 instead of 0.5: halving at exactly R = 0.5 produces R = 1, a full array, so the very next `addLast` forces a grow. An alternating add/remove sequence at the boundary would then resize on *every* operation. Leaving slack on both sides prevents this thrashing.
 
-### 4. size vs. length
+### 5. Generic array creation syntax
 
-**Q:** An `AList<String>` has `size == 3` and `items.length == 8`. What does `items[5]` contain, and what should `get(5)` do?
+**Q:** What is wrong with `private Glorp[] items = new Glorp[8];` and what is the fix? Is the fix's compiler complaint an error or a warning?
 
-**A:** `items[5]` is in the junk region past the end of the list. It holds either `null` (never written) or a stale reference from a previously removed item. `get(5)` should throw an exception or otherwise signal an error, because index 5 is not a valid position in a 3-item list. The lecture's `get` does not check, so it would silently return whatever is in the box.
-
-### 5. Generic array creation
-
-**Q:** Why does `T[] items = new T[10];` fail to compile, and what is written instead? What is the consequence?
-
-**A:** Java does not permit instantiating an array of a generic type parameter. You write `T[] items = (T[]) new Object[10];`, which allocates an `Object[]` and casts it. The consequence is an unchecked-cast compiler **warning** (not an error), which we accept for now; the deeper reason relates to how generics are implemented and is covered later.
+**A:** Java forbids generic array creation, so this is a **compilation error**. Fix: `private Glorp[] items = (Glorp[]) new Object[8];`. That produces an *unchecked cast* **warning**, which is expected and should be ignored.
 
 ### 6. Loitering
 
-**Q:** Here is `removeLast` for a generic `AList`. What memory problem does it have, and how do you fix it?
+**Q:** A generic `AList`'s `removeLast` is implemented as `public Glorp removeLast() { size -= 1; return items[size]; }`. Is this correct? Is there a problem?
 
+**A:** It is functionally correct: the item is returned and no longer visible to the user. But it loiters: `items[size]` still references the removed object, so Java cannot garbage collect it even after the caller drops it. Fix by nulling the slot before returning:
 ```java
-public T removeLast() {
-    T item = items[size - 1];
+public Glorp removeLast() {
+    Glorp returnItem = items[size - 1];
+    items[size - 1] = null;
     size -= 1;
-    return item;
+    return returnItem;
 }
 ```
+This matters with generics but not with `int[]`, since primitives are not references.
 
-**A:** The reference at `items[size - 1]` (now past the end of the list) still points at the removed object, so the garbage collector cannot reclaim that object even though the list has logically discarded it. This is loitering. Fix: set `items[size - 1] = null;` before decrementing `size` (or `items[size] = null;` after decrementing).
+### 7. Circular array tracing
 
-### 7. Usage ratio and downsizing
+**Q:** An array of length 6 holds `nextFirst = 4`, `nextLast = 1`, `size = 4`, with contents (indices 0..5) `y z _ _ _ x`. What is the conceptual list? Now execute `addFirst("w")`, then `addLast("v")`. Give the array, `nextFirst`, `nextLast`, and `size` after each.
 
-**Q:** An `AList` has `size == 30` and `items.length == 1000`. What is the usage ratio, and what would a typical implementation do?
+**A:** The first item is at `nextFirst + 1 = 5`, so reading circularly from index 5: `x` (5), `y` (0), `z` (1)... wait, `nextLast = 1` means index 1 is the *next* empty slot, so index 0 is the last item. Reading from 5: `x`, then 0: `y`. That's only 2 items but `size = 4`, so the given state is inconsistent. Take instead `nextLast = 2`, `size = 3`, contents `y z _ _ _ x`: conceptual list is `[x, y, z]`.
 
-**A:** R = 30 / 1000 = 0.03. Since R < 0.25, a typical implementation halves the backing array. (To actually reach a reasonable usage ratio it would keep halving on subsequent removals: 1000 → 500 → 250 → 125, and so on.)
+- `addFirst("w")`: write at index 4, decrement `nextFirst` to 3. Array: `y z _ _ w x`, `nextFirst = 3`, `nextLast = 2`, `size = 4`. List: `[w, x, y, z]`.
+- `addLast("v")`: write at index 2, advance `nextLast` to 3. Array: `y z v _ w x`, `nextFirst = 3`, `nextLast = 3`, `size = 5`. List: `[w, x, y, z, v]`.
 
-### 8. Array list vs. linked list tradeoff
+Note the array now has one free slot and both pointers land on it, so the next add of either kind requires a resize.
 
-**Q:** In this lecture's code, `AList.addLast` is amortized constant time but `SLList.addLast` is linear. Why, and how could `SLList.addLast` be made constant time?
+*(Exam-technique note: always sanity-check that the number of occupied slots between the two pointers matches `size`. Inconsistent states are a classic trap.)*
 
-**A:** `AList` knows exactly where the end is (`items[size]`), so adding at the back is a single write plus an occasional amortized-constant resize. This lecture's `SLList` has only a `sentinel` reference, so `addLast` must traverse with `while (p.next != null) p = p.next;` to find the final node, which takes time proportional to the list length. It can be made constant time by maintaining a `last` pointer to the final node (and, more generally, by using a doubly linked list with a sentinel).
+### 8. Which operations are fast in which structure
 
-### 9. Why the speed test compares `addLast` to `addFirst`
+**Q:** Fill in the blanks. Compared to a `DLList`, a non-circular `AList` is much faster at ____ and much slower at ____. Does the circular version change this?
 
-**Q:** `SpeedTestAList` calls `addLast` but `SpeedTestSLList` calls `addFirst`. Is this a fair comparison?
+**A:** Faster at `get(i)` (random access to the middle), slower at `addFirst`/`removeFirst` (which require shifting every element). The circular version fixes the front operations, making both ends fast. The remaining difference is that a linked list's end operations are *always* fast, while an array list occasionally pays a linear resize (negligible in practice). Random access remains an array list advantage.
 
-**A:** Yes, for the question being asked. The goal is to compare the *fast back-end insertion* of each data structure. For `SLList` (no tail pointer) the fast insertion is `addFirst`, which is constant time; using `addLast` would measure the traversal cost, not the insertion cost, and would make the linked list look quadratic for unrelated reasons. Both tests insert the same number of items.
+### 9. Why is naive AList's total-time graph a parabola?
+
+**Q:** The total-time-vs-N graph for `SLList.addFirst` is a straight line, and for the naive `AList.addLast` it is a parabola. What does each shape tell you about the *per-operation* cost?
+
+**A:** The total time is the running sum (integral) of the per-operation costs. The integral of a constant is a line, so a linear total-time graph means each operation takes constant time. The integral of a line is a parabola, so a parabolic total-time graph means each operation takes time linear in the current size, which is exactly what copying the whole array on every add produces.
+
+### 10. Why can't Java extend an array in place?
+
+**Q:** Why does Java not provide a primitive to append extra slots to the end of an existing array?
+
+**A:** Arrays are stored contiguously in memory, and the memory immediately after an array may already be in use by another object. Contiguity is precisely what makes array indexing fast (the address of element `i` is a simple arithmetic computation), so it cannot be given up. Building a new array elsewhere and copying is the only general option.
+
+---
 
 ## Summary
 
-- An `AList` is a backing array `items` plus an `int size`; the list is exactly `items[0]` through `items[size - 1]`. `size` is where the next `addLast` writes, `size - 1` is the last item, `items.length` is the physical capacity.
-- Java arrays cannot grow. "Resizing" means allocating a new array, copying `size` items over (by hand or with `System.arraycopy`), and reassigning `items`; the old array becomes garbage.
-- Naive additive resizing (`resize(size + 1)`) copies the whole array on nearly every insert: about N²/2 copies for N inserts, quadratic total time, unusable at N = 100,000. Any constant additive factor (even `+1000`) is still quadratic.
-- Geometric resizing (`resize(size * 2)` or `resize((int)(size * 1.1))`) makes resizes exponentially rarer; total copying is linear in N, so `addLast` costs constant time on average. The factor trades resize frequency against wasted memory.
-- Timing method: `System.currentTimeMillis()` around the insertion loop; better, a table of N vs. time with N multiplied by 10 each round. Row-to-row ratio ≈ 10 means linear, ≈ 100 means quadratic. Build a fresh list per row.
-- `SLList.addFirst` is constant time (straight-line graph); the naive `AList.addLast` is linear time per op (parabola).
-- Space matters too: usage ratio R = size / items.length; halve the array when R < 0.25 so a shrunken list does not hoard memory.
-- Generic `AList`: `class AList<T>`, and `items = (T[]) new Object[n]` because `new T[n]` is illegal. Expect an unchecked-cast warning. The type parameter name is arbitrary (this lecture's `SLList<Mustard>`).
-- Null out removed slots in a generic list to avoid loitering, since Java frees an object only when the last reference to it is lost.
-- The lecture's `SLList` has no tail pointer, so its `addLast` traverses the whole list and is linear; that is why the speed tests use `addFirst`.
+- An `AList` stores items in part of a fixed-length backing array; `size` (items in the list) and `items.length` (capacity) are different things.
+- **Resizing** = allocate a new bigger array, copy the `size` real items over, reassign `items` to point at it. The old array is garbage collected automatically. The name is a misnomer; nothing is actually resized.
+- Factor resizing into a **private** `resize(int capacity)` helper: clearer, testable, reusable, and capacity is an implementation detail users should not see.
+- **Additive resizing is unusably bad.** Going from capacity 100 to size 1000 costs `101 + 102 + ... + 1000 ≈ 500,000` box writes. Total work is quadratic (a parabola); each operation is linear time. Bigger constants only shift the parabola.
+- **Geometric resizing** (`resize(size * RFACTOR)`) is the fix, because resizes become exponentially rarer as the array grows. Even a factor of 1.1 works. This is how Python's `list` is implemented. The formal justification comes after the midterm.
+- Lecture timings: 100,000 `addLast` calls took 602 ms with `+1`, 6 ms with `+1000`, and 2 ms with `* 2`; 10,000,000 calls took 6,097 ms with `+1000` but 25 ms with `* 2`.
+- Define **usage ratio** `R = size / items.length`; halve the array when `R < 0.25` to avoid wasting memory. Do not use 0.5, or add/remove at the boundary thrashes.
+- **Generics:** parameterize the class, replace the item type everywhere, and use `(Glorp[]) new Object[n]` since `new Glorp[n]` is a compile error. The unchecked-cast warning is expected.
+- **Null out removed items** in a generic list to avoid **loitering**; Java cannot collect an object while any reference survives.
+- A plain `AList` is slow at `addFirst`/`removeFirst` because everything must shift. Fix: let the list float inside the array and **wrap around** the ends, i.e. treat the array as **circular**, tracking `nextFirst` and `nextLast`.
+- The circular representation is **not unique**: every rotation of the items represents the same list, and after a resize you may lay the items out however you like.
+- Each add changes exactly three boxes: one array slot, one pointer, and `size`. Java has no negative indices, so wraparound needs explicit modular logic.
+- Python lists are not circular (front insertion is slow) because front insertion is too rare to justify the complexity and the cost to other operations; use `collections.deque` (or Java's `LinkedList`) when you need fast front operations.
+- `System.arraycopy(src, srcPos, dst, dstPos, n)` exists and is fast, but **avoid it on Project 2**: a wrapped circular list is two runs, not one. Use `get` inside `resize` instead.
+- Project 2 advice: build incrementally, get it working without resizing first, and rewrite from scratch if it gets messy.
