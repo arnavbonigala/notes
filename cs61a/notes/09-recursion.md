@@ -1,22 +1,22 @@
-<!-- Wed, Sep 16, 2026 | sources: slides + code (no transcript available) -->
+<!-- Wed, Sep 16, 2026 | sources: slides + code + YouTube auto-transcript -->
 # Lecture 9: Recursion
 
 ## Overview
 
-This lecture bridges two topics. It opens with a review of **code and environments**, making the point that you can determine which frame any name will be found in without drawing a full environment diagram: an expression outside any `def` or `lambda` is evaluated in the global frame, and an expression inside nested functions is evaluated in an environment with one frame per enclosing function, ordered inner to outer. This idea is exercised on the Fall 2026 Midterm 1 "New Print" problem, a higher-order function puzzle in which the built-in `print` is shadowed by a parameter and then rebound in the global frame twice. The lecture then introduces **recursive functions**: functions that call themselves on a smaller version of the problem. Using `fact` (factorial) as the running example, it contrasts the iterative `while` loop version with the recursive version, shows how the recursive computation "descends" to a base case and then multiplies back up as the calls return, and then shows how to convert iteration into recursion mechanically by **passing the state of the loop as arguments** (`fact_k`, `fact_tail`). The lecture closes with a discussion question applying that same conversion to the Twenty-One game: rewrite `play`'s `while` loop as a recursive inner function `f(n, who)` whose parameters are exactly the loop's changing state.
+This lecture makes the jump from functions that loop to functions that call themselves. It opens with a review of how to reason about environments quickly (you can determine which frames an expression is evaluated in, and therefore where each name is found, just by looking at the nesting of `def` statements and `lambda` expressions, without drawing a full diagram), applied to the Midterm 1 "New Print" problem that only 9% of students got right. It then introduces recursive functions: functions whose body calls the function itself, either directly (`fact` calling `fact`) or indirectly (mutual recursion, where `luhn_sum` and `luhn_sum_double` call each other). The core ideas are the anatomy of a recursive function (base case tested first, recursive case that calls the function on a *simpler* problem), tracing recursion in an environment diagram (many frames for the same function, each with its own binding for `n`, all with the same parent frame), verifying correctness via the *recursive leap of faith* (verify the base case, then assume the recursive call is correct and check that it combines correctly), and the relationship between iteration and recursion (iteration is a special case of recursion; converting a `while` loop to recursion is mechanical because the loop's state simply becomes the arguments of a recursive call, while going the other direction requires more thought). The lecture closes with two applications of that conversion rule: `fact_tail` (factorial with an accumulator) and the Twenty-One game (`play` rewritten with no `while` statement).
 
 ---
 
 ## Key Concepts
 
-### 1. You can find a name's frame without the whole diagram
+### 1. Reading environments off the code (no diagram needed)
 
-The environment in which an expression is evaluated is determined by *where the expression is written in the source code*, plus which function calls it sits inside at runtime. The lecture states two rules:
+The lecture starts by generalizing what you already know about environment diagrams into a shortcut you can apply by inspection:
 
-- **For any expression that appears outside a `def` statement or `lambda` expression, the environment is just the global frame.** Top-level code always runs in global.
-- **For other expressions, the environment has a frame for every enclosing `def` statement or `lambda` expression, ordered from inner to outer**, ending in the global frame.
+- **For any expression that appears outside a `def` statement or `lambda` expression**, the environment is just the global frame.
+- **For any other expression**, the environment has one frame for every enclosing `def` statement or `lambda` expression, ordered from inner to outer, ending in the global frame.
 
-The slide's example:
+Example from the slides:
 
 ```python
 def exp(x):
@@ -25,232 +25,220 @@ def exp(x):
     return base
 ```
 
-- `x` will be found in an `exp` frame (it is the argument to an `exp` call).
-- `b` will be found in a `base` frame.
-- The expression `pow(b, x)` will *always* be evaluated in an environment with **3 frames**: a `base` frame, then an `exp` frame, then global. That is because `pow(b, x)` is written inside `base`, which is written inside `exp`, which is written at top level.
+The expression `pow(b, x)` sits inside `base`, which sits inside `exp`, which sits in the global frame. So that expression is **always** evaluated in an environment with exactly three frames: a `base` frame, then an `exp` frame, then global. Therefore:
 
-The practical payoff: on an exam, when asked "where does this name come from?", count the enclosing `def`s/`lambda`s to know the shape of the environment, then walk outward until you find a frame that binds the name. You do not have to reconstruct every frame of an execution.
+- `b` will always be found in a `base` frame (it is `base`'s parameter).
+- `x` will always be found in an `exp` frame (it is the argument to some `exp` call).
+- `pow` will be found in the global frame (or builtins).
 
-Note the subtlety the slide emphasizes: the frame chain for a nested function is determined by the **parent of the function value** (where it was defined), not by who called it. `base`'s parent is the `exp` frame that was active when the `def base` statement executed.
+The payoff: **for any name, you know which frame it will be found in without drawing the whole environment diagram.** You still might not know the *value* (a different call to `exp` binds a different `x`), but you know *where to look*.
 
-### 2. The New Print problem (Fall 2026 Midterm 1)
+Why this works: the parent of a frame is determined by *where the function was defined*, not where it was called. So the chain of frames you walk when looking up a name mirrors the chain of `def` nesting in the source code. (extra context: this is called lexical/static scoping.)
 
-Only 9% of students got this right, which is why the lecture revisits it.
+### 2. What a recursive function is
 
-```python
-def new_print(print):
-    def f(x):
-        value = print(x)
-        if value != None:
-            return print('What?')
-        return x
-    return f
+> A recursive function is a function whose body calls itself, either directly or indirectly.
 
-og = print                      # original print, saved in global
-print = new_print(print)        # global print is now f, whose print is the original
-print = new_print(print)        # global print is now f, whose print is (f whose print is original)
-og('print returned', print(2))
-```
+Recursion is not exclusive to computer science: the lecture mentions the Sierpinski Triangle, which is defined as three smaller Sierpinski Triangles, each of which is itself three Sierpinski Triangles, as an example from art/math/nature.
 
-The whole trick is the environment reasoning from concept 1:
+The key insight is that executing the body of a recursive function may require applying that same function again, to a **simpler** version of the problem.
 
-- Inside `f`, the name `print` is **not** the global `print`. `print` is the parameter of `new_print`, so `print` inside `f` is found in the enclosing `new_print` frame. Each `f` value "remembers" whichever print it was built with, via its parent frame.
-- The call `new_print(print)` on line `print = new_print(print)` evaluates the *argument* expression `print` in the **global** frame, so it picks up whatever global `print` currently is at that moment. The first time that is the built-in; the second time it is the `f` from the first call.
-- So after two rebindings, the global `print` is `f2`'s inner `f`: an `f` whose `print` is another `f`, whose `print` is the original built-in.
+### 3. Anatomy of a recursive function
 
-Tracing `print(2)` where `print` is the outer `f` (the one from the second `new_print` call, whose parent frame `f2` binds `print` to the first `f`):
+Every recursive function in this lecture has the same three-part shape:
 
-1. **f4** (per the slide numbering): `x = 2`. Evaluate `value = print(x)`, where `print` here is the inner `f` from the first `new_print` call.
-2. **f3**: that call has `x = 2`; it calls the *original* print, so `2` is displayed. The original `print` returns `None`, so `value = None` in this frame... wait, the slide shows f3 with `value 2`. Reading the slide's frame values: f3 has `x 2`, `value 2`, return value `'What?'`; f4 has `x 2`, `value None`, return value `2`.
+1. **Header** (`def name(params):`): looks like any other function definition, no special syntax.
+2. **Base case(s)**: a conditional statement at the top checking for very simple versions of the problem. Base cases are **evaluated without recursive calls**; they can usually be computed directly (just `return n`, just `return 1`, just `return k`).
+3. **Recursive case(s)**: evaluated **with** recursive calls, where each recursive call is made on a *simpler* problem that is closer to the base case.
 
-   Reconciling with the code and the printed output (`2`, then `What?`, then `print returned What?`): the displayed output is `2`, then `What?`, then `print returned What?`. The consistent reading is that the innermost call actually invokes the original `print`, which displays `2` and returns `None`, so that frame returns `x`, i.e. `2`; the enclosing call then sees `value` = `2` (not `None`), so it evaluates `return print('What?')`, which recursively goes through the chain, displays `What?`, and returns `'What?'`. Finally `og('print returned', print(2))` displays `print returned What?`.
-   *(extra context: the slide's frame labels are partially garbled by PDF extraction, so treat the printed output, `2` / `What?` / `print returned What?`, as the ground truth and the exact frame-by-frame value assignment as reconstructed.)*
+In `sum_digits`, the base case is "n has only one digit" and the recursive case shrinks `n` by one digit each time. In `fact`, the base case is `n == 0 or n == 1` and the recursive case decreases `n` by 1 each time.
 
-The exam-worthy lessons, which the lecture states directly:
+### 4. Recursion in environment diagrams
 
-- `print` inside `f` "will be found in a `new_print` frame".
-- The argument expression `print` in `print = new_print(print)` is "evaluated in global".
-- `f` is "eval'd in some `f`, `new_print`, `Global`" environment (3 frames).
-- Shadowing a built-in with a parameter is legal, and the parameter wins inside that function's body and inside any function defined within it.
+When you trace `fact(3)`, several things happen that are worth naming explicitly:
 
-### 3. What a recursive function is
+- **The same function is called multiple times.** The first call comes from global; subsequent calls come from inside `fact`'s own body.
+- **Different frames keep track of the different arguments in each call.** This is exactly why the computer does not get confused calling one function inside itself: each call gets a fresh frame with its own binding.
+- **What `n` evaluates to depends on the current environment.** Every expression containing `n` can evaluate to a different value depending on which frame is first in the current environment.
+- **Each call solves a simpler problem than the last.** There is less work to do for `n = 0` than `n = 1`, less for `n = 1` than `n = 2`, and so on, which guarantees you eventually hit the base case.
+- **All the `fact` frames have the same parent: global.** `fact` was *defined* in the global frame, so every frame created by calling it has global as its parent, regardless of which frame the call was made from.
+- **Returning "unwinds" the stack.** When the innermost call returns, control goes back to exactly the expression that made that call, in the frame that was active at the time, and the pending multiplication finally happens.
 
-A **recursive function** is one whose body calls the function itself. It works by reducing a problem to a smaller instance of the same problem, and handling the smallest instance(s) directly.
+### 5. The recursive leap of faith
 
-Every recursive function needs:
+How do you convince yourself a recursive function is correct without mentally simulating every call? The lecture's strategy, using `fact`:
 
-- **Base case(s):** input(s) small enough to answer without recursion. For `fact`, `n == 0 or n == 1` returns `1`.
-- **Recursive case:** a call on a *smaller* input, whose result is combined into the answer. For `fact`, `return fact(n-1) * n`.
+1. **Verify the base case.** If `n` is 0 (or 1), `fact` returns 1, which is correct by definition.
+2. **Treat `fact` as a functional abstraction.** For the recursive call `fact(n-1)`, do *not* think about how it is implemented. Think only about what it is *supposed* to do: return `(n-1)!`.
+3. **Assume `fact(n-1)` is correct, then verify the whole thing.** If `fact(n-1)` really returns `(n-1)!`, then `n * fact(n-1)` really is `n!`. Done.
 
-The essential move in writing and reading recursion is the **recursive leap of faith**: *(extra context: that name is from the CS 61A textbook, not stated on these slides.)* when you write `fact(n-1)`, assume it correctly returns `(n-1)!`, and just ask whether multiplying by `n` gives the right answer for `n`. You do not mentally unroll the whole chain. The lecture's diagrams reinforce this: `5! = 5 * 4 * 3 * 2 * 1`, where `4 * 3 * 2 * 1` is exactly `4!`, which is exactly what `fact(4)` promises to deliver.
+Concretely: is `fact(4)` equal to `4 * fact(3)`? Yes: `24 == 4 * 6`.
 
-### 4. How the recursive computation actually unfolds
+Generally: **assume the function is correctly defined for the simpler case used in the recursive call, then verify that under that assumption it is correct for the problem you were given.** This is why it feels like a leap of faith: you trust the function you are still in the middle of writing.
 
-The factorial slides show two phases, which is the key mental model.
+### 6. Iteration versus recursion
 
-**Descent (calls going down):** `fact(5)` needs `fact(4)`, which needs `fact(3)`, which needs `fact(2)`, which needs `fact(1)`. Each of these opens a new frame; none has computed anything yet. The slide's stack of `4!`, `3!`, `2!`, `1!` is this descent.
+**Iteration is a special case of recursion.** Anything a `while` loop does, a recursive function can do.
 
-**Return (values coming back up):** `fact(1)` returns `1`; `fact(2)` returns `2 * 1 = 2`; `fact(3)` returns `3 * 2 = 6`; `fact(4)` returns `4 * 6 = 24`; `fact(5)` returns `5 * 24 = 120`. The slide's annotations `1`, `2`, `6`, `24` next to the subproblems are these returned values.
-
-Crucially, the multiplication by `n` happens **after** the recursive call returns. So there is pending work sitting in every frame on the way down, and `n` must still be available when the call comes back. This is where box-and-pointer / environment reasoning matters (see Worked Examples).
-
-### 5. Recursion versus iteration, and converting one to the other
-
-The lecture puts the iterative and recursive factorials side by side:
+Compare:
 
 ```python
-def fact(n):            # iterative
-    result = 1
-    while n > 0:
-        result = result * n
-        n -= 1
-    return result
-```
+def fact_iter(n):           # iterative
+    total, k = 1, 1
+    while k <= n:
+        total, k = total * k, k + 1
+    return total
 
-```python
-def fact(n):            # recursive
-    if n == 0 or n == 1:
+def fact(n):                # recursive
+    if n == 0:
         return 1
     else:
-        return fact(n-1) * n
+        return n * fact(n - 1)
 ```
 
-The comparison slide labels the loop version's `result` as the **running total**: `5`, then `20`, then `60`, then `120`. The loop accumulates *as it goes down*; the plain recursion accumulates *as it comes back up*. Same answer, opposite direction of accumulation.
+These correspond to two different but equally correct mathematical definitions:
 
-**The conversion idea, stated on its own slide: "The state of the while loop is passed as arguments."** Whatever variables change across iterations of the loop become parameters of the recursive function. In the factorial case the loop's state is `(n, result)`, so the recursive function takes `(n, k)`:
+- Iterative: `n! = 1 * 2 * 3 * ... * n` (multiply in `k` for `k` from 1 to `n`).
+- Recursive: `n! = 1` if `n = 0`, otherwise `n! = n * (n-1)!`.
+
+The recursive version is shorter, quicker to explain, and (the lecture argues) often easier to follow. Look at how many *names* each version needs: the iterative version juggles `n`, `total`, `k`, and `fact_iter`; the recursive version needs only `n` and `fact`. In the recursive version, the frames of the environment diagram keep track of where you are in the computation, so you do not have to track it by hand with extra variables.
+
+### 7. Converting iteration to recursion (the mechanical direction)
+
+This direction is **straightforward**, precisely because iteration is a special case of recursion. The recipe:
+
+> **Idea: the state of the `while` loop is passed as arguments.**
+
+Step by step:
+
+1. Identify the **state maintained across iterations** of the `while` suite (every name that gets reassigned inside the loop, plus the loop variable).
+2. Make each piece of state a **parameter** of the recursive function.
+3. The `while` condition becomes the **negation** of the base-case test: `while n > 0` becomes `if n == 0: return ...`.
+4. The loop body becomes the recursive case, and **updates via assignment become arguments to the recursive call.**
+
+Example:
 
 ```python
-def fact_k(n, k):
-    """Compute n factorial times k."""
-    if n == 0 or n == 1:
-        return k
+def sum_digits_iter(n):
+    digit_sum = 0
+    while n > 0:
+        n, last = split(n)
+        digit_sum = digit_sum + last
+    return digit_sum
+
+def sum_digits_rec(n, digit_sum):
+    if n == 0:
+        return digit_sum
     else:
-        return fact_k(n-1, k * n)
+        n, last = split(n)
+        return sum_digits_rec(n, digit_sum + last)
 ```
 
-Note how the docstring changes: `fact_k(n, k)` does not compute `n!`, it computes `n! * k`. The accumulator forces a **generalized** specification. That generalization is what makes the recursion work: `fact_k(5, 1) == 120`, `fact_k(5, 10) == 1200`, `fact_k(0, 10) == 10`.
+The state `n` and `digit_sum` became the two parameters. The reassignment `digit_sum = digit_sum + last` became the argument `digit_sum + last`.
 
-Since callers only want `n!`, wrap it so the accumulator's initial value is hidden:
+### 8. Converting recursion to iteration (the harder direction)
 
-```python
-def fact_tail(n):
-    """Compute n factorial."""
-    def f(n, k):
-        if n == 0 or n == 1:
-            return k
-        else:
-            return f(n-1, k * n)
-    return f(n, 1)
-```
+This can be tricky. The approach: figure out what state needs to be maintained across each pass through the `while` statement. Clues come from what gets **passed into** each recursive call and what gets **returned** from it. For `sum_digits`, what is passed in is "what is left to sum" (`n`), and what is returned is a partial sum. Those become the two loop variables `n` and `digit_sum`.
 
-Now `fact_tail` has the clean one-argument signature, and the inner `f` carries the loop state. This is the pattern: **inner helper function whose parameters are the loop variables, outer function supplies the initial values.**
+### 9. Accumulators and the running total (`fact_k` / `fact_tail`)
 
-The name `fact_tail` refers to *tail recursion*: the recursive call is the entire return expression, with no pending work after it returns. *(extra context: Python does not optimize tail calls, so `fact_tail` still builds a call stack of depth n, unlike a real loop. The slides do not discuss tail call optimization.)*
+The slides contrast two shapes of `fact`:
 
-### 6. Twenty-One and the same conversion
+- **Recursive version 1**: the multiplication by `n` happens *after* the recursive call returns. The pending multiplications pile up: `5 * (4 * (3 * (2 * 1)))`. The work happens "on the way back up."
+- **`fact_tail` / `while` loop style**: a **running total** is carried along. By the time you reach the base case, the answer `120` is already computed, and it is simply passed back up unchanged. The work happens "on the way down."
 
-**Rules as given:** two players alternate turns; on each turn a player adds 1, 2, or 3 to the current total; the total starts at 0; the game ends whenever the total is 21 or more; the last player to add to the total **loses**.
+`fact_k(n, k)` computes "n factorial times k", which generalizes the problem so that the running total `k` fits as a parameter. `fact_tail(n)` hides that extra parameter behind an inner helper so the public interface is still just `fact_tail(n)`.
 
-The iterative version:
+(extra context: a call like `return f(n-1, k*n)`, where the recursive call is the entire return expression with nothing left to do afterward, is called a **tail call**. Python does *not* optimize tail calls, so this still uses one frame per call. The transformation is presented here for clarity and for its relationship to loops, not for efficiency.)
 
-```python
-def play(strategy0, strategy1, goal=21):
-    """Play twenty-one and return the winner."""
-    n = 0
-    who = 0   # Player 0 goes first
-    while n < goal:
-        if who == 0:
-            n = n + strategy0(n)
-            who = 1
-        elif who == 1:
-            n = n + strategy1(n)
-            who = 0
-    return who
-```
+### 10. Mutual recursion
 
-The discussion question asks: rewrite `play` recursively, without a `while` statement, and answers three sub-questions.
+**Mutual recursion occurs when two different functions call each other.** This is the "indirectly calls itself" case from the definition. `luhn_sum` calls `luhn_sum_double`, and `luhn_sum_double` calls `luhn_sum`. Base cases can appear in both functions or in only one of them; in the Luhn example they appear in both.
 
-- **Do you need a new inner function? Why?** Yes. `play`'s own parameters are `strategy0`, `strategy1`, `goal`, which do not change; the loop's changing state is `n` and `who`, which are not parameters of `play`. So you need a function that takes `n` and `who` as arguments. (You could instead add default-valued parameters to `play` itself, but that exposes them to callers; the inner helper keeps `play`'s interface clean, exactly as `fact_tail` does.)
-- **What are its arguments?** `n` and `who`: precisely the variables reassigned inside the loop.
-- **What is the base case and what does it return?** The base case is the loop's exit condition, negated: `n >= goal`. It returns `who`, matching the `return who` after the loop.
+### 11. Why digit sums matter (motivation)
 
-The recursive version:
-
-```python
-def play(strategy0, strategy1, goal=21):
-    """Play twenty-one and return the winner."""
-    def f(n, who):
-        if n >= goal:
-            return who
-        if who == 0:
-            n = n + strategy0(n)
-            who = 1
-        elif who == 1:
-            n = n + strategy1(n)
-            who = 0
-        return f(n, who)
-    return f(0, 0)
-```
-
-Notice the mechanical correspondence:
-
-| `while` loop version | recursive version |
-| --- | --- |
-| `n = 0`, `who = 0` before the loop | `return f(0, 0)` (initial arguments) |
-| `while n < goal:` | `if n >= goal: return who` (base case is the negated condition) |
-| loop body | body of `f` (unchanged) |
-| going back to the top of the loop | `return f(n, who)` |
-| `return who` after the loop | the base case's `return who` |
-
-The inner `f` can see `strategy0`, `strategy1`, and `goal` because those names are found in the enclosing `play` frame, which is exactly the environment rule from the first half of the lecture: an expression inside `f` is evaluated in an environment of `f` frame, then `play` frame, then global.
-
-Also note: because `who` is flipped *after* the current player adds, when the total reaches or exceeds `goal`, `who` holds the player who did **not** just move, and the last player to add loses. So returning `who` correctly returns the winner.
+- A number is divisible by 9 if and only if its digit sum is divisible by 9.
+- **Checksum digits**: credit card numbers are long and humans mistype them. The 16th digit is not part of your account number; it is computed from the other digits. If the check digit does not match the computation on the rest, the number was typed in wrong.
+- The **Luhn algorithm** is the real checksum used for credit cards. A valid number always has a Luhn sum that is a multiple of 10. If any single digit is wrong, the Luhn sum will not be a multiple of 10, and almost all transpositions (swapping two adjacent digits) are also detected.
 
 ---
 
 ## Definitions
 
-- **Environment:** a sequence of frames, searched in order (inner to outer) when looking up a name.
-- **Frame:** a binding of names to values created by a function call (or the global frame, which is created at startup).
-- **Parent frame (of a function):** the frame in which the function's `def` statement or `lambda` expression was evaluated. It determines where names not bound locally are looked up, not the caller's frame.
-- **Global frame:** the outermost frame; the environment for any expression written outside any `def` or `lambda`.
-- **Shadowing:** binding a name in an inner frame that is also bound in an outer frame (e.g. the parameter `print` in `new_print`), so that the inner binding is found first inside that function.
-- **Recursive function:** a function whose body contains a call to the function itself.
-- **Base case:** a case handled directly without a recursive call, terminating the recursion (for `fact`: `n == 0 or n == 1`).
-- **Recursive case:** the case that calls the function on a smaller/simpler input and combines the result.
-- **Accumulator (running total):** an extra parameter carrying the partial result computed so far, e.g. `k` in `fact_k(n, k)`; it is how a `while` loop's running total becomes a recursive argument.
-- **Tail recursion:** a recursive call that is the entire value returned, with no pending computation after it (as in `fact_k` / `fact_tail`, in contrast to `fact(n-1) * n` where a multiplication is still pending).
-- **Twenty-One:** the game where two players alternately add 1, 2, or 3 to a total starting at 0; play ends when the total reaches 21 or more; the last player to add **loses**.
-- **Strategy function:** a function of the current total `n` that returns how much (1, 2, or 3) to add; `strategy0` and `strategy1` are passed to `play` as higher-order arguments.
+- **Recursive function**: a function whose body calls itself, either directly (the function names itself) or indirectly (through another function that calls back).
+- **Base case**: a case of a recursive function that is evaluated **without** any recursive calls. It handles the simplest version(s) of the problem and can be computed directly.
+- **Recursive case**: a case that is evaluated **with** one or more recursive calls, each applied to a simpler problem than the original (closer to a base case).
+- **Recursive leap of faith**: the verification strategy of (1) checking the base case, (2) treating the recursive call as a functional abstraction that is assumed to be correct for the simpler input, and (3) checking that the result is correctly built from that assumed-correct value.
+- **Functional abstraction**: thinking about *what* a function is supposed to do (its behavior/contract), not *how* it is implemented. Required to take the recursive leap of faith.
+- **Mutual recursion**: the situation in which two (or more) different functions call each other, forming a recursive cycle.
+- **Iteration**: repeated execution via a `while` (or `for`) statement, in which state is updated by assignment. Iteration is a special case of recursion.
+- **State (of a loop)**: the collection of names whose values are maintained and updated across each pass through the loop body. When converting to recursion, these become the parameters of the recursive function.
+- **Environment**: a sequence of frames, ordered from innermost to global, in which an expression is evaluated. For any expression, the environment has a frame for every enclosing `def` or `lambda`, inner to outer, ending in global.
+- **Parent frame**: the frame determined by where a function was **defined** (not where it was called). Every call to `fact` (defined globally) creates a frame whose parent is the global frame.
+- **Digit sum**: the sum of the decimal digits of a non-negative integer, for example `sum_digits(2013) == 2 + 0 + 1 + 3 == 6`.
+- **Checksum digit**: a digit computed from all the other digits of a number, appended so that typos can be detected. The last digit of a credit card number is a checksum digit.
+- **Luhn sum**: starting from the rightmost digit (the check digit) and moving left, double the value of every second digit; if the product of that doubling is greater than 9, sum the digits of the product; then take the sum of all the resulting digits. A valid credit card number has a Luhn sum that is a multiple of 10.
+- **Running total / accumulator**: an extra parameter (like `k` in `fact_k`) that carries the partial result computed so far down through the recursive calls, so that the base case can return the final answer directly.
 
 ---
 
 ## Worked Examples
 
-### Example 1: Environment shape without drawing the diagram
+### Example 1: `split` and `sum_digits`
+
+The goal is to sum digits **without** a `while` statement, which forces recursion.
+
+First, the building block:
 
 ```python
-def exp(x):
-    def base(b):
-        return pow(b, x)
-    return base
+def split(n):
+    """Split positive n into all but its last digit and its last digit."""
+    return n // 10, n % 10
 ```
 
-Question: what environment does `pow(b, x)` get evaluated in?
+`split(2013)` returns the two-element result `(201, 3)`: everything but the last digit, and the last digit. Integer division by 10 chops off the last digit; the remainder mod 10 *is* the last digit.
 
-Step by step:
-
-1. `pow(b, x)` is written inside `def base`, which is written inside `def exp`, which is written at top level.
-2. By the rule, the environment has a frame for every enclosing `def`, inner to outer: a `base` frame, then an `exp` frame, then the global frame. **Three frames, always.**
-3. `b` is `base`'s parameter, so it is found in the first frame.
-4. `x` is not bound in `base`, so lookup continues to `base`'s parent, an `exp` frame, where `x` is `exp`'s parameter. Found.
-5. `pow` is bound in neither, so lookup continues to global (and then the builtins).
-
-So `square = exp(2); square(3)` evaluates `pow(3, 2)` = `9`, with `b = 3` in the `base` frame and `x = 2` in the `exp` frame created by the earlier `exp(2)` call. Notice the `exp` frame outlives the `exp` call: the function value `base` holds a pointer to it, which is exactly what a box-and-pointer picture shows (the function object `func base(b) [parent=f1]` with an arrow to the `f1: exp` frame).
-
-### Example 2: `fact`, iterative then recursive
+Now the recursion:
 
 ```python
+def sum_digits(n):
+    """Sum the digits of positive integer n."""
+    if n < 10:
+        return n
+    else:
+        all_but_last, last = split(n)
+        return sum_digits(all_but_last) + last
+```
+
+**Why this is correct**, in the lecture's own words: if I can sum the digits of `201`, and I add `3` to that, I get the sum for `2013`.
+
+- **Base case** (`n < 10`): `n` is a single digit, so its digit sum is trivially itself. The sum of the digits of 7 is just 7.
+- **Recursive case**: we do **not** call `sum_digits(n)` again (that would be infinite). We call it on `all_but_last`, which has *fewer digits*, so it is strictly simpler and moves toward the base case.
+
+**Trace of `sum_digits(2013)`:**
+
+| Call | `n` | `all_but_last`, `last` | Returns |
+|---|---|---|---|
+| `sum_digits(2013)` | 2013 | 201, 3 | `sum_digits(201) + 3` |
+| `sum_digits(201)` | 201 | 20, 1 | `sum_digits(20) + 1` |
+| `sum_digits(20)` | 20 | 2, 0 | `sum_digits(2) + 0` |
+| `sum_digits(2)` | 2 | (base case) | `2` |
+
+Unwinding: `2` then `2 + 0 = 2` then `2 + 1 = 3` then `3 + 3 = 6`. Result: **6**.
+
+### Example 2: `fact` and its environment diagram
+
+The recursive factorial, in the two forms shown:
+
+```python
+# transcript / Python Tutor version
+def fact(n):
+    if n == 0:
+        return 1
+    else:
+        return n * fact(n - 1)
+
+# slides / 09.py version (equivalent, with an extra base case)
 def fact(n):
     """Compute n factorial.
 
@@ -259,59 +247,33 @@ def fact(n):
     >>> fact(0)
     1
     """
-    result = 1
-    while n > 0:
-        result = result * n
-        n -= 1
-    return result
-```
-
-Trace of `fact(5)`, one frame only, with two names being reassigned:
-
-| after iteration | `result` | `n` |
-| --- | --- | --- |
-| start | 1 | 5 |
-| 1 | 5 | 4 |
-| 2 | 20 | 3 |
-| 3 | 60 | 2 |
-| 4 | 120 | 1 |
-| 5 | 120 | 0 |
-
-Loop exits (`n > 0` is false), returns `120`. These are exactly the "running total" values `5, 20, 60, 120` on the comparison slide.
-
-Now the recursive version:
-
-```python
-def fact(n):
-    """Compute n factorial."""
     if n == 0 or n == 1:
         return 1
     else:
-        return fact(n-1) * n
+        return fact(n - 1) * n
 ```
 
-Trace of `fact(5)`, in terms of frames:
+**Environment reasoning for `fact(3)`**, described in words:
 
-1. `f1: fact` with `n = 5`. `5 != 0` and `5 != 1`, so evaluate `fact(4) * 5`. Python evaluates `fact(4)` first, so frame `f1` is suspended with a pending multiplication by `5`.
-2. `f2: fact` with `n = 4`. Pending: multiply by `4`. Calls `fact(3)`.
-3. `f3: fact` with `n = 3`. Pending: multiply by `3`. Calls `fact(2)`.
-4. `f4: fact` with `n = 2`. Pending: multiply by `2`. Calls `fact(1)`.
-5. `f5: fact` with `n = 1`. **Base case.** Returns `1`.
+1. The **global frame** binds `fact` to a function object `func fact(n) [parent=Global]`.
+2. Calling `fact(3)` creates **f1: fact**, parent Global, with `n` bound to `3`. (Parent is Global because `fact` was *defined* in the global frame.)
+3. In f1, `3 == 0` is false, so we evaluate `n * fact(n-1)`. To do that we must first compute `fact(2)`. **f1's return value is still blank** at this moment.
+4. Calling `fact(2)` creates **f2: fact**, parent Global, `n` bound to `2`. Note that the parent is Global, *not* f1: the call came from inside `fact`, but the parent depends on the definition site.
+5. `2 == 0` is false, so we need `fact(1)`, creating **f3: fact**, parent Global, `n = 1`.
+6. `1 == 0` is false, so we need `fact(0)`, creating **f4: fact**, parent Global, `n = 0`.
+7. In f4, `0 == 0` is true. We return `1`. **f4's return value is 1.**
+8. Control returns to the exact expression that made the call: the `fact(n-1)` inside f3's return statement. In f3, `n` is `1`, so we compute `1 * 1 = 1`. **f3's return value is 1.**
+9. Control returns to f2's return statement. In f2, `n` is `2`, so `2 * 1 = 2`. **f2's return value is 2.**
+10. Control returns to f1's return statement. In f1, `n` is `3`, so `3 * 2 = 6`. **f1's return value is 6.**
+11. `fact(3)` evaluates to **6**, which is correct: `3 * 2 * 1 = 6`.
 
-Now the returns unwind:
+Things to notice in that diagram, all of which the lecture calls out explicitly:
 
-6. `f4` computes `1 * 2 = 2`, returns `2`.
-7. `f3` computes `2 * 3 = 6`, returns `6`.
-8. `f2` computes `6 * 4 = 24`, returns `24`.
-9. `f1` computes `24 * 5 = 120`, returns `120`.
+- There are four different frames all for the *same* function, and four different bindings for the *same* name `n`. Which one `n` refers to depends entirely on which frame is first in the current environment.
+- At the moment f4 returns, f1, f2, and f3 are all still open, each stuck mid-way through evaluating a return expression, with blank return values.
+- The problem gets strictly simpler at each level, guaranteeing termination.
 
-Environment reasoning worth internalizing: **there are five simultaneously live `fact` frames**, each with its own `n`. All five have parent = global (because `def fact` is at top level, so every `fact` function value has global as its parent). They are *not* nested in each other environment-wise; they just happen to be stacked in time. Each frame's `n` is private to that frame, which is precisely why `24 * 5` uses `f1`'s `n` and not `f5`'s.
-
-Also note `fact(0)`: the base case catches `n == 0` and returns `1`, so `fact(0)` is `1` as the docstring requires. Without the `n == 0` test, `fact(0)` would call `fact(-1)`, `fact(-2)`, and recurse forever.
-
-The lecture code imports `from ucb import trace`, which lets you decorate `fact` with `@trace` to see exactly this call-and-return pattern printed out.
-
-### Example 3: `fact_k`, the accumulator version
+### Example 3: `fact_k` and `fact_tail` (running total)
 
 ```python
 def fact_k(n, k):
@@ -330,29 +292,22 @@ def fact_k(n, k):
         return fact_k(n-1, k * n)
 ```
 
-Trace of `fact_k(5, 1)`:
+Read the docstring carefully: `fact_k(n, k)` does **not** compute `n!`, it computes `n! * k`. That generalization is what makes the accumulator work, and it is what you verify with the recursive leap of faith:
 
-| frame | `n` | `k` | action |
-| --- | --- | --- | --- |
-| f1 | 5 | 1 | returns `fact_k(4, 5)` |
-| f2 | 4 | 5 | returns `fact_k(3, 20)` |
-| f3 | 3 | 20 | returns `fact_k(2, 60)` |
-| f4 | 2 | 60 | returns `fact_k(1, 120)` |
-| f5 | 1 | 120 | base case, returns `120` |
+- Base case: if `n` is 0 or 1, `n!` is 1, so `n! * k == k`. Correct.
+- Recursive case: assume `fact_k(n-1, k*n)` correctly returns `(n-1)! * (k*n)`. Rearranged, that is `n * (n-1)! * k == n! * k`, exactly what `fact_k(n, k)` is supposed to return. Correct.
 
-Then `120` is returned unchanged all the way back out: `f4` returns `120`, `f3` returns `120`, and so on. Compare the `k` column, `1, 5, 20, 60, 120`, with the `while` loop's `result` column, `1, 5, 20, 60, 120`. **They are identical.** That is the whole point of the conversion slide: the loop's running total became an argument.
-
-Contrast with the plain `fact`: there, nothing useful is computed on the way down and the real work happens on the way back up. Here, the answer is fully computed by the time the base case is reached, and the return trip is just passing `120` along unchanged. That is what "tail recursion" means.
-
-Check the other doctests:
-- `fact_k(5, 10)`: same descent but `k` starts at `10`, giving `10, 50, 200, 600, 1200`. Returns `1200 = 5! * 10`. ✓
-- `fact_k(0, 10)`: base case immediately, returns `k = 10 = 0! * 10`. ✓
-
-### Example 4: `fact_tail`, hiding the accumulator
+`fact_tail` hides the accumulator behind a helper so the public signature stays clean:
 
 ```python
 def fact_tail(n):
-    """Compute n factorial."""
+    """Compute n factorial.
+
+    >>> fact_tail(5)
+    120
+    >>> fact_tail(0)
+    1
+    """
     def f(n, k):
         if n == 0 or n == 1:
             return k
@@ -361,29 +316,121 @@ def fact_tail(n):
     return f(n, 1)
 ```
 
-What happens on `fact_tail(5)`:
+**Trace of `fact_tail(5)`:** `f(5, 1)` then `f(4, 5)` then `f(3, 20)` then `f(2, 60)` then `f(1, 120)` which hits the base case and returns `120`. Then `120` is passed back up through every frame unchanged. Compare to version 1, where `5 * (4 * (3 * (2 * 1)))` is assembled on the way back up. Same answer, opposite direction of work.
 
-1. A `fact_tail` frame is created with `n = 5`, parent global.
-2. `def f` executes, creating a function value `func f(n, k) [parent = the fact_tail frame]` and binding it to `f` in the `fact_tail` frame.
-3. `return f(n, 1)` looks up `f` (found locally) and `n` (found locally, `5`), and calls `f(5, 1)`.
-4. Each `f` frame has parent = the `fact_tail` frame (that is where `def f` ran). Inside `f`, the name `f` is not a local parameter, so lookup goes to the parent `fact_tail` frame, where `f` is bound. **This is how a nested function can call itself.**
-5. The `n` inside `f` shadows `fact_tail`'s `n`: `f`'s frames each bind their own `n` as a parameter, so the outer `n = 5` is never consulted inside `f`.
-6. The recursion proceeds exactly as in Example 3, returning `120`.
+**Environment note:** `f` is defined inside `fact_tail`, so every frame created by calling `f` has the `fact_tail` frame (call it f1) as its parent, not the global frame and not the previous `f` frame. Applying the shortcut rule from the start of lecture: any expression inside `f`'s body is evaluated in an environment with three frames (an `f` frame, the `fact_tail` frame, then global).
 
-Box-and-pointer style summary in words: one `fact_tail` frame holds a pointer to the function object `f`; each `f` frame holds an arrow back to that single `fact_tail` frame as its parent; the chain of `f` frames is a stack in time, not a chain of parents.
+Also note the iterative `fact` at the top of `09.py`, which is the loop this recursion mirrors:
 
-### Example 5: Twenty-One, iteration to recursion
+```python
+def fact(n):
+    result = 1
+    while n > 0:
+        result = result * n
+        n -= 1
+    return result
+```
 
-Given the iterative `play` above, apply the conversion recipe:
+The loop state is `result` and `n`; in `fact_tail` those became the parameters `k` and `n`.
 
-1. **Identify the loop's state.** Inside the `while`, only `n` and `who` are reassigned. `strategy0`, `strategy1`, `goal` are fixed.
-2. **Make those the parameters of a helper.** `def f(n, who):`.
-3. **Base case = negation of the loop condition, returning what the loop returns after exiting.** Loop condition is `n < goal`, so base case is `if n >= goal: return who`.
-4. **Copy the loop body verbatim.**
-5. **Replace "go back to the top of the loop" with a recursive call carrying the updated state:** `return f(n, who)`.
-6. **Replace the initialization with the initial call:** `return f(0, 0)`.
+### Example 4: Mutual recursion, the Luhn algorithm
 
-Result:
+Rule, from Wikipedia as quoted in lecture: from the rightmost digit (the check digit), moving left, double the value of every second digit; if the product of this doubling is greater than 9, sum the digits of the product; then take the sum of all the digits.
+
+Worked by hand on `138743`, right to left:
+
+| Digit (right to left) | 3 | 4 | 7 | 8 | 3 | 1 |
+|---|---|---|---|---|---|---|
+| Doubled? | no | yes | no | yes | no | yes |
+| After doubling | 3 | 8 | 7 | 16 | 3 | 2 |
+| After digit-summing products > 9 | 3 | 8 | 7 | 7 | 3 | 2 |
+
+Total: `3 + 8 + 7 + 7 + 3 + 2 = 30`, which is a multiple of 10, so this passes the check.
+
+The code splits the work between two functions that call each other:
+
+```python
+def luhn_sum(n):
+    """Return the Luhn sum of n, where n's last digit is NOT doubled."""
+    if n < 10:
+        return n
+    else:
+        all_but_last, last = split(n)
+        return luhn_sum_double(all_but_last) + last
+
+def luhn_sum_double(n):
+    """Return the Luhn sum of n, where n's last digit IS doubled."""
+    all_but_last, last = split(n)
+    luhn_digit = sum_digits(2 * last)
+    if n < 10:
+        return luhn_digit
+    else:
+        return luhn_sum(all_but_last) + luhn_digit
+```
+
+**Why two functions?** Because the rule alternates. Whether a digit gets doubled depends on its position parity. Rather than track parity with an extra parameter, we encode it in *which function we are in*: `luhn_sum` means "this number's last digit is not doubled", and `luhn_sum_double` means "this number's last digit is doubled". Each one recurses into the *other*, which flips the parity automatically. That is mutual recursion.
+
+Note `luhn_sum_double` computes `luhn_digit = sum_digits(2 * last)` before checking its base case, which handles the "if the product is greater than 9, sum its digits" clause: `sum_digits(16)` is `7`, and `sum_digits(8)` is just `8`, so one call covers both situations.
+
+**Trace of `luhn_sum(32)`:**
+1. `luhn_sum(32)`: `32 >= 10`, split into `(3, 2)`, return `luhn_sum_double(3) + 2`.
+2. `luhn_sum_double(3)`: split `3` into `(0, 3)`, `luhn_digit = sum_digits(2 * 3) = sum_digits(6) = 6`. Since `3 < 10`, return `6`.
+3. Back in step 1: `6 + 2 = 8`.
+
+Result **8**, matching the lecture: "the 3 gets doubled to 6 plus 2 is 8." And `luhn_sum(2)` is just `2`.
+
+### Example 5: `sum_digits` iterative and back to recursive
+
+```python
+def sum_digits_iter(n):
+    digit_sum = 0
+    while n > 0:
+        n, last = split(n)
+        digit_sum = digit_sum + last
+    return digit_sum
+```
+
+To get here from the recursive version, ask: what is passed in to each recursive call, and what comes back? Passed in: what is left to sum (`n`). Returned: a partial sum. Those two become the loop's state, `n` and `digit_sum`.
+
+Going the other way is mechanical. The state `n` and `digit_sum` become parameters; `while n > 0` becomes the opposite test `if n == 0`; assignments become arguments:
+
+```python
+def sum_digits_rec(n, digit_sum):
+    if n == 0:
+        return digit_sum
+    else:
+        n, last = split(n)
+        return sum_digits_rec(n, digit_sum + last)
+```
+
+> **Updates via assignment become arguments to a recursive call.** This can be done quite generally for every iterative implementation.
+
+### Example 6: Twenty-One (discussion question)
+
+**Rules:** two players alternate turns; on each turn a player adds 1, 2, or 3 to the current total. The total starts at 0. The game ends whenever the total is 21 or more. **The last player to add to the total loses.**
+
+Iterative version:
+
+```python
+def play(strategy0, strategy1, goal=21):
+    """Play twenty-one and return the winner.
+
+    >>> play(some_strat, some_other_strat)
+    1
+    """
+    n = 0
+    who = 0  # Player 0 goes first
+    while n < goal:
+        if who == 0:
+            n = n + strategy0(n)
+            who = 1
+        elif who == 1:
+            n = n + strategy1(n)
+            who = 0
+    return who
+```
+
+Recursive version, no `while` statement:
 
 ```python
 def play(strategy0, strategy1, goal=21):
@@ -405,168 +452,242 @@ def play(strategy0, strategy1, goal=21):
     return f(0, 0)
 ```
 
-A concrete trace (extra context: with a simple strategy that always adds 3 for both players, so `strategy0(n) = strategy1(n) = 3`):
+The three discussion questions answered:
 
-| call | `n` on entry | `who` on entry | `n >= 21`? | new `n` | new `who` |
-| --- | --- | --- | --- | --- | --- |
-| `f(0, 0)` | 0 | 0 | no | 3 | 1 |
-| `f(3, 1)` | 3 | 1 | no | 6 | 0 |
-| `f(6, 0)` | 6 | 0 | no | 9 | 1 |
-| `f(9, 1)` | 9 | 1 | no | 12 | 0 |
-| `f(12, 0)` | 12 | 0 | no | 15 | 1 |
-| `f(15, 1)` | 15 | 1 | no | 18 | 0 |
-| `f(18, 0)` | 18 | 0 | no | 21 | 1 |
-| `f(21, 1)` | 21 | 1 | **yes** | - | - |
+- **Do you need a new inner function? Why?** Yes. The loop maintains two pieces of state, `n` and `who`, and those must become parameters. But `play`'s signature is fixed at `(strategy0, strategy1, goal=21)`, so we cannot add parameters to `play` itself. An inner function `f` gets the new parameters while still having access to `strategy0`, `strategy1`, and `goal` through its parent frame (the `play` frame).
+- **What are its arguments?** `n` (the current total) and `who` (whose turn it is), exactly the state maintained across passes of the `while` loop. It is started with `f(0, 0)`, matching the loop's initialization `n = 0; who = 0`.
+- **What is the base case, and what is returned?** The base case is `n >= goal`, the negation of the loop condition `n < goal`. It returns `who`, exactly what the loop returned after finishing. This is correct because `who` has already been flipped to the player who did *not* just add to the total, and the last player to add **loses**, so `who` is the winner.
 
-Returns `1`. Player 0 made the move that pushed the total to 21, so player 0 was the last to add and therefore loses; player 1 wins. The returned `who` is `1`. ✓ Consistent with the rules.
+Notice the body of `f` after the base case is a verbatim copy of the `while` suite, and the assignment updates are simply handed to the recursive call `f(n, who)`.
 
-Note that this is also tail recursive: `return f(n, who)` is the whole return expression, and the base case's `return who` value travels back out unchanged.
+### Example 7: The "New Print" midterm problem (announcement review)
 
-Regarding the sub-question "do you need a new inner function?": yes, because the state that changes across iterations (`n`, `who`) is not among `play`'s parameters, and `play` must still be callable as `play(strategy0, strategy1)`. The inner function also gets `strategy0`, `strategy1`, and `goal` for free through its parent frame, so they do not need to be passed along.
+```python
+def new_print(print):
+    def f(x):
+        value = print(x)
+        if value != None:
+            return print('What?')
+        return x
+    return f
+
+og = print                    # og is the original print
+print = new_print(print)      # f whose print is the original print
+print = new_print(print)      # f whose print is (f whose print is the original print)
+og('print returned', print(2))
+```
+
+**Applying the environment shortcut first.** Inside `f`'s body, `print` is not a local name of `f`, so we walk outward: the next enclosing `def` is `new_print`, and `print` *is* `new_print`'s parameter. So **`print` inside `f` is always found in a `new_print` frame**, never the global frame. That is the crux of the problem: rebinding the global `print` afterwards does not affect what `print` means inside an already-created `f`.
+
+**The frames, in order:**
+
+- **f1: `new_print`**, parent Global, `print` bound to the original built-in print. Returns a function `func f(x) [parent=f1]`, "the `f` whose `print` is the original".
+- **f2: `new_print`**, parent Global, `print` bound to that first `f`. Returns `func f(x) [parent=f2]`, "the `f` whose `print` is the `f` whose `print` is the original". After this line, the global `print` names this second `f`.
+- Evaluating `print(2)` in the last line calls the second `f`, creating **f3: `f`**, parent **f2**, `x = 2`.
+- In f3, `print` is found in f2, which is the *first* `f`. Calling it creates **f4: `f`**, parent **f1**, `x = 2`.
+- In f4, `print` is found in f1, which is the *original* print. So `print(2)` **prints `2`** and returns `None`. So in f4, `value` is `None`, the `if` is skipped, and f4 returns `x`, which is `2`.
+- Back in f3, `value` is `2`, which is not `None`, so we evaluate `return print('What?')`. That calls the first `f` again, creating **f5: `f`**, parent **f1**, `x = 'What?'`.
+- In f5, the original print **prints `What?`** and returns `None`, so `value` is `None`, the `if` is skipped, and f5 returns `'What?'`.
+- So f3 returns `'What?'`.
+- Finally, `og('print returned', 'What?')` uses the saved original print and **prints `print returned What?`**.
+
+**Printed output, in order:**
+
+```
+2
+What?
+print returned What?
+```
+
+Only 9% of students got this right on Midterm 1. As the slide put it: "Success is not final, failure is not fatal: it is the courage to continue that counts."
 
 ---
 
 ## Common Pitfalls
 
-1. **Forgetting a base case, or writing one that is never reached.** `fact` with only `if n == 1` would recurse forever on `fact(0)`. The lecture's base case is `n == 0 or n == 1` for exactly this reason. In Python this produces a `RecursionError` rather than an infinite hang. *(extra context: the error name is not stated on the slides.)*
+1. **Making the recursive call on the same problem.** Writing `return sum_digits(n) + last` instead of `sum_digits(all_but_last) + last` produces infinite recursion. **Every recursive call must be on a strictly simpler problem.**
 
-2. **Recursing on something that is not smaller.** `return fact(n) * n` never terminates. The argument must move toward the base case on every call.
+2. **Forgetting or mis-testing the base case.** With no base case, recursion never stops. With the wrong base case (for example, testing `n == 0` for `sum_digits` when the argument shrinks past single digits in a way that never hits exactly 0), you get wrong answers or infinite recursion.
 
-3. **Assuming a name inside a nested function refers to the global binding.** In `new_print`, `print` inside `f` is the *parameter*, found in the `new_print` frame. This is the single biggest reason only 9% got that problem right.
+3. **Confusing "where a function was called" with "where it was defined" when assigning parent frames.** All four `fact` frames in the `fact(3)` trace have parent **Global**, even though three of them were called from inside `fact`. The parent depends on the definition site. Conversely, every frame for `f` inside `fact_tail` has the `fact_tail` frame as parent, not global and not a previous `f` frame.
 
-4. **Confusing the caller's frame with the parent frame.** The environment for a call is (new frame) → (function's parent frame) → ... → global. A function defined at top level always has global as its parent, no matter how deeply nested the call stack is. So the five `fact` frames in Example 2 do not have each other as parents.
+4. **Trying to resolve a name without checking the enclosing `def`s.** In the New Print problem, `print` inside `f` is found in a `new_print` frame, not the global frame. Rebinding the global `print` after `f` was created changes nothing about that `f`.
 
-5. **Evaluating the argument expression in the wrong frame.** In `print = new_print(print)`, the argument `print` is evaluated in global *before* the assignment happens, so it is the *old* global `print`, which is why running that line twice builds a chain rather than looping.
+5. **Assuming a frame's return value is filled in as soon as the call is made.** While recursive calls are outstanding, the outer frames sit with blank return values, paused in the middle of evaluating an expression. They only fill in as the recursion unwinds.
 
-6. **Thinking `fact_k(n, k)` computes `n!`.** It computes `n! * k`. If you write the docstring as `n!` you will pick the wrong base case return value (`1` instead of `k`) and break the accumulation.
+6. **Refusing to take the leap of faith and trying to trace every level.** For deep recursion this is impossible to do reliably. Verify the base case, assume the recursive call is correct, verify the combination step.
 
-7. **Forgetting to return the recursive call.** Writing `f(n, who)` instead of `return f(n, who)` makes the function return `None`. The recursive call's value must be propagated.
+7. **Misreading a generalized helper's contract.** `fact_k(n, k)` returns `n! * k`, not `n!`. If you "verify" it against the wrong specification, correct code will look broken.
 
-8. **Forgetting to start the accumulator correctly.** `f(n, 1)`, not `f(n, 0)`: for multiplication the identity is `1`. And in `play`, `f(0, 0)` reproduces `n = 0; who = 0`.
+8. **In mutual recursion, forgetting that base cases may be needed in both functions.** In the Luhn example, both `luhn_sum` and `luhn_sum_double` have base cases. Base cases can appear in both functions or in only one, and you need to reason about which.
 
-9. **Getting the base case condition backwards when converting a loop.** The loop runs `while n < goal`; the recursion *stops* at `n >= goal`. Negate the condition.
+9. **When converting a loop to recursion, dropping a piece of state.** If a name is reassigned in the loop body, it must appear as a parameter. Twenty-One needs both `n` and `who`; dropping `who` makes the problem unsolvable.
 
-10. **Expecting Python to optimize tail calls.** `fact_tail(10000)` will still blow the recursion limit; the function name describes the shape of the recursion, not a Python guarantee. *(extra context.)*
+10. **Forgetting to negate the loop condition for the base case.** `while n < goal` becomes `if n >= goal`, not `if n < goal`.
 
-11. **Ordering the multiplication in a way that changes nothing but confuses tracing.** The slides write both `n * fact(n-1)` and `fact(n-1) * n`. Both are correct for factorial, but the order matters for *when* the recursive call is made relative to other evaluation (Python evaluates operands left to right), and it matters a lot for non-commutative operations.
+11. **Trying to add parameters to a function whose signature is fixed.** When a problem says "rewrite `play` as a recursive function", you cannot change `play`'s parameters, so you need an inner helper.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Determining which frame a name is found in
+### 1. Fill in the blanks of a recursive function
 
-**Practice:** Given
+The classic format: a function is given with its base case test, base case return value, or recursive call arguments blanked out.
 
-```python
-def outer(a):
-    def middle(b):
-        def inner(c):
-            return a + b + c
-        return inner
-    return middle
-```
-
-In what environment is `a + b + c` evaluated, and in which frame is each name found?
-
-**Answer:** In an environment of four frames, inner to outer: an `inner` frame, a `middle` frame, an `outer` frame, then global. `c` is found in the `inner` frame, `b` in the `middle` frame, `a` in the `outer` frame. This follows the lecture's rule: one frame per enclosing `def`, ordered inner to outer, then global.
-
-### 2. Shadowing a built-in / higher-order rebinding (the New Print pattern)
-
-**Practice:**
+**Practice:** Fill in the blanks so that `count_digits(n)` returns the number of digits in positive integer `n`.
 
 ```python
-def wrap(abs):
-    def g(x):
-        return abs(x) + 1
-    return g
-
-orig = abs
-abs = wrap(abs)
-abs = wrap(abs)
-print(abs(-3))
+def count_digits(n):
+    if ____________:
+        return ____________
+    else:
+        return ____________
 ```
-
-What is printed, and where is the `abs` inside `g` found?
-
-**Answer:** `abs` inside `g` is found in the enclosing `wrap` frame (it is `wrap`'s parameter), never in global. The first `wrap(abs)` captures the built-in, giving a `g` that computes `|x| + 1`. The second `wrap(abs)` evaluates its argument in global, picking up that first `g`, so the new `g` computes `g_first(x) + 1 = |x| + 1 + 1`. `abs(-3)` is `3 + 1 + 1 = 5`. Prints `5`.
-
-### 3. Writing a recursive function with correct base case
-
-**Practice:** Write a recursive `summation(n)` that returns `1 + 2 + ... + n` for `n >= 1`, with no loops.
 
 **Answer:**
-
 ```python
-def summation(n):
-    if n == 1:
+def count_digits(n):
+    if n < 10:
         return 1
     else:
-        return n + summation(n - 1)
+        return count_digits(n // 10) + 1
 ```
+The base case is a single-digit number (one digit). The recursive case strips the last digit with `n // 10` and counts one more. Verify by the leap of faith: assume `count_digits(n // 10)` correctly counts the digits of all but the last, then adding 1 accounts for the last digit.
 
-Base case `n == 1` returns `1`; recursive case trusts `summation(n-1)` to give the sum up to `n-1` and adds `n`. `summation(4)` = `4 + (3 + (2 + 1))` = `10`.
+### 2. Environment diagram with recursion: how many frames, and what are their parents?
 
-### 4. Tracing a recursion and counting frames
-
-**Practice:** When `fact(4)` (the recursive version) reaches its base case, how many `fact` frames exist, and what is the parent of each?
-
-**Answer:** Four frames, with `n` equal to `4, 3, 2, 1`. Every one has the **global frame** as its parent, because `def fact` is a top-level statement, so the `fact` function value's parent is global. The frames are stacked in the call stack, but they are not each other's parents.
-
-### 5. Converting a `while` loop to recursion (the lecture's core skill)
-
-**Practice:** Convert to recursion without a `while` statement:
+**Practice:** For the code below, how many frames are created in total (excluding the global frame), and what is the parent of each?
 
 ```python
-def count_down(n):
-    total = 0
+def fact(n):
+    if n == 0 or n == 1:
+        return 1
+    else:
+        return fact(n-1) * n
+
+fact(4)
+```
+
+**Answer:** Four frames: `fact` with `n=4`, `n=3`, `n=2`, `n=1`. (The call stops at `n == 1` because of the `or n == 1` base case; there is no `n=0` frame.) **Every one of them has the global frame as its parent**, because `fact` is defined in the global frame. Parent frames come from the definition site, not the call site.
+
+### 3. Order of printed output / return values in a deeply nested trace
+
+**Practice:** What does this print?
+
+```python
+def f(n):
+    if n == 0:
+        return 0
+    print(n)
+    result = f(n - 1)
+    print(n * 10)
+    return result
+f(3)
+```
+
+**Answer:**
+```
+3
+2
+1
+10
+20
+30
+```
+The first three prints happen on the way *down* (before each recursive call), the last three on the way back *up* (after each recursive call returns), so the second group is in reverse order.
+
+### 4. Convert a `while` loop to recursion
+
+**Practice:** Rewrite the following without a `while` statement, keeping the signature `total(n)` unchanged.
+
+```python
+def total(n):
+    s = 0
     while n > 0:
-        total = total + n % 10
-        n = n // 10
-    return total
+        s = s + n
+        n = n - 1
+    return s
 ```
 
-**Answer:** The loop state is `n` and `total`, so make them the helper's parameters; the base case is the negated loop condition `n <= 0` returning `total`; the initial call supplies `n` and `0`.
+**Answer:** The state is `n` and `s`, so we need a helper with both as parameters (the signature of `total` cannot change). The `while n > 0` condition becomes the base case `if n == 0`, and the assignments become the arguments of the recursive call.
 
 ```python
-def count_down(n):
-    def f(n, total):
-        if n <= 0:
-            return total
-        return f(n // 10, total + n % 10)
-    return f(n, 0)
+def total(n):
+    def helper(n, s):
+        if n == 0:
+            return s
+        return helper(n - 1, s + n)
+    return helper(n, 0)
+```
+(A direct version `return n + total(n-1)` with base case `if n == 0: return 0` is also correct, but the mechanical conversion is the one the lecture teaches.)
+
+### 5. Identify and justify base case / recursive case
+
+**Practice:** In `sum_digits`, why is the recursive call made on `n // 10` rather than on `n`, and why does the recursion terminate?
+
+**Answer:** `n // 10` is a strictly simpler problem because it has one fewer digit than `n`. Calling `sum_digits(n)` would repeat the identical problem forever. Termination is guaranteed because each call reduces the digit count by one, so after finitely many calls the argument is less than 10 and the base case `if n < 10: return n` fires without a recursive call.
+
+### 6. Verify correctness (the recursive leap of faith)
+
+**Practice:** State the three steps you would use to argue that `fact_k(n, k)` correctly returns `n! * k`.
+
+**Answer:**
+1. **Base case:** if `n` is 0 or 1, then `n!` is 1, so the correct answer is `1 * k == k`, which is exactly what is returned.
+2. **Functional abstraction:** treat the call `fact_k(n-1, k*n)` as a black box and assume it returns `(n-1)! * (k*n)`, which is its documented behavior.
+3. **Verify the combination:** `(n-1)! * (k * n) == n * (n-1)! * k == n! * k`, which is what `fact_k(n, k)` is supposed to return. Since the return statement passes that value straight back, the function is correct.
+
+### 7. Mutual recursion
+
+**Practice:** What is mutual recursion, and why does the Luhn algorithm use it instead of a single function?
+
+**Answer:** Mutual recursion occurs when two different functions call each other, so each calls itself *indirectly*. The Luhn rule alternates between doubling and not doubling successive digits. Using two functions, `luhn_sum` (last digit not doubled) and `luhn_sum_double` (last digit doubled), lets the alternation be encoded in *which function you are in*: each one recurses into the other, flipping the parity on every step, with no extra parameter needed to track position. Base cases appear in both functions here, though in general they may appear in only one.
+
+### 8. Trace `luhn_sum` on a small number
+
+**Practice:** What is `luhn_sum(138)`?
+
+**Answer:** 
+- `luhn_sum(138)`: split into `(13, 8)`, return `luhn_sum_double(13) + 8`.
+- `luhn_sum_double(13)`: split into `(1, 3)`, `luhn_digit = sum_digits(2 * 3) = sum_digits(6) = 6`. Since `13 >= 10`, return `luhn_sum(1) + 6`.
+- `luhn_sum(1)`: `1 < 10`, return `1`.
+- So `luhn_sum_double(13) = 1 + 6 = 7`, and `luhn_sum(138) = 7 + 8 = 15`.
+
+Sanity check by hand, right to left: `8` not doubled is 8; `3` doubled is 6; `1` not doubled is 1. Total `8 + 6 + 1 = 15`. Not a multiple of 10, so `138` would fail the Luhn check.
+
+### 9. Name lookup without drawing a diagram
+
+**Practice:** In the code below, in which frame will each of `b`, `x`, and `pow` be found when `pow(b, x)` is evaluated?
+
+```python
+def exp(x):
+    def base(b):
+        return pow(b, x)
+    return base
 ```
 
-### 6. The `fact_k` generalization and its base case
+**Answer:** `pow(b, x)` is inside `base`, inside `exp`, inside global, so it is always evaluated in an environment of exactly three frames: a `base` frame, an `exp` frame, then global. `b` is found in the `base` frame (it is `base`'s parameter), `x` is found in the `exp` frame (it is the argument to the `exp` call that created `base`), and `pow` is found in the global frame (as a built-in). You do not need to draw anything to determine this.
 
-**Practice:** Why does `fact_k`'s base case return `k` rather than `1`? What would break if it returned `1`?
+### 10. Higher-order functions plus shadowing (the New Print style problem)
 
-**Answer:** Because `fact_k(n, k)` is specified to compute `n! * k`, not `n!`. When `n` reaches the base case, `k` already holds the entire accumulated product, so returning `k` returns the answer. Returning `1` would discard all accumulated work: `fact_k(5, 1)` would return `1` instead of `120`, and `fact_k(0, 10)` would return `1` instead of `10`.
+**Practice:** In the New Print code, after both `print = new_print(print)` lines have run, what does `print` inside the body of the *first* `f` (the one returned by the first `new_print` call) refer to?
 
-### 7. Twenty-One recursive `play`
-
-**Practice:** In the recursive `play`, why can the inner `f` use `goal` and `strategy0` without them being parameters, and why must the base case return `who` rather than `1 - who`?
-
-**Answer:** `f`'s parent frame is the `play` frame, where `goal`, `strategy0`, and `strategy1` are bound as `play`'s parameters, so name lookup from inside `f` finds them one frame out. The base case returns `who` because `who` is flipped immediately after a player moves: when the total reaches `goal`, `who` names the player who did *not* make the last move, and since the last player to add loses, that player is the winner. This matches the iterative version's `return who` after the loop.
-
-### 8. Identifying tail recursion
-
-**Practice:** Which of `fact(n-1) * n` and `f(n-1, k * n)` leaves pending work in the calling frame, and why does that matter?
-
-**Answer:** `fact(n-1) * n` leaves a pending multiplication: after the recursive call returns, the frame must still multiply by its own `n`, so every frame must be kept alive holding its `n`. `f(n-1, k * n)` leaves nothing pending: its value is returned unchanged, which is what makes the return trip a straight pass-through of `120`. (Python still keeps all the frames, but conceptually this version mirrors a loop exactly.)
+**Answer:** The **original built-in print**. Inside `f`, the name `print` is found by looking in `f`'s frame (not there), then its parent, the `new_print` frame f1, where `print` is bound to the original print that was passed in as an argument. Rebinding the **global** `print` twice afterwards has no effect on this lookup, because `f`'s environment never includes the global frame until after the `new_print` frame has already supplied a binding.
 
 ---
 
 ## Summary
 
-- **Environment shortcut:** an expression outside any `def`/`lambda` is evaluated in the global frame; otherwise the environment has one frame per enclosing `def`/`lambda`, inner to outer, ending in global. You can determine the frame a name will be found in without drawing the whole diagram.
-- A function's **parent frame** is where its `def` ran, not where it was called. That is why `pow(b, x)` in `exp`/`base` is always evaluated in exactly three frames.
-- **New Print (Fall 2026 Midterm 1, 9% correct):** `print` inside `f` is found in the enclosing `new_print` frame (the parameter, shadowing the built-in), while the argument in `print = new_print(print)` is evaluated in global. Doing this twice chains two wrappers around the original `print`. Output: `2`, `What?`, `print returned What?`.
-- A **recursive function** calls itself on a smaller input. It needs a **base case** (answered directly) and a **recursive case** (smaller call, result combined).
-- `fact`: base case `n == 0 or n == 1` returns `1`; recursive case `return fact(n-1) * n`. The calls descend to `1`, then the products `1, 2, 6, 24, 120` are built back up as the frames return.
-- Each recursive call gets its **own frame with its own `n`**; frames stack in time but all share the same parent (global, for a top-level `fact`).
-- **Iteration → recursion: pass the state of the `while` loop as arguments.** Loop variables become parameters; the base case is the negated loop condition; the post-loop return becomes the base case's return; the initialization becomes the initial call.
-- `fact_k(n, k)` computes `n! * k`; the accumulator `k` reproduces the loop's running total (`1, 5, 20, 60, 120`), and the base case must return `k`.
-- `fact_tail(n)` hides the accumulator in an inner `f(n, k)` and calls `f(n, 1)`, keeping the clean one-argument interface. Inner `f` finds its own name in the enclosing frame, which is how it recurses.
-- **Twenty-One:** alternate adding 1, 2, or 3 to a total starting at 0; ends at 21 or more; last to add loses. The recursive `play` needs an inner `f(n, who)` (those are the loop's changing state), base case `if n >= goal: return who`, and initial call `f(0, 0)`. `strategy0`, `strategy1`, `goal` come from the enclosing `play` frame.
-- **Tail recursion** (`fact_k`, `fact_tail`, recursive `play`) computes the answer on the way down with nothing pending on the way back up, mirroring a loop; plain `fact` computes on the way back up.
+- A **recursive function** calls itself, either **directly** (`fact` calls `fact`) or **indirectly** (**mutual recursion**: `luhn_sum` and `luhn_sum_double` call each other).
+- **Anatomy**: an ordinary `def` header, then a conditional testing for **base case(s)** (evaluated without recursive calls, computed directly), then **recursive case(s)** (evaluated with recursive calls on **simpler** problems that approach the base case).
+- Recursion is normal function application: each call gets its **own frame with its own bindings**, which is why nested calls to the same function do not interfere. A name like `n` evaluates differently depending on which frame is first in the current environment.
+- **A frame's parent comes from where the function was defined, not where it was called.** All `fact` frames have Global as parent; all frames for an inner helper `f` have the enclosing function's frame as parent.
+- While recursive calls are outstanding, the outer frames are paused mid-expression with **blank return values**; they fill in as the recursion unwinds, innermost first.
+- **The recursive leap of faith** verifies correctness in three steps: (1) check the base case, (2) treat the recursive call as a **functional abstraction** assumed correct for the simpler input, (3) verify that the result is correctly built from that value. Assume correct for `n-1`, show correct for `n`.
+- **Iteration is a special case of recursion.** The recursive `fact` needs only two names (`n`, `fact`); the iterative one needs four (`n`, `total`, `k`, `fact_iter`), because frames replace the manual bookkeeping.
+- **Converting iteration to recursion is mechanical**: the **state maintained across the loop** becomes the **parameters**, the `while` condition becomes the **negated** base case test, and **updates via assignment become arguments to a recursive call**. This works quite generally.
+- **Converting recursion to iteration is harder**: identify what needs to be maintained across passes, using what is passed into and returned from each recursive call as clues.
+- An **accumulator / running total** parameter (`fact_k`, `fact_tail`) does the work on the way *down* so the base case returns the final answer, versus the classic form which assembles the answer on the way *back up*. A helper inside the function keeps the public signature unchanged.
+- **Twenty-One**: needs an inner `f(n, who)` because `play`'s signature is fixed, base case `n >= goal` returning `who` (the player who did not just add, since the last player to add loses).
+- **Environment shortcut**: an expression outside any `def`/`lambda` is evaluated in the global frame; otherwise its environment has one frame per enclosing `def`/`lambda`, inner to outer, then global. This tells you exactly which frame every name will be found in without drawing the diagram, which is the key to problems like New Print.
+- **Digit sums and Luhn**: `split(n)` returns `(n // 10, n % 10)`; `sum_digits` recurses on all but the last digit and adds the last; the Luhn algorithm doubles every second digit from the right (digit-summing products over 9), and a valid credit card number has a Luhn sum that is a multiple of 10.
