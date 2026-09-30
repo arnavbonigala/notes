@@ -1,195 +1,80 @@
-<!-- Mon, Sep 28, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Mon, Sep 28, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 14: Disjoint Sets
 
-This lecture opens the "Data Structures" arc of CS 61B by deriving one data structure from scratch, start to finish: the **Disjoint Sets** (a.k.a. Union-Find) structure that solves the **Dynamic Connectivity** problem. After a quick review of Big Theta versus Big O (Big O matters here because some of these operations have runtimes that depend on the shape of the data, not just on N), we define a two-method API, `connect(p, q)` and `isConnected(p, q)`, and then walk up a ladder of five implementations: `ListOfSetsDS` (intuitive but slow and complicated), `QuickFindDS` (constant-time `isConnected`, linear-time `connect`), `QuickUnionDS` (tree of parent pointers, fast in the best case but Θ(N) when the tree is a stick), `WeightedQuickUnionDS` (always hang the smaller tree under the bigger one, forcing height Θ(log N)), and finally `WeightedQuickUnionWithPathCompressionDS` (flatten every path you walk), which is the implementation actually used in practice today and runs in O(M α(N)) for M operations. The big takeaways are less about union-find trivia and more about method: represent the *connected components*, not the individual connections; the choice of underlying representation (list of sets versus array of ids versus array of parents) can doom or save your asymptotics; and a good data structure is what makes an otherwise impossible problem (30 years of compute versus 6 seconds) solvable.
+## Overview
+
+This lecture kicks off the "data structures" portion of the course by deriving one specific data structure from scratch: **Disjoint Sets** (also called **Union-Find**), which solves the **Dynamic Connectivity** problem. The API is deliberately tiny: `connect(p, q)` joins two items, and `isConnected(p, q)` asks whether two items are joined, possibly through a transitive chain of connections. The real content of the lecture is not the API but the *design process*: we start with a naive "record every line" idea, reject it, discover the key insight that we only need to track **connected components** (not individual connections), and then iterate through five implementations (ListOfSetsDS, QuickFindDS, QuickUnionDS, WeightedQuickUnionDS, WeightedQuickUnionDS with path compression), each of which improves on the previous one. Along the way the lecture reviews Big O versus Big Theta (Big O is useful here precisely because runtimes depend on the shape of the input), and shows how the choice of underlying representation (the instance variables) determines both the asymptotic runtime and how ugly the code is. The end result, weighted quick union with path compression, is the standard real-world implementation, running in nearly constant time per operation.
 
 ---
 
 ## Key Concepts
 
-### 1. Big Theta versus Big O, and why this lecture needs both
+### 1. Big Theta versus Big O (review)
 
-Formally, R(N) ∈ Θ(f(N)) means there exist positive constants k₁ and k₂ such that
+Both are statements about *families* of functions, not about particular algorithms.
+
+- `R(N) ∈ Θ(f(N))` means there exist positive constants `k1` and `k2` with `k1·f(N) ≤ R(N) ≤ k2·f(N)` for all `N` greater than some `N0` (i.e. for very large `N`). Informally: the **order of growth is** `f(N)`. It is a two-sided sandwich.
+- `R(N) ∈ O(f(N))` means there exists a positive constant `k2` with `R(N) ≤ k2·f(N)` for all `N > N0`. Informally: the **order of growth is less than or equal to** `f(N)`. Big O is **just an upper bound**.
+
+The slide's family table:
+
+| | Informal meaning | Family | Members |
+|---|---|---|---|
+| Big Theta `Θ(f(N))` | order of growth **is** `f(N)` | `Θ(N²)` | `N²/2`, `2N²`, `N² + 38N + N` |
+| Big O `O(f(N))` | order of growth is **≤** `f(N)` | `O(N²)` | `N²/2`, `2N²`, `lg(N)` |
+
+Note that `lg(N)` is in `O(N²)` but not in `Θ(N²)`.
+
+**Why this matters today:** several of the disjoint sets operations have a runtime that depends on the *input*, not just on `N`. For example, `ListOfSetsDS.isConnected` might find both items in the very first set it checks (fast) or might have to scan all `N` sets (slow). The worst case is `Θ(N)`, but since other cases can be much better, the lecture records it as `O(N)`: an honest upper bound that covers every case. Whenever you see `O` in today's runtime table, it means "the worst case is this, but the runtime genuinely varies."
+
+### 2. Sets and Disjoint Sets
+
+A **Set** is a collection of elements with no duplicates. Adding an element that is already present does nothing:
 
 ```
-k1 * f(N)  <=  R(N)  <=  k2 * f(N)      for all N greater than some N0
+add(Russia); add(Mongolia); add(China); add(Mongolia)  // no effect, already present
+add(Canada); contains(Mongolia)  // true
 ```
 
-so Θ pins the order of growth from both sides: it is a two-sided "order of growth *is* f(N)" statement. R(N) ∈ O(f(N)) is only the **upper bound**: "order of growth is less than or equal to f(N)". So N²/2, 2N², and N² + 38N + N are all in Θ(N²) *and* in O(N²), but lg(N) is in O(N²) only.
+The lecture asserts (and will prove later in the course, when we cover hashing) that set operations are `Θ(1)`.
 
-*(extra context: the slide that visualizes Big O reuses the two-constant sentence from the Big Theta slide, which is a copy/paste artifact. The Big O definition needs only the single upper constant k₂.)*
+A **Disjoint Sets** data structure exposes only two operations:
 
-Why it matters today: for several of these implementations, the runtime of a single call depends on the *input* and on the current shape of the structure. `QuickUnionDS.connect` can be as cheap as constant time (both nodes are already roots) or as expensive as Θ(N) (the tree is a long stick). There is no single f(N) sandwiching it from both sides, so we report an upper bound: O(N). When the runtime does not vary, as with `QuickFindDS.isConnected` (always exactly two array accesses) or `QuickFindDS.connect` (always a full array scan), we can and do say Θ.
+- `connect(x, y)`: connects `x` and `y`.
+- `isConnected(x, y)`: returns `true` if `x` and `y` are connected, where connections are **transitive** (they need not be direct).
 
-### 2. The problem: Dynamic Connectivity
+The lecture's motivating example (a map of countries):
 
-A `Set` is a collection with no duplicates, supporting `add` and `contains` (the lecture asserts Θ(1) for these and defers the reason to later in the course). Disjoint Sets is a different, more specialized ADT with exactly two operations:
+```
+connect(Russia, China)
+connect(Russia, Mongolia)
+isConnected(China, Mongolia)?   // true, via Russia (transitive)
+connect(USA, Canada)
+isConnected(USA, Mongolia)?     // false
+connect(Russia, USA)            // the "Bering strait crossing"
+isConnected(USA, Mongolia)?     // now true
+```
 
-- `connect(x, y)`: connect x and y.
-- `isConnected(x, y)`: is x connected to y? **Connections are transitive**, so they need not be direct.
+Note that the answer to a query can *change over time* as connections are added. That is what "dynamic" in dynamic connectivity means.
 
-Geographical example from lecture: `connect(Russia, China)`, `connect(Russia, Mongolia)`, then `isConnected(China, Mongolia)` is true (via Russia) even though we never connected them directly. Then `connect(USA, Canada)` leaves `isConnected(USA, Mongolia)` false, but after `connect(Russia, USA)` (the Bering Strait crossing) it becomes true.
-
-Note what is *absent* from the API: there is no "disconnect", no "list the members of x's group", no "how are x and y connected". This narrowness is what lets us be fast.
-
-Applications mentioned: percolation theory (used in computational chemistry) and as a subroutine inside other algorithms, notably Kruskal's minimum spanning tree algorithm.
+**Why anyone cares:**
+- **Percolation theory**, including a computational chemistry application (the lecture mentions this shows up on a homework/project in the class).
+- As a building block inside other algorithms, notably **Kruskal's algorithm** for minimum spanning trees (covered later in the course).
 
 ### 3. Simplifying assumptions
 
-To avoid tangling with generics and hashing, the lecture restricts to integers:
+To keep the derivation clean, the lecture restricts the problem without loss of generality:
 
-- Items are the integers `0` through `N - 1` (so `8` instead of `USA`).
-- N is declared up front in the constructor, and **everything starts disconnected** (N singleton sets).
+- All items are **integers** `0` through `N-1` (so `8` instead of `USA`).
+- The number of items `N` is **declared in advance**, and everything starts fully disconnected.
 
-Design constraints stated explicitly:
+The performance constraints we must respect:
 
-- N (number of elements) can be huge.
-- M (number of method calls) can be huge.
-- Calls are **interspersed**: you cannot assume all the `connect`s come first and all the `isConnected`s after. This is what "dynamic" means, and it rules out "just preprocess everything once" designs.
+- `N` (number of elements) can be huge: millions or hundreds of millions.
+- `M` (number of method calls) can be huge.
+- Calls are **interspersed**: you may not assume all `connect` calls come before all `isConnected` calls. (If you could assume that, the problem would be easier.)
 
-### 4. The pivotal idea: track connected components, not connections
-
-The naive approach records every connecting line, for example a `List<Integer[]>` holding `[0,1], [1,2], [0,4], [2,4], [3,5]`. `connect` is then trivially fast, but `isConnected(3, 0)` is hard: you would have to do some search over all of the pairs to decide whether one item is reachable from another. The data you stored does not answer the question you were asked.
-
-The fix is to store the answer instead of the history. For each item, its **connected component** is the set of all items connected to it. *How* things got connected is information we never need. The connect sequence from the slides, viewed this way:
-
-```
-start                     {0}, {1}, {2}, {3}, {4}, {5}, {6}
-connect(0, 1)             {0, 1}, {2}, {3}, {4}, {5}, {6}
-connect(1, 2)             {0, 1, 2}, {3}, {4}, {5}, {6}
-connect(0, 4)             {0, 1, 2, 4}, {3}, {5}, {6}
-connect(3, 5)             {0, 1, 2, 4}, {3, 5}, {6}
-isConnected(2, 4)         true      (same set)
-isConnected(3, 0)         false     (different sets)
-connect(4, 2)             {0, 1, 2, 4}, {3, 5}, {6}     <- no change, already together
-connect(4, 6)             {0, 1, 2, 4, 6}, {3, 5}
-connect(3, 6)             {0, 1, 2, 3, 4, 5, 6}
-isConnected(3, 0)         true
-```
-
-Observe the two structural facts that every later implementation exploits: the components are **disjoint** (hence the name) and they **only ever merge**, never split. `connect` is a merge of two components; `isConnected` is "same component?".
-
-### 5. Implementation ladder, and what each step buys
-
-**Idea #1, `ListOfSetsDS`:** literally `List<Set<Integer>>`, for example `[{0,1,2,4}, {3,5}, {6}]`. Very intuitive and actually terrible. To do anything you must iterate over the outer list to find which set an item lives in. `isConnected` checks up to N sets: O(N). `connect` must find both items' sets and then merge them: O(N). Worst case is when nothing is connected, since then there are N sets to scan. The lecture's verdict is the lesson: *the data structure choice doomed us*. We picked a representation in which the most common question ("which component is item i in?") requires a search.
-
-**Idea #2, `QuickFindDS`:** flip the representation inside out. Keep `int[] id` where `id[i]` is the set number of item i. Now "which component is i in?" is a single array access, and `isConnected` is `id[p] == id[q]`: Θ(1), two array accesses. The price is `connect(p, q)`, which must relabel an entire component: walk the whole array and change every entry equal to `id[p]` into `id[q]`. That is always a full scan, so Θ(N), more precisely N+2 to 2N+2 array accesses. Too slow for practical use: every connection costs linear time.
-
-**Idea #3, `QuickUnionDS`:** the radical move. Instead of giving each item an *id*, give each item a **parent**. Roots are marked with `-1`. This implicitly builds a forest: one tree per connected component, and the root of the tree serves as the component's representative.
-
-```
-parent   -1   0   1   -1   0   3   -1
-          0   1   2    3   4   5    6
-
-tree shapes:   0                 3          6
-              / \                 \
-             1   4                 5
-             |
-             2
-components:  {0, 1, 2, 4}       {3, 5}     {6}
-```
-
-(The slides note that the optional textbook stores an item's parent as **itself** for roots instead of `-1`.)
-
-Now `connect(p, q)` does not relabel anything. It finds both roots and hangs one root under the other: a **single array write**. For `connect(5, 2)`: `root(5)` is 3, `root(2)` is 0, so set `parent[root(5)] = root(2)`, that is `parent[3] = 0`. Why can't we just write `parent[5] = 2`? Because then 3 would be orphaned: 3 was 5's parent and 5's only link to the rest of its component, so we would "lose 3" out of the merged component. Reparenting the *root* is what moves the whole subtree along with it.
-
-The cost has moved into `root`, which climbs parent pointers to the top. If the trees are tall, that climb is slow. Worst case: always attach the first item's tree below the second item's, for example `connect(4, 3); connect(3, 2); connect(2, 1); connect(1, 0)`, and you get a stick of height M after M operations. For N items, both `connect` and `isConnected` are then Θ(N) in the worst case, which can be *worse* than QuickFind (QuickFind at least had Θ(1) `isConnected`). We report O(N) in the table because the runtime ranges between constant and linear.
-
-**Idea #4, `WeightedQuickUnionDS`:** the defect was tall trees, so refuse to build them. Track the **size** (a.k.a. **weight**, the number of items) of each tree, and always link the root of the *smaller* tree to the root of the larger. Ties are broken arbitrarily. `isConnected` needs no change at all.
-
-Why size and not height? Comparing heights also gives Θ(log N) worst case, but tracking height becomes awkward once we add path compression later, and the code is more complicated with no asymptotic gain. Note that size and height can disagree about which choice makes the shorter tree in a given step; weighting is nevertheless asymptotically just as good.
-
-The height bound: to make the height grow as fast as possible, you must repeatedly join two trees of equal height, which doubles the node count each time the height increases:
-
-| N | max height |
-|---|---|
-| 1 | 0 |
-| 2 | 1 |
-| 4 | 2 |
-| 8 | 3 |
-| 16 | 4 |
-
-So worst case height is Θ(log N), and both operations become O(log N).
-
-Two common ways to store the weights:
-- Overload the parent array: store `-weight` at roots instead of `-1`, for example `parent = [-2, -1, -1, -1, -1, 0, -4, 6, 6, 8]`.
-- Keep a separate `size` array, for example `size = [2, 1, 1, 1, 1, 1, 4, 1, 2, 1]`.
-
-**Idea #5, `WeightedQuickUnionWithPathCompressionDS`:** when you climb from a node to its root, you have already paid for the walk, so on the way you may as well **reparent every node you touched directly to the root**. The extra cost is insignificant (same order of growth as the climb you were doing anyway), and it permanently flattens that path. The key intuition: as N grows, trees tend to get taller; as M (number of operations) grows, trees get shorter, and with enough operations the height shrinks toward 1. Compression applies on both `connect` and `isConnected`, since both call find/root.
-
-This is the punchline of the derivation: **weighted quick union plus path compression is the standard way disjoint sets are implemented today.**
-
-### 6. The final performance picture
-
-Per-operation (constructor is Θ(N) for all of them, since all must initialize N sets or an N-length array):
-
-| Implementation | constructor | connect | isConnected |
-|---|---|---|---|
-| `ListOfSetsDS` | Θ(N) (make N sets) | O(N) (find each element, combine 2 sets) | O(N) (check up to N sets) |
-| `QuickFindDS` | Θ(N) (size-N array) | Θ(N) (scan whole array, update ids) | Θ(1) (two array accesses) |
-| `QuickUnionDS` | Θ(N) | O(N) (climb tree to find root) | O(N) (climb 2 trees, compare roots) |
-| `WeightedQuickUnionDS` | Θ(N) | O(log N) | O(log N) |
-| `WQU + path compression` | Θ(N) | O(α(N)) amortized | O(α(N)) amortized |
-
-Total for M operations on N elements (an operation being a `connect` or an `isConnected`):
-
-| Implementation | Total runtime for M ops |
-|---|---|
-| `ListOfSetsDS` | O(NM) |
-| `QuickFindDS` | Θ(NM) |
-| `QuickUnionDS` | O(NM) |
-| `WeightedQuickUnionDS` | O(M log N) |
-| `WQUWithPathCompressionDS` | O(M α(N)) |
-
-The lecture's motivating number: with the naive implementation the total is O(N + MN) = O(MN); with the best it is O(N + M log N). For N = 10⁹ and M = 10⁹ that is the difference between roughly **30 years and 6 seconds**. "Good data structure unlocks solutions to problems that could otherwise not be solved."
-
-### 7. lg* and the inverse Ackermann function
-
-CS 170 territory, flagged in lecture as a spoiler rather than examinable analysis:
-
-- With path compression, each operation takes on average **lg\* N** time. `lg*` is "how many times you press the log₂ button on a calculator before reaching a number that is 1 or less".
-
-| N | lg* N |
-|---|---|
-| 1 | 0 |
-| 2 | 1 |
-| 4 | 2 |
-| 16 | 3 |
-| 65536 | 4 |
-| 2^65536 | 5 |
-
-  So lg* N ≤ 5 for any realistic input, and M operations cost O(M lg\* N) for large M.
-- An even tighter bound is **α(N)**, the inverse Ackermann function, which also does not exceed 5 for any conceivable N. Source: Bob Tarjan, "Efficiency of a Good But Not Linear Set Union Algorithm", written while at UC Berkeley in 1975.
-
-Neither bound is literally constant, but both are "good enough for all practical uses".
-
----
-
-## Definitions
-
-- **Set:** a collection of elements with no duplicates. `add` of an element already present does nothing. Lecture takes `add` and `contains` to be Θ(1).
-- **Disjoint Sets (Union-Find):** an ADT over a fixed universe of N items, maintaining a partition of those items into non-overlapping sets, with two operations: `connect(x, y)` and `isConnected(x, y)`.
-- **`connect(p, q)`:** merge the set containing p with the set containing q. Also called *union*.
-- **`isConnected(p, q)`:** return true if p and q currently lie in the same set. Connectivity is **transitive**, so indirect connections count.
-- **Dynamic Connectivity problem:** the problem of answering interspersed `connect` and `isConnected` queries as they arrive, with no ability to see the whole input in advance.
-- **Connected component of an item:** the set of all items connected to that item (including itself).
-- **Disjoint:** no item belongs to two components at once, so the components form a partition.
-- **Big Theta, Θ(f(N)):** order of growth *is* f(N); there exist positive k₁, k₂ with k₁f(N) ≤ R(N) ≤ k₂f(N) for all N beyond some N₀.
-- **Big O, O(f(N)):** order of growth is *less than or equal to* f(N); an upper bound only.
-- **id (in QuickFind):** the set number of an item; `id[i]` is item i's component label. Two items are connected exactly when their ids match.
-- **parent (in QuickUnion):** `parent[i]` is the index of item i's parent in the forest; a negative value marks a **root**.
-- **root (or find):** the operation that climbs parent pointers from an item to the root of its tree. The root acts as the canonical representative of the component.
-- **Weight / size of a tree:** the total number of items in that tree (the two words are used interchangeably in this lecture).
-- **Weighted quick union:** quick union with the rule "always link the root of the smaller tree to the root of the larger tree", ties broken arbitrarily.
-- **Path compression:** during a root/find call, reset the parent of every node encountered on the path to point directly at the root.
-- **lg\* N (log-star):** the number of times you must apply log₂ to N before the result is at most 1. Effectively ≤ 5 for realistic N.
-- **α(N):** the inverse Ackermann function; grows even more slowly than lg\*, also ≤ 5 for realistic N.
-
----
-
-## Worked Examples
-
-### The interface
+The Java interface:
 
 ```java
 public interface DisjointSets {
@@ -201,9 +86,295 @@ public interface DisjointSets {
 }
 ```
 
-Design goal: an efficient implementation given huge N, huge M, and interspersed calls.
+There is deliberately **no** `disconnect` operation, and no way to enumerate a component.
 
-### Example 1: `QuickFindDS` (lecture code)
+### 4. The naive approach and why it fails
+
+Naive idea: on `connect(p, q)`, record the individual connecting line, e.g. in a `List<Integer[]>` of pairs. After the lecture's example sequence you would hold:
+
+```
+[0, 1], [1, 2], [0, 4], [2, 4], [3, 5]
+```
+
+`connect` is easy (append a pair). But `isConnected(3, 0)` is **hard**: you have to do some computation over all of the pairs, chasing neighbors of neighbors recursively, to see whether one item is reachable from another. (This is really a graph reachability search, which we have not built yet.) The lecture stops here and pivots.
+
+### 5. The key insight: connected components
+
+We do not need to know *how* things are connected, only *that* they are connected. So instead of storing lines, store, for each item, the **set of all items connected to it**: its **connected component**. The connected components always form a partition of the `N` items (this is why the sets are "disjoint": every item is in exactly one component).
+
+The lecture's trace, showing the state as a collection of sets:
+
+```
+                          {0}, {1}, {2}, {3}, {4}, {5}, {6}
+connect(0, 1)             {0, 1}, {2}, {3}, {4}, {5}, {6}
+connect(1, 2)             {0, 1, 2}, {3}, {4}, {5}, {6}
+connect(0, 4)             {0, 1, 2, 4}, {3}, {5}, {6}
+connect(3, 5)             {0, 1, 2, 4}, {3, 5}, {6}
+isConnected(2, 4)         true
+isConnected(3, 0)         false
+connect(4, 2)             {0, 1, 2, 4}, {3, 5}, {6}     <-- no change, already together
+connect(4, 6)             {0, 1, 2, 4, 6}, {3, 5}
+connect(3, 6)             {0, 1, 2, 3, 4, 5, 6}
+isConnected(3, 0)         true
+```
+
+Two things to notice, both of which are exam fodder:
+
+1. `connect(4, 2)` changes **nothing**, because 4 and 2 are already in the same component. Redundant connects are no-ops at the level of connected components, even though the naive line-based approach would have stored a new line.
+2. `isConnected` reduces to "are these two items in the same set?", which is far simpler than a reachability search.
+
+Under this model, `connect(p, q)` = "merge the set containing `p` with the set containing `q`", and `isConnected(p, q)` = "are `p` and `q` in the same set".
+
+### 6. Implementation #1: ListOfSetsDS
+
+The most popular student answer: store a list of sets of integers, in Java `List<Set<Integer>>`, e.g. `[{0, 1, 2, 4}, {3, 5}, {6}]`.
+
+This is intuitive, and it is also **terrible**. To do anything, you must first *find* which set an item lives in, which requires iterating over the list of sets. Worst case, nothing is connected, so there are `N` singleton sets and you scan through up to `N` sets to locate one item (and then again for the second item).
+
+| Implementation | constructor | connect | isConnected |
+|---|---|---|---|
+| ListOfSetsDS | `Θ(N)` (make N sets) | `O(N)` (find each element, combine 2 sets) | `O(N)` (check up to N sets) |
+
+The code is also genuinely complicated to write (you must find two sets, merge them, and remove one from the list, all while iterating).
+
+**The most important lesson of this section:** the data structure choice, "list of sets," doomed us immediately to code that is both complicated *and* slow. When you implement a high-level data structure out of lower-level building blocks, your choice of instance variables deeply affects both code complexity and performance.
+
+### 7. Implementation #2: QuickFindDS (array of set ids)
+
+Replace the list of sets with a single `int[] id`, where `id[i]` is the **set number** (the "id") of item `i`. Items are in the same component exactly when their ids match.
+
+```
+{0, 1, 2, 4}, {3, 5}, {6}       int[] id:  4 4 4 5 4 5 6
+                                 index:    0 1 2 3 4 5 6
+```
+
+The particular id value is arbitrary: `{0,1,2,4}` could just as well have id `9`. The slides pick a member of the set (here 4) because it reads nicely.
+
+- `isConnected(p, q)`: `id[p] == id[q]`. Two array accesses, `Θ(1)`. Very fast.
+- `connect(p, q)`: change **every** entry equal to `id[p]` so that it equals `id[q]`. This requires a full pass over the array: `N+2` to `2N+2` array accesses, so `Θ(N)` always (the loop never exits early).
+
+Example, `connect(2, 3)` on the array above: every `4` becomes `5`, giving `5 5 5 5 5 5 6`.
+
+| Implementation | constructor | connect | isConnected |
+|---|---|---|---|
+| ListOfSetsDS | `Θ(N)` | `O(N)` | `O(N)` |
+| QuickFindDS | `Θ(N)` (initialize size-N array) | `Θ(N)` (look through entire array, update ids) | `Θ(1)` (two array accesses) |
+
+Note `connect` is `Θ(N)` not `O(N)`: the `for` loop always visits all `N` entries, so there is no "lucky" fast case. This is a genuine improvement over ListOfSetsDS (constant-time queries, much simpler code), but `Θ(N)` per connect is still too slow for practical use. Time to do something more radical.
+
+### 8. Implementation #3: QuickUnionDS (array of parent ids)
+
+The design question the lecture poses: **how can we change our set representation so that merging two sets requires changing only one value?**
+
+Answer: keep the same `int[]` instance variable, but change what the numbers *mean*. Instead of storing a set id, store each item's **parent**. Roots (items with no parent) store `-1`. This gives the array a **tree-like shape**.
+
+```
+parent:  -1  0  1  -1  0  3  -1
+index:    0  1  2   3  4  5   6
+
+Tree 1 (root 0):  0 -> children 1, 4 ; 1 -> child 2      {0, 1, 2, 4}
+Tree 2 (root 3):  3 -> child 5                           {3, 5}
+Tree 3 (root 6):  6 alone                                {6}
+```
+
+The lecture calls this "innocuous sounding, seemingly arbitrary," but notes it unlocks a whole universe of theory.
+
+Now, membership is determined by **which root you reach when you climb**. So:
+
+- `isConnected(p, q)`: `root(p) == root(q)`.
+- `connect(p, q)`: find `root(p)`, find `root(q)`, then `parent[root(p)] = root(q)`. Exactly **one** value changes.
+
+**Why you cannot just set `parent[5] = 2`** (the lecture's hint question for `connect(5, 2)`): if 5's parent becomes 2 directly, then 3, which was 5's root, is orphaned: "we've lost 3!" 3 would become a singleton component and would no longer be connected to 5. You must relink at the **root** level, not the item level. So `connect(5, 2)` does `parent[root(5)] = root(2)`, i.e. `parent[3] = 0`, which drags 3 and its whole subtree (including 5) under 0.
+
+**The defect:** trees can get tall. If we always hang the first item's tree below the second item's tree, then
+
+```
+connect(4, 3); connect(3, 2); connect(2, 1); connect(1, 0)
+```
+
+produces a single path (a "spindly" tree) of height `M` after `M` operations. Climbing to the root is then `Θ(N)` in the worst case, so both `connect` and `isConnected` are `Θ(N)` in the worst case. In the worst case, half the items are in one long path and half are in another, and connecting them requires finding both roots.
+
+| Implementation | constructor | connect | isConnected |
+|---|---|---|---|
+| ListOfSetsDS | `Θ(N)` | `O(N)` | `O(N)` |
+| QuickFindDS | `Θ(N)` | `Θ(N)` | `Θ(1)` |
+| QuickUnionDS | `Θ(N)` | `O(N)` (climb tree to find root) | `O(N)` (climb 2 trees to compare roots) |
+
+Here `O` rather than `Θ` because the runtime can be anywhere between constant (already at a root) and linear (a spindly tree). Note that QuickUnion is arguably *worse* than QuickFind overall: `isConnected` degraded from `Θ(1)` to `O(N)`. But it is the foundation of everything good that follows.
+
+**Observation that drives the next step:** everything would be fine if we just kept our trees balanced.
+
+### 9. Implementation #4: WeightedQuickUnionDS
+
+When `connect(2, 5)` gives you a choice of which root becomes the child, the choice matters:
+
+```
+connect(2, 5), where 0 is root of {0,1,2,4} (height 2 tree) and 3 is root of {3,5}
+
+A. Make 5's root (3) a child of 2's root (0):  resulting height 2   <-- better
+B. Make 2's root (0) a child of 5's root (3):  resulting height 3
+```
+
+Since root-finding costs time proportional to tree height, we want to **minimize height**. One approach is to track each tree's height and always link the shorter tree below the taller one, breaking ties arbitrarily. But tracking height becomes difficult once we add path compression. Fortunately, tracking the tree's **size** (also called **weight**, meaning the total number of items in the tree) works just as well asymptotically.
+
+**Weighted Quick Union rule: always link the root of the smaller tree to the root of the larger tree.**
+
+The lecture's clicker example:
+
+```
+parent: -1  0  0  0  0  0  -1  6  6  8
+index:   0  1  2  3  4  5   6  7  8  9
+
+Tree rooted at 0: children 1,2,3,4,5              -> size 6
+Tree rooted at 6: children 7,8 ; 8 -> child 9     -> size 4
+
+connect(3, 8): which entry of parent[] changes?
+```
+
+Answer: `parent[6]`. We never change `parent[3]` or `parent[8]`, because that would rip an individual item out of its tree and break the other members' connections. We change one of the two *roots*, and since 6's tree (size 4) is smaller than 0's tree (size 6), 6 becomes a child of 0, giving `parent[6] = 0`.
+
+**Implementing it** requires minimal changes: same `parent[]` array, `isConnected` unchanged, and `connect` must track sizes. Two common approaches:
+
+1. Store `-weight` in the root's slot instead of `-1`. So `parent = [-2, -1, -1, -1, -1, 0, -4, 6, 6, 8]` means the tree rooted at 0 has 2 items and the tree rooted at 6 has 4 items. A negative entry still identifies a root.
+2. Keep a separate parallel `size[]` array: `size = [2, 1, 1, 1, 1, 1, 4, 1, 2, 1]`.
+
+**Worst-case height analysis (proof sketch from the lecture).** Build the shortest possible tree of each height using the weighted rule:
+
+| N (items) | worst-case height |
+|---|---|
+| 1 | 0 |
+| 2 | 1 |
+| 4 | 2 |
+| 8 | 3 |
+| 16 | 4 |
+
+To grow the height by one, you must link two trees of equal size and equal (current maximum) height, because linking a *smaller* tree under a larger one never increases the larger tree's height. So each increment of height requires **doubling** the number of items. You cannot build a height-2 tree with 3 items, and you cannot build a height-3 tree with 5, 6, or 7 items. Therefore the worst-case height is `Θ(log N)`.
+
+| Implementation | constructor | connect | isConnected |
+|---|---|---|---|
+| ListOfSetsDS | `Θ(N)` | `O(N)` | `O(N)` |
+| QuickFindDS | `Θ(N)` | `Θ(N)` | `Θ(1)` |
+| QuickUnionDS | `Θ(N)` | `O(N)` | `O(N)` |
+| WeightedQuickUnionDS | `Θ(N)` | `O(log N)` | `O(log N)` |
+
+**Why weights instead of heights?** A "HeightedQuickUnionDS" has asymptotically the *same* worst-case performance, `Θ(log N)`. You occasionally get a slightly shorter tree, but there is no asymptotic gain, and the resulting code is more complicated. More complexity with no asymptotic benefit is a bad trade.
+
+**What we have achieved.** Performing `M` operations on a disjoint sets object with `N` elements:
+
+- Naive (ListOfSetsDS): `O(N + MN)`, i.e. `O(MN)`.
+- WeightedQuickUnionDS: `O(N + M log N)`.
+- For `N = 10⁹` and `M = 10⁹`, that is roughly the difference between **30 years and 6 seconds**.
+
+Key point: a good data structure unlocks solutions to problems that could otherwise not be solved at all. WQU is good enough for all practical uses. But could we theoretically do better?
+
+### 10. Implementation #5: WQU with Path Compression (a CS 170 spoiler)
+
+**Clever idea:** whenever you climb the tree to find a root (which you must do anyway, in both `connect` and `isConnected`), **tie every node you passed directly to the root**.
+
+Starting from a worst-case WQU tree, `isConnected(15, 10)` climbs `15 -> 11 -> 5 -> 1 -> 0` and `10 -> 3 -> 0`. All of `15, 11, 5, 1, 3, 10` get `parent` set to `0`.
+
+Why this is legitimate: the exact sequence of connections carries no information we care about. Two trees with the same set of nodes and the same root represent the **same connected component**, so they are semantically equivalent. We are free to rearrange the internal shape.
+
+Why this is cheap: we already paid for the climb. Tying the nodes to the root is the same order of growth as the climb itself, so the additional cost is insignificant. You pay a little now, and every future query along that path is faster.
+
+**Intuition:** as the number of nodes `N` grows, trees tend to get taller; but as the number of operations `M` grows, the trees tend to get **shorter**, because every operation flattens the paths it touches. For enough operations, tree height shrinks toward 1. The data structure gets more efficient the more you use it. (The lecture notes this has a vaguely similar flavor to memoization from CS 61A / CS 88.)
+
+A striking consequence: the worst-case WQU tree we started the exercise with is **impossible to generate** if you are using path compression. Path compression rules out certain structures entirely, and that is part of why the runtime is so good.
+
+**The runtime.** In CS 170 you will show that with path compression, each `connect` or `isConnected` operation takes on average `lg* N` time, where `lg* N` is how many times you must press the `log₂` button on a calculator before reaching a number that is 1 or less:
+
+| N | lg* N |
+|---|---|
+| 1 | 0 |
+| 2 | 1 |
+| 4 | 2 |
+| 16 | 3 |
+| 65536 | 4 |
+| 2^65536 | 5 |
+
+So `M` operations on `N` nodes take `O(M lg* N)`, and `lg* N ≤ 5` for any realistic input. An even tighter bound shows each operation takes on average `α(N)` time, where `α` is the **inverse Ackermann function**, which grows even more slowly (to reach 5 you would need `N` around a tower of 2's of height 65536). See Bob Tarjan's "Efficiency of a Good But Not Linear Set Union Algorithm," written while he was at UC Berkeley in 1975. The title says it all: this is nearly linear, but not quite linear.
+
+### 11. The iterative design process, summarized
+
+The end result is the standard way disjoint sets are implemented today: **quick union plus path compression**. The ideas that got us there:
+
+- Represent sets as **connected components** (don't track individual connections).
+  - **ListOfSetsDS**: store connected components as a `List<Set<Integer>>` (slow, complicated).
+  - **QuickFindDS**: store connected components as **set ids**.
+  - **QuickUnionDS**: store connected components as **parent ids**.
+    - **WeightedQuickUnionDS**: also track the **size** of each set, and use size to decide the new root.
+      - **WQU with Path Compression**: on calls to `connect` and `isConnected`, set the parent id to the root for all items seen.
+
+Total runtime for `M` operations on `N` elements (an operation being a call to `connect` or `isConnected`):
+
+| Implementation | Runtime for M operations |
+|---|---|
+| ListOfSetsDS | `O(NM)` |
+| QuickFindDS | `Θ(NM)` |
+| QuickUnionDS | `O(NM)` |
+| WeightedQuickUnionDS | `O(M log N)` |
+| WQU with Path Compression | `O(M α(N))` |
+
+All of these runtimes come down to the time it takes to climb the tree, which is exactly what each successive optimization improved.
+
+---
+
+## Definitions
+
+- **Set**: a collection of elements with no duplicates; adding an element already present has no effect.
+- **Disjoint Sets (Union-Find)**: a data structure over a fixed collection of `N` items supporting `connect(p, q)` and `isConnected(p, q)`, where connectedness is transitive. The name reflects that the items are partitioned into non-overlapping (disjoint) sets.
+- **Dynamic Connectivity problem**: the problem Disjoint Sets solves: answer connectivity queries about a set of items while connections are being added over time, with queries and connections interspersed.
+- **Connected component (of an item)**: the set of all items that are connected to that item (including itself). Components partition the items.
+- **`connect(p, q)`**: connects `p` and `q`; equivalently, merges the connected component of `p` with the connected component of `q`. A no-op if they are already in the same component.
+- **`isConnected(p, q)`**: returns `true` if `p` and `q` are in the same connected component, whether by a direct connection or a transitive chain.
+- **Big Theta, `Θ(f(N))`**: the family of functions `R(N)` for which there exist positive constants `k1, k2` with `k1·f(N) ≤ R(N) ≤ k2·f(N)` for all `N > N0`. Informally, "order of growth is `f(N)`."
+- **Big O, `O(f(N))`**: the family of functions `R(N)` for which there exists a positive constant `k2` with `R(N) ≤ k2·f(N)` for all `N > N0`. Informally, "order of growth is less than or equal to `f(N)`." An upper bound only.
+- **id (in QuickFind)**: an arbitrary integer label shared by exactly the members of one connected component; `id[i]` is the label of item `i`'s component.
+- **parent (in QuickUnion)**: `parent[i]` is the index of item `i`'s parent in its tree, or `-1` if `i` is a root. (The optional textbook instead stores an item's own index as its parent when it is a root.)
+- **root (of an item)**: the item reached by repeatedly following `parent` links until reaching an item with no parent. Two items are connected exactly when they have the same root. Called `find` in the textbook and in the lecture's final code.
+- **Size / weight (of a tree)**: the total number of items in that tree. The two words mean the same thing here.
+- **Height (of a tree)**: the number of links on the longest root-to-leaf path. A single node has height 0.
+- **Weighted Quick Union**: quick union with the rule that the root of the smaller (fewer items) tree is always linked under the root of the larger tree, ties broken arbitrarily.
+- **Path compression**: during any root-finding climb, resetting the `parent` of every node visited to point directly at the root.
+- **`lg* N` (log star)**: the number of times you must apply `log₂` to `N` before obtaining a value `≤ 1`. At most 5 for any realistic input.
+- **`α(N)` (inverse Ackermann function)**: an even more slowly growing function than `lg*`, giving the tightest known amortized bound on WQU with path compression.
+- **N and M (as used in the runtime tables)**: `N` is the number of elements in the disjoint sets object; `M` is the number of operations performed, where an operation is a call to `connect` or `isConnected`.
+
+---
+
+## Worked Examples
+
+### Example 1: Tracing the lecture's canonical sequence
+
+```java
+DisjointSets ds = new DisjointSets(7);   // items 0..6, all disconnected
+ds.connect(0, 1);
+ds.connect(1, 2);
+ds.connect(0, 4);
+ds.connect(3, 5);
+ds.isConnected(2, 4);   // true
+ds.isConnected(3, 0);   // false
+ds.connect(4, 2);
+ds.connect(4, 6);
+ds.connect(3, 6);
+ds.isConnected(3, 0);   // true
+```
+
+Step by step, in terms of connected components:
+
+1. Start: `{0} {1} {2} {3} {4} {5} {6}`. Seven singleton components.
+2. `connect(0, 1)`: merge `{0}` and `{1}` giving `{0,1} {2} {3} {4} {5} {6}`.
+3. `connect(1, 2)`: 1's component is `{0,1}`, so we get `{0,1,2} {3} {4} {5} {6}`. Notice 0 and 2 are now connected even though we never called `connect(0, 2)`: that is transitivity.
+4. `connect(0, 4)`: `{0,1,2,4} {3} {5} {6}`.
+5. `connect(3, 5)`: `{0,1,2,4} {3,5} {6}`.
+6. `isConnected(2, 4)`: both are in `{0,1,2,4}`, so `true`.
+7. `isConnected(3, 0)`: 3 is in `{3,5}`, 0 is in `{0,1,2,4}`, different components, so `false`.
+8. `connect(4, 2)`: both are already in `{0,1,2,4}`. **Nothing changes.** State stays `{0,1,2,4} {3,5} {6}`. This is the case people forget: a connect between two already-connected items is a no-op.
+9. `connect(4, 6)`: `{0,1,2,4,6} {3,5}`.
+10. `connect(3, 6)`: merges the last two, giving `{0,1,2,3,4,5,6}`.
+11. `isConnected(3, 0)`: now `true`. The same query returned `false` in step 7. Answers change over time, which is the "dynamic" in dynamic connectivity.
+
+### Example 2: QuickFindDS
 
 ```java
 public class QuickFindDS implements DisjointSets {
@@ -212,46 +383,45 @@ public class QuickFindDS implements DisjointSets {
     public QuickFindDS(int N) {
         id = new int[N];
         for (int i = 0; i < N; i++) {
-            id[i] = i;          // each item starts in its own set
+            id[i] = i;     // each item starts in its own set
         }
     }
 
     public boolean isConnected(int p, int q) {
-        return id[p] == id[q];
+        return id[p] == id[q];          // two array accesses: Theta(1)
     }
 
     public void connect(int p, int q) {
-        int pid = id[p];
+        int pid = id[p];                // cache BEFORE the loop
         int qid = id[q];
         for (int i = 0; i < id.length; i++) {
             if (id[i] == pid) {
                 id[i] = qid;
             }
         }
-    }
+    }                                   // N+2 to 2N+2 array accesses: Theta(N)
 }
 ```
 
-Step by step:
+(Extra context: the slide's constructor writes `id[i] = -1`, which would make `isConnected` return `true` for every pair at startup. The version above, `id[i] = i`, is what actually makes the invariant "same id means same component" hold from the start. Treat the slide line as a typo.)
 
-1. **Constructor.** Allocates one `int[]` of length N on the heap; the instance variable `id` holds a reference to it. Each item is its own set, so `id[i] = i`. *(The slide's constructor writes `id[i] = -1;`. Taken literally that makes every item share the id `-1`, so `isConnected` would return true for every pair immediately, which contradicts the slide's own diagrams showing `id = [4,4,4,5,4,5,6]` and "everything is disconnected at start". Read it as `id[i] = i`. (extra context))*
-2. **`isConnected`.** Exactly two array accesses plus a comparison, no loops, no allocation: Θ(1) always. This is the whole point of storing labels.
-3. **`connect`.** Caching `pid` and `qid` **before** the loop is essential. If you wrote `if (id[i] == id[p])` inside the loop, then once the loop reaches index p and overwrites `id[p]`, the comparison target changes mid-flight and the remaining members of p's component are never relabeled.
-4. The loop touches all N entries no matter what, so `connect` is Θ(N): N+2 to 2N+2 array accesses depending on how many entries need writing.
+**Box-and-pointer / environment reasoning in words.** `id` is one reference variable in the `QuickFindDS` object, pointing at a single array object on the heap. That array object is a row of `N` boxes, each holding a primitive `int`, not a reference. There are no `Node` objects and no pointers between items: the "structure" is entirely encoded in the *values* in the boxes. This is why the whole data structure is so memory-efficient, and also why `connect` is forced to do a linear scan: nothing in the array tells you *where* the members of a given set are, so you must look at every box.
 
-Tracing the lecture's `connect(2, 3)` on `{0,1,2,4}, {3,5}, {6}`:
+**Trace of `connect(2, 3)`** starting from `id = [4, 4, 4, 5, 4, 5, 6]`:
 
-```
-before:  id = [4, 4, 4, 5, 4, 5, 6]
-pid = id[2] = 4,  qid = id[3] = 5
-every entry equal to 4 becomes 5
-after:   id = [5, 5, 5, 5, 5, 5, 6]     components: {0,1,2,3,4,5}, {6}
-isConnected(3, 6):  id[3] == id[6]  ->  5 == 6  ->  false
-```
+- `pid = id[2] = 4`, `qid = id[3] = 5`. Both are read *before* the loop.
+- `i = 0`: `id[0]` is 4, equals `pid`, so set `id[0] = 5`.
+- `i = 1`: 4 matches, set to 5.
+- `i = 2`: 4 matches, set to 5.
+- `i = 3`: 5 does not match 4, skip.
+- `i = 4`: 4 matches, set to 5.
+- `i = 5`: 5 does not match, skip.
+- `i = 6`: 6 does not match, skip.
+- Final: `id = [5, 5, 5, 5, 5, 5, 6]`, representing `{0,1,2,3,4,5} {6}`.
 
-Note the direction of relabeling is arbitrary: one slide instead shows `[0,0,0,3,0,3,6]` becoming `[3,3,3,3,3,3,6]` for `connect(5, 2)`, that is relabeling q's component into p's. Either is correct, because the ids are just opaque labels. Only *equality* of ids carries meaning, never the id's numeric value.
+Then `isConnected(3, 6)` evaluates `id[3] == id[6]`, that is `5 == 6`, which is `false`. Two array reads, done.
 
-### Example 2: `QuickUnionDS` (lecture code)
+### Example 3: QuickUnionDS, and why `connect` must relink roots
 
 ```java
 public class QuickUnionDS implements DisjointSets {
@@ -260,11 +430,12 @@ public class QuickUnionDS implements DisjointSets {
     public QuickUnionDS(int N) {
         parent = new int[N];
         for (int i = 0; i < N; i++) {
-            parent[i] = -1;     // every item is its own root
+            parent[i] = -1;             // -1 marks a root
         }
     }
 
-    private int find(int p) {           // called "root(p)" on the earlier slides
+    /** Climbs to the root of p's tree. */
+    private int find(int p) {
         int r = p;
         while (parent[r] >= 0) {
             r = parent[r];
@@ -279,242 +450,233 @@ public class QuickUnionDS implements DisjointSets {
     public void connect(int p, int q) {
         int i = find(p);
         int j = find(q);
-        parent[i] = j;
+        parent[i] = j;                  // exactly ONE value changes
     }
 }
 ```
 
-Step by step:
+(The lecture's earlier slides call this helper `root`; the final slides and the optional textbook call it `find`. They are the same thing: `find` finds the root.)
 
-1. **`find`.** `r` starts at `p` and climbs while `parent[r] >= 0`. A negative value means "I am a root", so the loop stops there and returns the root index. Runtime is proportional to the **depth of p**, which in the worst case is the height of the tree.
-2. **`isConnected`.** Two climbs, compare the two roots. Same component if and only if same root. This is correct precisely because each tree has exactly one root and each item is in exactly one tree.
-3. **`connect`.** Two climbs, then **one write**: `parent[i] = j` hangs p's entire tree under q's root. That single write is what makes union "quick"; all the work has migrated into `find`.
+**Trace of `connect(5, 2)`** starting from `parent = [-1, 0, 1, -1, 0, 3, -1]`, i.e. trees `{0 -> 1, 4; 1 -> 2}`, `{3 -> 5}`, `{6}`:
 
-Box-and-pointer style reasoning for `connect(5, 2)` on `parent = [-1, 0, 1, -1, 0, 3, -1]`:
+- `find(5)`: `r = 5`. `parent[5] = 3 >= 0`, so `r = 3`. `parent[3] = -1 < 0`, stop. Returns `3`.
+- `find(2)`: `r = 2`. `parent[2] = 1`, so `r = 1`. `parent[1] = 0`, so `r = 0`. `parent[0] = -1`, stop. Returns `0`. Note this climb took 2 hops, which is the cost we will attack with weighting and compression.
+- `parent[3] = 0`. New array: `[-1, 0, 1, 0, 0, 3, -1]`.
 
-- The array is one object on the heap. Think of it as seven labeled cells. Cells 0, 3, 6 hold `-1`, so they are the three roots. Cell 1 holds 0, cell 2 holds 1, cell 4 holds 0, cell 5 holds 3. Following the values as arrows: 2 -> 1 -> 0 (root), 4 -> 0 (root), 5 -> 3 (root).
-- `find(5)`: r = 5, `parent[5] = 3 >= 0`, so r = 3; `parent[3] = -1 < 0`, stop. Returns 3.
-- `find(2)`: r = 2 -> 1 -> 0, returns 0. Two hops.
-- `parent[3] = 0`, so `parent` becomes `[-1, 0, 1, 0, 0, 3, -1]`. Node 3 is no longer a root, and **both** 3 and its child 5 are now in 0's component without 5's own entry changing at all. This is exactly why we must reparent the *root* and not the queried node: writing `parent[5] = 2` would have merged 5 while stranding 3.
+**Why not `parent[5] = 2`?** If we set 5's parent directly, the array becomes `[-1, 0, 1, -1, 0, 2, -1]`. Now 5 sits under 2 (fine), but 3 is still a root with no children: **we've lost 3**. 3 was connected to 5 before this call, and now it is not. The invariant "an item's component is the set of all items sharing its root" is broken. Relinking at the root level drags the entire subtree along, preserving every existing connection.
 
-The worst case, from the slides: `connect(4, 3); connect(3, 2); connect(2, 1); connect(1, 0)`. Each call takes the first argument's root and hangs it beneath the second argument's root, producing a stick 0 -> 1 -> 2 -> 3 -> 4. After M such operations the height is M, and with N items `find` costs Θ(N), so both `connect` and `isConnected` are Θ(N) worst case.
-
-*(extra context) A subtle bug in this lecture-slide version: if p and q are already connected, then `i == j` and `parent[i] = j` writes `parent[i] = i`, a non-negative value, so `i` stops looking like a root and `find` spins forever (`r = parent[r] = r`). Production code guards with `if (i == j) { return; }` at the top of `connect`. Worth knowing, since `connect(4, 2)` on an already-connected pair appears in the lecture's own example sequence.*
-
-### Example 3: `WeightedQuickUnionDS`
-
-The slides describe the changes rather than giving code: keep using `parent[]`, leave `isConnected` untouched, and make `connect` track sizes. Here is the separate-size-array version. *(extra context: code is a faithful reconstruction of the stated rules, not printed on the slides.)*
+**Worst case.** With the rule "always hang the first item's tree below the second item's," the sequence
 
 ```java
-public class WeightedQuickUnionDS implements DisjointSets {
-    private int[] parent;
-    private int[] size;
+ds.connect(4, 3);
+ds.connect(3, 2);
+ds.connect(2, 1);
+ds.connect(1, 0);
+```
 
-    public WeightedQuickUnionDS(int N) {
-        parent = new int[N];
-        size = new int[N];
-        for (int i = 0; i < N; i++) {
-            parent[i] = -1;
-            size[i] = 1;        // every singleton tree has weight 1
-        }
-    }
+produces a single chain `0 -> 1 -> 2 -> 3 -> 4`, height 4 after 4 operations. In general, `M` such operations give height `M`. For `N` items, `find` is `Θ(N)` in the worst case, so both `connect` and `isConnected` are `Θ(N)` in the worst case. To ask whether 4 and 3 are connected you climb `N` links for one and `N-1` for the other.
 
-    private int find(int p) {
-        int r = p;
-        while (parent[r] >= 0) {
-            r = parent[r];
-        }
-        return r;
-    }
+### Example 4: Weighted Quick Union, `connect(3, 8)`
 
-    public boolean isConnected(int p, int q) {   // unchanged from QuickUnion
-        return find(p) == find(q);
-    }
+Given:
 
-    public void connect(int p, int q) {
-        int i = find(p);
-        int j = find(q);
-        if (i == j) {
-            return;                              // already connected
-        }
-        if (size[i] < size[j]) {                 // smaller root goes under larger
-            parent[i] = j;
-            size[j] += size[i];
-        } else {                                 // ties broken arbitrarily
-            parent[j] = i;
-            size[i] += size[j];
-        }
+```
+parent: -1  0  0  0  0  0  -1  6  6  8
+index:   0  1  2  3  4  5   6  7  8  9
+```
+
+Tree A: root 0, children 1, 2, 3, 4, 5. Size 6, height 1.
+Tree B: root 6, children 7 and 8; 8's child is 9. Size 4, height 2.
+
+`connect(3, 8)`:
+
+1. `find(3)`: `parent[3] = 0`, then `parent[0] = -1`, so root is `0`.
+2. `find(8)`: `parent[8] = 6`, then `parent[6] = -1`, so root is `6`.
+3. Compare sizes: tree at 0 has 6 items, tree at 6 has 4 items. The smaller tree's root is 6.
+4. `parent[6] = 0`.
+
+Result: `parent = [-1, 0, 0, 0, 0, 0, 0, 6, 6, 8]`. The merged tree has height 3 (`0 -> 6 -> 8 -> 9`), whereas the other choice (`parent[0] = 6`) would have given height 3 as well here, but in general the weighted rule is what bounds height by `log N`.
+
+The four candidate answers and why three are wrong: `parent[3]` and `parent[8]` are wrong because changing a non-root's parent rips that single item out of its tree and disconnects it from its former siblings. `parent[0]` is wrong because that would put the *larger* tree under the smaller one, violating the weighting rule.
+
+**A weighted version of `connect`** (extra context: the lecture deliberately leaves the implementation to lab, but here is the shape using the "store `-weight` at the root" trick):
+
+```java
+public void connect(int p, int q) {
+    int i = find(p);
+    int j = find(q);
+    if (i == j) { return; }            // already connected, do nothing
+    int sizeI = -parent[i];            // roots store -weight
+    int sizeJ = -parent[j];
+    if (sizeI < sizeJ) {
+        parent[i] = j;                 // smaller (i) goes under larger (j)
+        parent[j] = -(sizeI + sizeJ);
+    } else {
+        parent[j] = i;
+        parent[i] = -(sizeI + sizeJ);
     }
 }
 ```
 
-The only semantic difference from `QuickUnionDS` is the `if`: we no longer always hang p's root under q's root, we hang the lighter root under the heavier one. Note that `size[x]` is only meaningful when x is a root, and that the winner's size must be updated to the combined total.
+Note the `if (i == j) return;` guard. Without it, you would write `parent[i] = i`, creating a self-loop that makes `find` spin forever (since `parent[i] >= 0` would always hold). This is a real bug people hit on the lab.
 
-**Lecture quiz, `connect(2, 5)`.** Given a tree rooted at 0 containing {0, 1, 2, 4} of height 2, and a tree rooted at 3 containing {3, 5}:
+### Example 5: Path compression, `isConnected(14, 13)`
 
-- Option A: make 5's root (3) a child of 2's root (0). Result height 2.
-- Option B: make 2's root (0) a child of 5's root (3). Result height 3.
-
-A is better, and the weight rule picks it automatically because 0's tree has 4 items versus 3's tree with 2.
-
-**Lecture quiz, `connect(3, 8)`.** Given
+The lecture's tree after a first compressing query (`isConnected(15, 10)`) is:
 
 ```
-parent   -1   0   0   0   0   0   -1   6   6   8
-          0   1   2   3   4   5    6   7   8   9
+                     0
+   /    /    /   /       \    \    \    \
+  15   11    5   1        2    3   10    4
+             |   | \      | \
+            12   6  7     8   9
+                 |        |
+                13       14
 ```
 
-- 0's tree is {0, 1, 2, 3, 4, 5}, weight 6. 6's tree: 7 -> 6, 8 -> 6, 9 -> 8, so {6, 7, 8, 9}, weight 4.
-- `find(3)` returns 0 (one hop). `find(8)` returns 6 (one hop).
-- Weight 4 < weight 6, so the *smaller* root 6 gets reparented: **`parent[6]` changes** (answer D), giving
+Now call `isConnected(14, 13)`:
+
+1. `find(14)` climbs `14 -> 8 -> 2 -> 0`. Visited on the way: 14, 8, 2. Root is 0.
+2. `find(13)` climbs `13 -> 6 -> 1 -> 0`. Visited: 13, 6, 1 (1 is already a child of 0). Root is 0.
+3. Roots match, so return `true`.
+4. **Side effect:** every node seen on both paths is tied directly to the root. `parent[14] = 0`, `parent[8] = 0`, `parent[2] = 0`, `parent[13] = 0`, `parent[6] = 0`, `parent[1] = 0`.
+
+Resulting tree:
 
 ```
-parent   -1   0   0   0   0   0    0   6   6   8
+                              0
+ /    /   /   /   /   /   /   /   \   \    \    \
+15   11   5   1  13   6  14   8    2   3   10    4
+          |                        |
+         12                        7*   9
 ```
 
-Note carefully that neither `parent[3]` nor `parent[8]` changes, even though 3 and 8 are the arguments. That is the single most common wrong answer on this style of question.
+Matching the slide: 0's children are now `15, 11, 5, 1, 13, 6, 14, 8, 2, 3, 10, 4`, with 5 keeping child 12, 1 keeping child 7, and 2 keeping child 9. (Nodes *not* on the two climb paths keep their old parents; only visited nodes get relinked.)
 
-**The weighted worst case.** To grow the height as fast as possible you must always merge two trees of *equal* height (with unequal heights, the shorter tree slides under the taller one and the height does not grow at all). Merging two height-h trees of size 2^h each yields height h+1 with size 2^(h+1). So height h requires at least 2^h nodes, giving max height Θ(log N) and O(log N) operations.
+The tree went from height 3 to height 2 as a side effect of answering a query. The answer `true` is unchanged, and the *meaning* of the structure is unchanged: 0's tree still contains exactly the same items. A few more strategic queries and the tree would be completely flat.
 
-### Example 4: Path compression
-
-The clever idea: when `find` climbs a path, tie every node it saw directly to the root.
+**What path compression looks like in code** (extra context, since the lecture describes it rather than showing it):
 
 ```java
-    private int find(int p) {                // extra context: reconstruction
-        int r = p;
-        while (parent[r] >= 0) {             // 1. climb to the root
-            r = parent[r];
-        }
-        int curr = p;                        // 2. second pass: reparent the path
-        while (curr != r) {
-            int next = parent[curr];
-            parent[curr] = r;
-            curr = next;
-        }
-        return r;
+private int find(int p) {
+    int r = p;
+    while (parent[r] >= 0) {        // first pass: locate the root
+        r = parent[r];
     }
+    int curr = p;
+    while (parent[curr] >= 0) {     // second pass: relink everything seen to r
+        int next = parent[curr];
+        parent[curr] = r;
+        curr = next;
+    }
+    return r;
+}
 ```
 
-Everything else stays the same. Because both `connect` and `isConnected` call `find`, both operations compress. The saved `next` before overwriting `parent[curr]` is essential, otherwise you destroy the pointer you still need to continue walking.
-
-**Lecture trace 1: `isConnected(15, 10)` on the WQU worst-case tree.** Reconstructing the diagram: root 0 has children 1, 2, 3, 4; 1 has children 5, 6; 2 has children 7, 8; 3 has children 9, 10; 5 has children 11, 12; 6 has child 13; 8 has child 14; 11 has child 15.
-
-- `find(15)` climbs 15 -> 11 -> 5 -> 1 -> 0. Compression reparents 15, 11, 5, and 1 all to 0. Node 12 stays a child of 5 (it was never on the path, and 5 is now a child of the root, so 12's depth drops from 3 to 2 for free). Node 6 stays a child of 1, so 13 stays under 6.
-- `find(10)` climbs 10 -> 3 -> 0. Compression reparents 10 to 0 (3 was already a root's child).
-- Resulting shape: 0's children are 15, 11, 5, 1, 2, 3, 10, 4; then 12, 6, 7, 8, 9 at depth 2; then 13, 14 at depth 3.
-- Return value: both roots are 0, so `true`. Note that a *query*, not a mutation, permanently restructured the data. That is fine because the partition itself is unchanged; only the representation moved.
-
-**Lecture trace 2: `isConnected(14, 13)` on that result.** With 13 -> 6 -> 1 -> 0 and 14 -> 8 -> 2 -> 0:
-
-- `find(13)` reparents 13 and 6 to 0.
-- `find(14)` reparents 14 and 8 to 0.
-- Resulting root children: 15, 11, 5, 1, 13, 6, 14, 8, 2, 3, 10, 4, with only 12 (under 5), 7 (under 2), and 9 (under 3) left at depth 2 and nothing deeper.
-- Returns `true`.
-
-Two operations turned a height-4 tree into a height-2 tree. The slides also point out that the starting tree in that exercise is **impossible to generate** if path compression has been on the whole time: certain deep structures simply cannot survive the finds required to build them. The claim is asserted, not proven, in lecture.
+The second loop costs the same order of growth as the first, which is exactly why the lecture says "additional cost is insignificant (same order of growth)." Note the `int next = parent[curr]` before overwriting: if you overwrite first you lose your place in the chain.
 
 ---
 
 ## Common Pitfalls
 
-1. **Storing the connections instead of the components.** `List<Integer[]>` of edges makes `connect` trivial and `isConnected` a graph search. The API's questions, not the input's format, should drive the representation.
-2. **Reparenting the queried node instead of its root.** In quick union, `parent[p] = q` is wrong: p's ancestors (and their other subtrees) get stranded. Always `parent[find(p)] = find(q)`.
-3. **In QuickFind's `connect`, comparing against `id[p]` inside the loop.** Once index p is overwritten the comparison target mutates and the relabel silently stops halfway. Cache `pid` and `qid` first.
-4. **Assuming the id value means something.** In QuickFind, the id is an arbitrary label; only equality matters. Relabeling p's component into q's or vice versa are both correct.
-5. **Assuming the id array and the parent array look alike.** For `{0,1,2,4}, {3,5}, {6}`, QuickFind might store `[4,4,4,5,4,5,6]` while QuickUnion stores `[-1,0,1,-1,0,3,-1]`. Same components, entirely different meanings per slot. Always check which structure you are looking at before reading an array off an exam page.
-6. **Forgetting the `-1` root sentinel convention.** The slides use `-1` for roots (or `-weight` for weighted roots); the optional textbook uses "parent of a root is itself". Under the self-parent convention, `while (parent[r] >= 0)` never terminates. Mixing conventions breaks `find`.
-7. **Not handling `connect(p, q)` when p and q are already connected.** The bare slide code writes `parent[i] = i`, which destroys the root sentinel and makes `find` loop forever. Guard with `if (i == j) return;`.
-8. **Weighting by "which node is deeper" or by the argument order.** The rule is about the **sizes of the two whole trees**, and the entry that changes is the **lighter tree's root**, not either argument.
-9. **Forgetting to update the size of the surviving root.** `size[i] += size[j]` (or the `-weight` equivalent) must accompany every link, or the weight rule degrades to arbitrary linking.
-10. **Confusing weighting with height-tracking.** Weighted quick union does not guarantee the locally shortest result at every step; it guarantees Θ(log N) height overall. Tracking height gives the same asymptotics with messier code and gets harder once path compression is added.
-11. **Claiming Θ where only O holds.** `QuickUnionDS.connect` can be constant time or linear time depending on tree shape, so O(N) is the honest statement. Conversely, `QuickFindDS.connect` really does always scan the array, so Θ(N) is correct there.
-12. **Saying path compression is Θ(1) per operation.** It is O(lg\* N), or more tightly O(α(N)), amortized. Constant "for all realistic inputs" is not the same as constant.
-13. **Believing path compression alone fixes quick union.** The lecture's final structure is weighting *and* compression together; the table entry O(M α(N)) is for `WeightedQuickUnionWithPathCompressionDS`.
-14. **Confusing N and M.** N is the number of elements (fixed at construction); M is the number of operations. Totals like O(M log N) mix both, and the constructor contributes its own Θ(N).
+1. **Confusing `O` and `Θ` in the runtime table.** `ListOfSetsDS.isConnected` is `O(N)` because a lucky input finishes in constant time, but `QuickFindDS.connect` is `Θ(N)` because its `for` loop always scans the entire array with no early exit. Writing `O` where `Θ` is correct is not *wrong* (an upper bound is still true), but writing `Θ` where only `O` holds *is* wrong.
+2. **Setting `parent[p]` instead of `parent[root(p)]` in `connect`.** This orphans `p`'s former root and its subtree, silently breaking existing connections. The lecture's "we've lost 3!" slide exists to burn this in.
+3. **Forgetting that `connect` on already-connected items is a no-op.** In the trace, `connect(4, 2)` changes nothing. In code, forgetting the `if (find(p) == find(q)) return;` guard in a weighted implementation can produce a root whose parent is itself, causing `find` to loop forever or corrupt the stored weight.
+4. **Mixing up "weight" and "height."** Weight (= size) is the number of items in the tree. Height is the longest root-to-leaf path length. WQU links by *weight* but the thing we care about is *height*. Linking by weight happens to bound height at `log N` anyway.
+5. **Assuming "link by height" is better than "link by weight."** They are asymptotically identical, both `Θ(log N)`, and the height version is more complex to code, plus height is difficult to maintain once path compression is added. This is a classic trap question.
+6. **Thinking the tree in `parent[]` is the "shape of the connections."** It is not. The tree shape is an implementation artifact. Two very different tree shapes over the same item set represent the identical disjoint sets state. This is precisely the freedom that makes path compression legal.
+7. **Thinking path compression changes answers.** It never does. It only changes representation, and therefore future runtime.
+8. **Believing path compression makes every operation `Θ(1)`.** The bound is *amortized/average* over `M` operations (`O(M lg* N)` or `O(M α(N))` total); an individual early operation can still climb a `log N`-tall tree.
+9. **Confusing the root sentinel conventions.** The lecture uses `-1` (or `-weight`) at roots; the optional textbook stores the root's own index as its parent. Both are fine, but the loop condition differs: `while (parent[r] >= 0)` versus `while (parent[r] != r)`. Pick one and be consistent, and read exam problems carefully to see which they use.
+10. **Writing the `find` helper's condition as `while (parent[r] != -1)` when you have switched to storing `-weight`.** A root with weight 4 stores `-4`, not `-1`, so that check fails. Use `>= 0` to test "is not a root."
+11. **In `QuickFindDS.connect`, reading `id[p]` inside the loop instead of caching it first.** Once the loop overwrites `id[p]`, the comparison target changes mid-loop and you merge the wrong items.
+12. **Assuming connects and queries are separated.** The problem statement explicitly forbids this. Any solution that preprocesses all connections first is invalid for dynamic connectivity.
 
 ---
 
 ## Likely Exam Points
 
-**1. Trace a `connect` on QuickFind and report the resulting array.**
+### 1. Fill in the performance table
 
-*Q:* `QuickFindDS` with `id = [1, 1, 3, 3, 5, 5]`. Show `id` after `connect(0, 4)` and then give `isConnected(1, 2)`.
+**Q.** Give the worst-case runtime of `connect` and `isConnected` for QuickFindDS and QuickUnionDS on `N` items, using `Θ` where justified and `O` otherwise. Explain one place where `Θ` is *not* appropriate.
 
-*A:* `pid = id[0] = 1`, `qid = id[4] = 5`. Every entry equal to 1 becomes 5: `id = [5, 5, 3, 3, 5, 5]`. Then `isConnected(1, 2)` compares `id[1] == id[2]`, that is `5 == 3`, so **false**. (Components: {0, 1, 4, 5} and {2, 3}.)
+**A.** QuickFindDS: `connect` is `Θ(N)`, `isConnected` is `Θ(1)`. QuickUnionDS: `connect` is `O(N)`, `isConnected` is `O(N)`. `Θ` is not appropriate for QuickUnion because the runtime depends on tree shape: if `p` and `q` are already roots, `find` is constant time, so the runtime ranges from constant to linear and only an upper bound holds for all inputs. QuickFind's `connect`, by contrast, always executes a full `N`-iteration loop, so `Θ(N)` is exact.
 
-**2. Which single `parent[]` entry changes under weighted quick union?**
+### 2. Trace a sequence on Weighted Quick Union and give the parent array
 
-*Q:* `parent = [-1, 0, 0, 0, -1, 4, 4, 6]`. Which entry changes on `connect(5, 2)`?
+**Q.** Starting from `WeightedQuickUnionDS ds = new WeightedQuickUnionDS(6)` (using `-1` for roots), give `parent[]` after `connect(0, 1); connect(2, 3); connect(0, 2); connect(4, 5); connect(0, 4);`. Break ties by making the *second* argument's root the new root.
 
-*A:* `find(5)` gives 4; 4's tree is {4, 5, 6, 7}, weight 4. `find(2)` gives 0; 0's tree is {0, 1, 2, 3}, weight 4. Weights tie, so the tie is broken arbitrarily: either `parent[4] = 0` or `parent[0] = 4`. The changed entry is one of the two **roots**, `parent[4]` or `parent[0]`, and never `parent[5]` or `parent[2]`.
+**A.**
+- Start: `[-1, -1, -1, -1, -1, -1]`.
+- `connect(0, 1)`: roots 0 and 1, sizes 1 and 1, tie, so 1 becomes root: `parent[0] = 1` -> `[1, -1, -1, -1, -1, -1]`. Sets: `{0,1} {2} {3} {4} {5}`.
+- `connect(2, 3)`: tie, 3 becomes root: `parent[2] = 3` -> `[1, -1, 3, -1, -1, -1]`.
+- `connect(0, 2)`: `find(0) = 1` (size 2), `find(2) = 3` (size 2), tie, so 3 becomes root: `parent[1] = 3` -> `[1, 3, 3, -1, -1, -1]`. Tree at 3 has size 4, height 2 (`3 -> 1 -> 0`).
+- `connect(4, 5)`: tie, `parent[4] = 5` -> `[1, 3, 3, -1, 5, -1]`.
+- `connect(0, 4)`: `find(0) = 3` (size 4), `find(4) = 5` (size 2). The **smaller** tree's root (5) goes under the larger (3), regardless of argument order: `parent[5] = 3` -> `[1, 3, 3, -1, 5, 3]`.
 
-**3. Give the worst-case height, and the input that achieves it.**
+Final: `parent = [1, 3, 3, -1, 5, 3]`, one component containing all 6 items, root 3.
 
-*Q:* For N items, what is the worst-case height of a `QuickUnionDS` forest, and of a `WeightedQuickUnionDS` forest? Give a call sequence achieving the quick union worst case.
+### 3. "Which entry of `parent[]` changes?"
 
-*A:* Quick union: height N-1, that is Θ(N), achieved by always hanging the first argument's root below the second's, for example `connect(4,3); connect(3,2); connect(2,1); connect(1,0)`, producing the stick 0 -> 1 -> 2 -> 3 -> 4. Weighted quick union: Θ(log N), because the height only increases when two equal-height trees merge, and that doubles the node count, so height h needs at least 2^h nodes.
+**Q.** With `parent = [-1, 0, 0, 0, 0, 0, -1, 6, 6, 8]` and weighted quick union, which entry (or entries) change on `connect(3, 8)`?
 
-**4. Fill in the performance table.**
+**A.** Only `parent[6]`, which becomes `0`. We relink roots, not the arguments themselves, and since 6's tree has 4 items while 0's has 6, the smaller root (6) is linked under the larger root (0). Changing `parent[3]` or `parent[8]` would disconnect an individual item from its component; changing `parent[0]` would violate the weighting rule.
 
-*Q:* Give constructor / `connect` / `isConnected` runtimes for QuickFind, QuickUnion, and WeightedQuickUnion, using Θ or O as appropriate.
+### 4. Minimum items for a given height under WQU
 
-*A:* QuickFind: Θ(N) / Θ(N) / Θ(1). QuickUnion: Θ(N) / O(N) / O(N). WeightedQuickUnion: Θ(N) / O(log N) / O(log N). O rather than Θ for the union variants because the cost depends on tree shape and ranges from constant to the bound.
+**Q.** Using weighted quick union, what is the minimum number of items needed to build a tree of height 4? Can you build a height-3 tree with 7 items?
 
-**5. Total runtime for M operations.**
+**A.** 16 items. Each time the height increases by one, you must link two trees of equal size and equal maximum height, since a strictly smaller tree linked under a larger one never increases the larger tree's height. So the minimum size doubles per unit of height: `N = 1, 2, 4, 8, 16` for heights `0, 1, 2, 3, 4`. You cannot build a height-3 tree with 7 items; you need at least 8. This is why the worst-case height is `Θ(log N)`.
 
-*Q:* N = 10⁶ elements, M = 10⁶ interspersed calls. Give the total asymptotic runtime with `ListOfSetsDS` and with `WeightedQuickUnionDS`, in terms of N and M.
+### 5. Draw the tree after path compression
 
-*A:* `ListOfSetsDS`: O(N + MN) = O(MN). `WeightedQuickUnionDS`: O(N + M log N). This is the lecture's 30-years-versus-6-seconds comparison at N = M = 10⁹.
+**Q.** Given the tree with root 0, children `{1, 2}`; 1's children `{3}`; 3's children `{5}`; 2's children `{4}`, draw the tree after `isConnected(5, 4)` using WQU with path compression.
 
-**6. Why can't you just set `parent[p] = q`?**
+**A.** `find(5)` climbs `5 -> 3 -> 1 -> 0`, so 5, 3, and 1 all get `parent = 0`. `find(4)` climbs `4 -> 2 -> 0`, so 4 and 2 get `parent = 0`. The result is a flat tree: root 0 with children `1, 2, 3, 4, 5`. The return value is `true`, and no connectivity information changed; only the representation did.
 
-*Q:* In quick union, explain why `connect(5, 2)` sets `parent[find(5)] = find(2)` rather than `parent[5] = 2`.
+### 6. Why weight rather than height?
 
-*A:* Because 5's ancestors are part of 5's component. If 3 is 5's parent and 5's only path to the rest of its tree, writing `parent[5] = 2` moves 5 into 2's component while leaving 3 (and anything else hanging off 3) behind: we "lose 3". Reparenting the root carries the entire subtree along and preserves the invariant that one tree equals one component.
+**Q.** Your friend proposes "HeightedQuickUnionDS," which tracks tree height and links the shorter tree under the taller one. Is this asymptotically better than WeightedQuickUnionDS? Should you use it?
 
-**7. Draw the tree after path compression.**
+**A.** It is not asymptotically better: both have worst-case tree height `Θ(log N)`, so both give `O(log N)` per operation. You should not use it: the code is more complicated with no asymptotic performance gain, and (per the lecture) tracking height becomes difficult once you add path compression, since compression changes heights in ways that are awkward to maintain.
 
-*Q:* `parent` encodes 0 as root with child 1; 1 with child 2; 2 with child 3; 3 with child 4. Under WQU with path compression, draw the tree after `isConnected(4, 0)`.
+### 7. Total runtime for M operations
 
-*A:* `find(4)` climbs 4 -> 3 -> 2 -> 1 -> 0, then reparents 4, 3, 2, and 1 directly to 0. `find(0)` is already the root and changes nothing. Result: 0 with four children 1, 2, 3, 4, height 1. Returns `true`. Note that a read-only-looking query mutated the structure.
+**Q.** You perform `M` operations on a disjoint sets object with `N` items. Give the total runtime for ListOfSetsDS, WeightedQuickUnionDS, and WQU with path compression. For `N = M = 10⁹`, roughly how do the first two compare?
 
-**8. Weight versus height, and why weight wins.**
+**A.** ListOfSetsDS: `O(N + MN) = O(MN)`. WeightedQuickUnionDS: `O(N + M log N)`. WQU with path compression: `O(M α(N))` (equivalently `O(M lg* N)` for the looser bound). For `N = M = 10⁹`, the difference between the naive and the weighted version is roughly 30 years versus 6 seconds: a good data structure makes otherwise-impossible problems solvable.
 
-*Q:* Why does CS 61B weight by size rather than by height?
+### 8. `lg*` values
 
-*A:* Both give Θ(log N) worst-case height, so there is no asymptotic gain from heights, and height tracking becomes difficult to maintain once path compression starts rearranging the tree (compression changes heights but never changes sizes). Size gives the same bound with simpler code.
+**Q.** What is `lg*(65536)`? What is the largest `N` for which `lg* N ≤ 4`?
 
-**9. Big O versus Big Theta as a concept question.**
+**A.** `lg*(65536) = 4`: `log₂ 65536 = 16`, `log₂ 16 = 4`, `log₂ 4 = 2`, `log₂ 2 = 1`, which is `≤ 1` after 4 presses. `lg* N ≤ 4` for all `N` up to `2^65536 - 1`; at `N = 2^65536` it becomes 5. Consequently `lg* N ≤ 5` for any realistic input.
 
-*Q:* True or false: `QuickUnionDS.isConnected` is Θ(N). Justify.
+### 9. Which states are reachable?
 
-*A:* False as a description of all cases. Its worst case is Θ(N), but on a flat forest it is constant time, so there is no single f(N) that bounds it above and below for all inputs. The correct blanket statement is O(N). (It is fine to say "the worst-case runtime is Θ(N)", since that phrase fixes one specific input family.)
+**Q.** True or false: the worst-case (tall) weighted-quick-union tree shown in lecture can also arise if you use WQU **with** path compression.
 
-**10. What lg\* / α buy you.**
+**A.** False. The lecture explicitly notes that the tall structure used in the exercise is impossible to generate under path compression. Every operation that builds depth also flattens the path it climbed, so certain deep configurations can never be produced. This structural restriction is part of why the amortized bound is so strong.
 
-*Q:* What is lg\*(65536), and what is the total cost of M operations on N elements with WQU plus path compression?
+### 10. Conceptual: what abstraction did we choose, and why?
 
-*A:* lg\*(65536) = 4, since 65536 -> 16 -> 4 -> 2 -> 1 is four presses of log₂. Total cost is O(M lg\* N), tightened to O(M α(N)) where α is the inverse Ackermann function. Both are at most about 5 for any realistic N, so each operation is effectively constant but not formally so.
+**Q.** Explain why the lecture rejects storing the list of individual connections, and what it stores instead.
 
-**11. Identify the representation from an array.**
-
-*Q:* The array `[-1, 0, 1, -1, 0, 3, -1]` is given. How many connected components are there, and is 2 connected to 4?
-
-*A:* Negative entries mark roots, and there are three of them (indices 0, 3, 6), so **three components**. 2 -> 1 -> 0, and 4 -> 0, so both have root 0: **yes, connected**. Components are {0, 1, 2, 4}, {3, 5}, {6}.
+**A.** Storing individual connections (a `List<Integer[]>` of pairs) makes `connect` trivial but makes `isConnected` hard: determining whether one item is reachable from another requires a search over all recorded pairs. Instead we store **connected components**: for each item, which set of mutually-connected items it belongs to. *How* items are connected is information we do not need; only *whether* they are. With this abstraction, `isConnected` becomes "same set?" and `connect` becomes "merge two sets."
 
 ---
 
 ## Summary
 
-- **Problem:** Dynamic Connectivity. Support interspersed `connect(p, q)` and `isConnected(p, q)` over N items (integers 0 to N-1, all disconnected initially), where connectivity is transitive. Huge N, huge M, no lookahead.
-- **Key reframing:** do not record how items are connected; record **connected components**. Components are disjoint and only ever merge.
-- **`ListOfSetsDS`** (`List<Set<Integer>>`): intuitive, complicated, and slow. Θ(N) constructor, O(N) `connect`, O(N) `isConnected`, because finding anything means scanning up to N sets. Lesson: the representation doomed it.
-- **`QuickFindDS`** (`int[] id`, value = set number): `isConnected` is Θ(1) (two array accesses), but `connect` must relabel a whole component with a full array scan, so Θ(N). Cache `pid`/`qid` before looping.
-- **`QuickUnionDS`** (`int[] parent`, `-1` marks roots): `connect` does two `find`s and **one write**, `parent[find(p)] = find(q)`. Cost moves into `find`, whose runtime is the node's depth. Worst case a stick of height M, so both operations are O(N) and Θ(N) in the worst case, potentially worse than QuickFind.
-- **`WeightedQuickUnionDS`:** track each tree's size/weight and always link the **smaller root under the larger**, ties arbitrary. `isConnected` unchanged. Heights become Θ(log N) (height h needs ≥ 2^h nodes), so both operations are O(log N). Store weights either as `-weight` at roots or in a separate `size` array. Weight beats height because it is equally good asymptotically and simpler, especially once compression is added.
-- **`WeightedQuickUnionWithPathCompressionDS`:** on every `find` (so during both `connect` and `isConnected`), reparent every node on the walked path directly to the root. Cost is asymptotically free relative to the climb already performed; trees flatten toward height 1 as M grows. This is the standard modern implementation.
-- **Totals for M operations on N elements:** ListOfSets O(NM), QuickFind Θ(NM), QuickUnion O(NM), WQU O(M log N), WQU+PC O(M α(N)). At N = M = 10⁹ that is roughly 30 years versus 6 seconds.
-- **Analysis footnote (CS 170 territory):** amortized O(lg\* N), tightened to O(α(N)) by Tarjan (1975, at Berkeley). Both are ≤ 5 for realistic inputs, and both are "not quite constant".
-- **Notation discipline:** use Θ when the cost is fixed regardless of shape (QuickFind), and O when it varies between constant and the bound (the union family).
-- **Meta-lesson:** asymptotic performance and code complexity both follow from the choice of underlying abstraction, and a good data structure can turn an infeasible problem into a trivial one.
+- **Disjoint Sets / Union-Find** solves **dynamic connectivity**: `connect(p, q)` and `isConnected(p, q)`, with transitive connections, `N` fixed in advance, items as integers `0..N-1`, and calls interspersed.
+- **Big O is an upper bound; Big Theta is an order of growth.** Big O is the right tool today because several operations' runtimes depend on the shape of the data, not just on `N`.
+- **Key insight:** do not record individual connections. Record **connected components**. A `connect` between already-connected items is a no-op.
+- **ListOfSetsDS** (`List<Set<Integer>>`): constructor `Θ(N)`, `connect` `O(N)`, `isConnected` `O(N)`. Intuitive but complicated and slow. Lesson: a bad choice of underlying abstraction dooms you immediately.
+- **QuickFindDS** (`int[] id`, value = set id): `isConnected` `Θ(1)` (two array accesses), `connect` `Θ(N)` (rewrite every matching id). Simple, fast queries, unacceptably slow connects.
+- **QuickUnionDS** (`int[] parent`, `-1` at roots, tree-shaped): `connect` changes exactly **one** value, `parent[find(p)] = find(q)`. Both operations `O(N)` because trees can become spindly (height `M` after `M` operations). Never relink a non-root: you would orphan its former root's subtree.
+- **WeightedQuickUnionDS**: track each tree's **size/weight** and always link the smaller tree's root under the larger tree's root. Worst-case height is `Θ(log N)` because growing the height by one requires doubling the item count. Both operations `O(log N)`. Store weight either as `-weight` at the root or in a parallel `size[]` array.
+- **Weight, not height**, because heighted quick union is asymptotically identical (`Θ(log N)`) but more complicated, and height is hard to maintain under path compression.
+- **Path compression**: during every root-finding climb, point every node visited directly at the root. Legal because tree shape carries no semantic information; cheap because it is the same order of growth as the climb you already performed. The structure gets faster the more you use it.
+- **Final performance for `M` operations on `N` items:** ListOfSetsDS `O(NM)`, QuickFindDS `Θ(NM)`, QuickUnionDS `O(NM)`, WeightedQuickUnionDS `O(M log N)`, WQU with path compression `O(M lg* N)` and more tightly `O(M α(N))`. `lg* N ≤ 5` for any realistic input.
+- For `N = M = 10⁹`, naive versus weighted is roughly **30 years versus 6 seconds**: good data structures unlock problems that would otherwise be unsolvable.
+- The end product of this iterative design process, **quick union plus path compression**, is the standard real-world implementation. It is nearly linear but not quite (Tarjan, "Efficiency of a Good But Not Linear Set Union Algorithm," UC Berkeley, 1975).
