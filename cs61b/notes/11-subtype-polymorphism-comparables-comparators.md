@@ -1,42 +1,87 @@
-<!-- Mon, Sep 21, 2026 | sources: slides + code + textbook (no transcript available) -->
+<!-- Mon, Sep 21, 2026 | sources: slides + code + YouTube auto-transcript + textbook -->
 # Lecture 11: Subtype Polymorphism, Comparables, Comparators
 
 ## Overview
 
-This lecture digs deeper into inheritance by contrasting two ways of telling a general-purpose routine (like a `max` function) how to compare objects: **polymorphism** and **function passing**. Python supports both: it uses *operator overloading* (defining `__gt__`) to give a class a natural order, and *function passing* (the `key=` argument) to specify an alternate order. Java has neither operator overloading nor idiomatic function passing in this course, so it uses **subtype polymorphism** for both jobs: a class declares `implements Comparable<T>` and overrides `compareTo` to define its one natural order, and separate classes implement `Comparator<T>` with a `compare(T, T)` method to define any number of alternate orders. Along the way the lecture works through a compilation-error puzzle about *which file* fails to compile when an interface method or an `implements` clause is missing, and closes by carefully distinguishing Comparable-vs-Comparator from the superficially similar Iterable-vs-Iterator pair. Note the instructor's announcement: this lecture is **not in scope for midterm 1**, but the ideas return with TreeMaps, TreeSets, and Priority Queues.
+This lecture contrasts two philosophies for making code flexible: **polymorphism** (one interface, many underlying forms) and **function passing** (handing a function to another function as data). Python uses both freely: it overloads operators via magic methods like `__gt__`, and it accepts key functions in higher-order functions like `max`. Idiomatic Java, by contrast, leans almost entirely on **subtype polymorphism**: a supertype (usually an interface) declares a capability, a subtype overrides the abstract method, and Java picks the right implementation at runtime based on the actual object. We apply this to the problem of comparing objects. `Collections.max(dogs)` fails to compile on a plain `Dog` class because Java has no idea how to order dogs, so we declare `Dog implements Comparable<Dog>` and override `compareTo`, giving dogs a **natural order** (by size). When we want an *alternate* order (by name), Java does not let us pass a key function; instead we package the comparison logic inside a `Comparator<Dog>` object (e.g. `NameComparator`) and hand that object to `Collections.max(dogs, comparator)`. Along the way the lecture digs into what it means for a specific *file* to fail to compile, which is a lesson about the scope of compile-time checking. Note: the instructor stated explicitly that this lecture is **not in scope for Midterm 1**, but the ideas matter later for TreeMaps, TreeSets, and priority queues.
 
 ---
 
 ## Key Concepts
 
-### 1. Two ways to tell a routine how to compare
+### 1. Code readability (opening announcements, not really about polymorphism)
 
-Imagine you are writing a generic `max` function. It must, at some point, ask "is `a` bigger than `b`?" There are two fundamentally different ways to supply that answer:
+Before the main content, the lecture reviewed Project 1 and Project 2 code style.
 
-- **Polymorphism**: the objects themselves know how to be compared. `max` just says `item > max_value` (Python) or `items[i].compareTo(items[maxDex])` (Java) and the *object's own type* determines which code runs.
-- **Function passing**: the caller hands `max` a separate function, and `max` calls it on the items. `max(doglist, key=name_len)`.
+**Name your intermediate values.** Compare a student `removeFirst` with the instructor's:
 
-The lecture's two Python demo files are exactly these two designs side by side:
+```java
+// Student version
+public T removeFirst() {
+    if (!isEmpty()) {
+        T replace = sentinel.next.item;
+        sentinel.next = sentinel.next.next;
+        sentinel.next.prev = sentinel;
+        size--;
+        return replace;
+    }
+    return null;
+}
 
-```python
-# polymorphic_max_demo.py               # function_passing_max_demo.py
-def get_the_max(x):                     def get_the_max(x, key):
-    max_value = x[0]                        max_value = x[0]
-    for item in x:                          for item in x:
-        if item > max_value:                    if key(item) > key(max_value):
-            max_value = item                        max_value = item
-    return max_value                        return max_value
+// Instructor version
+public T removeFirst() {
+    if (size == 0) {
+        return null;
+    }
+
+    Node oldFront = sentinel.next;
+    Node newFront = sentinel.next.next;
+
+    sentinel.next = newFront;
+    newFront.prev = sentinel;
+
+    size -= 1;
+    return oldFront.value;
+}
 ```
 
-The left version works on `[1, 2, 3, 4, 5]` *and* on a list of `Dog`s, as long as `Dog` defines `__gt__`. The right version works on anything at all, as long as the caller supplies a key.
+The point: creating variables **purely to give names to things** makes the code narrative and obvious. You can *see* which node is being replaced. The worry that extra local variables cost performance is unfounded: the Java just-in-time compiler (covered around lecture 37) optimizes away unneeded temporaries, so the penalty is negligible or non-existent.
 
-The lecture's thesis: **Python uses both freely; idiomatic Java relies much more heavily on polymorphism.** Java lambdas exist, but the course explicitly says: "We won't even discuss function passing in Java in our course, but it does exist."
+**Layer abstractions for yourself.** Project 2 student code often repeats non-obvious modulus math:
 
-### 2. Polymorphism, defined
+```java
+T removed = items[(nextLast - 1 + items.length) % items.length];
+items[(nextLast - 1 + items.length) % items.length] = null;
+```
 
-Quoting the slide (which quotes Wikipedia): polymorphism is "the ability in programming to present the same programming interface for differing underlying forms." The `>` operator in Python is one interface presented for many underlying forms (ints, strings, Dogs). In Java, a method signature declared in an interface is one interface presented for many underlying implementing classes.
+Instead, hide the arithmetic behind a helper:
 
-### 3. Python's flavor: operator overloading and duck typing
+```java
+private int wrapIndex(int index) {
+    return (index + items.length) % items.length;
+}
+```
+
+```java
+T removed = items[wrapIndex(nextLast - 1)];
+items[wrapIndex(nextLast - 1)] = null;
+```
+
+Now when reading, you only think "the item just before `nextLast`, wrapping around," not "what does this modulus do again?"
+
+**Style will be graded** starting a bit after the midterm: consistent spacing, camelCase variable naming.
+
+### 2. Polymorphism, informally
+
+Wikipedia's definition, quoted on the slides: *"the ability in programming to present the same programming interface for differing underlying forms."*
+
+The instructor mapped this onto the Python example directly:
+- The **interface** is the `>` symbol.
+- The **differing underlying forms** are `Dog`, `String`, `int`, and so on. All of them can sit on either side of `>`.
+
+The instructor was candid that "polymorphism" is a slippery word that you learn by seeing many examples, and that "subtype polymorphism" is jargon you will likely forget by the end of the semester. The *idea* is what matters.
+
+### 3. Python's approach #1: operator overloading
 
 ```python
 class Dog:
@@ -48,49 +93,64 @@ class Dog:
 
 hadi = Dog("hadi", 30)
 zora = Dog("zora", 44)
+
 print(hadi > zora)   # uses the __gt__ function
 ```
 
-Python has a *universal* `>` operator that any class may overload by defining `__gt__`. Python is **duck typed**: you never have to declare anywhere that a `Dog` is a comparable thing. If `__gt__` exists when `>` is evaluated, it works; if not, you get a runtime error. There is no compile-time contract.
+When the Python interpreter sees `>`, it looks for a `__gt__` method on the left operand. `>` is a privileged, magic, built-in concept in Python: every class *may* overload it, and code like a generic `get_the_max` will just work on anything that defines `__gt__`:
 
-### 4. Java's flavor: subtype polymorphism via interfaces
+```python
+def get_the_max(x):
+    max_value = x[0]
+    for item in x:
+        if item > max_value:
+            max_value = item
+    return max_value
 
-Java has no operator overloading. `d1 > d2` on two `Dog`s is simply not legal Java, ever. (The code comment in `CollectionsDogDemo.java` says it outright: "operator overloading in Java does not exist".)
-
-So how do you say "a `Dog` is a thing that can be compared"? The lecture poses this as a question and answers it: **you must implement some interface.** This is the same move made earlier in the course when `SLList implements List61B`: an interface names a capability, and a class declares "I have that capability" with `implements`.
-
-The slide's diagram analogy:
-
-```
-    List61B                 Comparable<Dog>
-       ^                          ^
-       |                          |
-    SLList                       Dog
+max_value = get_the_max([1, 2, 3, 4, 5])          # works on ints
+max_dog   = get_the_max(list_of_dogs)             # works on Dogs, via __gt__
 ```
 
-This mechanism is called **subtype polymorphism**, and the lecture breaks it into three parts:
+This is **duck typing**: you never declare that `>` is available on `Dog`. Either it works at runtime or it does not.
 
-1. A **supertype** (`Comparable`) specifies the capability (comparison).
-2. A **subtype** (`Dog`) overrides the supertype's abstract method.
-3. **Java decides what to do at runtime** based on the dynamic type of the object invoking the method.
+### 4. Python's approach #2: function passing
 
-That third point is the crux: when `Collections.max` runs `items[i].compareTo(...)`, the compiler only knows `items[i]` is a `Comparable`. The actual method body that runs is picked at runtime from the object's real class. This is dynamic method selection, and it is what lets one `max` implementation work for every class in the world that implements `Comparable`.
+```python
+def get_the_max(x, key):
+    max_value = x[0]
+    for item in x:
+        if key(item) > key(max_value):
+            max_value = item
+    return max_value
 
-### 5. Why `Collections.max(dogs)` fails without `Comparable`
+def length_of_name(dog):
+    return len(dog.name)
 
-```java
-List<Dog> dogs = new ArrayList<>();
-dogs.add(new Dog("Grigometh", 200));
-dogs.add(new Dog("Pelusa", 5));
-dogs.add(new Dog("Clifford", 9000));
-Dog maxDog = Collections.max(dogs);   // incomprehensible error message
+max_dog = get_the_max(dogs, length_of_name)
 ```
 
-The slides note the error message is incomprehensible, and the reason underneath is simple: **`max` doesn't know how to compare two `Dog` objects.** `Collections.max` is written once, for all types, and its body can only call `compareTo`. `Dog` (as given in `Dog.java`) has no `compareTo`, so the call cannot be type-checked. The fix is to give `Dog` the capability.
+Or with the builtin and a lambda:
 
-### 6. The `Comparable` interface itself
+```python
+max(doglist, key=name_len)
+max(doglist, key=lambda d: len(d.name))
+```
 
-The lecture makes a point of the fact that "almost all of Java is written in Java," so you can just go read `Comparable.java` on GitHub. Its essential content:
+Here the *function itself* is an argument. `max` is a higher-order function. This is the natural Python move when you want an order other than the default.
+
+### 5. Java has no operator overloading
+
+You cannot teach Java's `>` to work on `Dog`. As the demo code comments put it: *"operator overloading in Java does not exist."* So the Python trick of defining `__gt__` has no Java analogue. Something else must carry the capability.
+
+### 6. Capabilities in Java come from interfaces
+
+The lecture's central question: **"How do we specify that a class has a certain capability in Java?"** Answer: **we implement some interface.**
+
+This is the same pattern already seen in the course: `SLList implements List61B`, a `WizardIterator implements Iterator`. Now: `Dog implements Comparable<Dog>`. The relationship is "is-a": a `Dog` **is-a** `Comparable<Dog>`, meaning "I can be compared to other Dogs."
+
+### 7. `Comparable<T>`
+
+Since almost all of Java is written in Java, you can just read `Comparable.java` in the JDK source. The file is about 142 lines, nearly all documentation (the instructor's aside: heavy documentation is normal and important for library code). Stripped down, it is one method:
 
 ```java
 public interface Comparable<T> {
@@ -104,18 +164,178 @@ public interface Comparable<T> {
 }
 ```
 
-Two observations from the slides:
+The contract is what matters:
+- **negative** if `this` is less than `o`
+- **zero** if they are equal (in ordering)
+- **positive** if `this` is greater than `o`
 
-- The **contract is about sign, not magnitude**: negative means "this is less," zero means "equal," positive means "this is greater." Nothing promises `-1`/`0`/`1`.
-- The real file is **142 lines, almost all documentation**. "This is not uncommon with really important parts of the library. Documentation is important."
+It returns an `int`, not a `boolean`. A student asked why. The answer: one `int` encodes all three outcomes at once. Python needs `__gt__`, `__lt__`, `__le__`, `__ge__`, and so on; Java needs one method. The caller can ask whichever question it wants by testing the sign.
 
-### 7. Implementing `Comparable` on `Dog`
+The contract deliberately says *any* negative or *any* positive number, not exactly `-1`/`+1`. That looseness is what makes the short subtraction idiom legal.
 
-Two steps: add `implements Comparable<Dog>` to the class header, and override `compareTo`.
+**Note on the type parameter.** In `public interface Comparable<T>`, the `<T>` is *declaring* a type parameter. In `public class Dog implements Comparable<Dog>`, the `<Dog>` is *filling it in*. You are not declaring a generic there; you are choosing a specific type argument. So inside `Dog`, the method signature becomes `public int compareTo(Dog o)`, not `compareTo(T o)`.
+
+### 8. `compareTo` vs `equals`: why one takes `Dog` and the other takes `Object`
+
+A student noticed the asymmetry: `equals` is declared `equals(Object o)` but `compareTo` here is `compareTo(Dog o)`. The instructor's explanation: `equals` gets called between wildly different types by all kinds of library code, so it must be able to handle an arbitrary object and answer "no." Comparison, by convention, is between a type and itself: it is usually meaningless to ask whether a `Dog` is "less than" a `String`. You *could* write `implements Comparable<Object>` if you genuinely wanted to compare against anything, but that is not idiomatic.
+
+### 9. Subtype polymorphism, named
+
+The flavor of polymorphism used here is **subtype polymorphism**:
+- A **supertype** (`Comparable`) specifies the capability.
+- A **subtype** (`Dog`) overrides the supertype's abstract method.
+- **Java decides at runtime** which implementation to invoke, based on the dynamic type of the object doing the invoking.
+
+This is genuinely different from Python's operator overloading. In Python, `>` is a single universal, privileged operator baked into the language, overloadable by anything. In Java there is no privileged comparison operator; there is just an ordinary interface named `Comparable` that happens to be the convention. Nothing stops you from making your own interface for some other capability, `IsACousin` or whatever, and the mechanism is identical.
+
+### 10. Natural order, and when it is not enough
+
+**Natural order**: the ordering implied by a class's `compareTo`. For our `Dog`, natural order is by size:
+
+```
+Pelusa (5)  <  Grigometh (200)  <  Clifford (9000)
+```
+
+But you often want a different order, e.g. alphabetical by name:
+
+```
+Clifford  <  Grigometh  <  Pelusa
+```
+
+(Coincidentally exactly the reverse here.) The classic real-world example given: sorting a spreadsheet by name instead of by number. A class gets **only one** natural order, so alternate orders need a different mechanism.
+
+### 11. `Comparator<T>`
+
+Python would pass a key function. Java packages the comparison logic **inside an object**:
+
+```java
+public interface Comparator<T> {
+    int compare(T o1, T o2);
+    ...
+}
+```
+
+Two key differences from `Comparable`:
+1. `compare` takes **two** arguments, both external objects. `compareTo` takes one, comparing against `this`.
+2. `Dog` does **not** implement `Comparator<Dog>`. Instead, a separate class implements it, and `Dog` (or anyone) can hand out instances of it.
+
+`Comparator` is said to compare **extrinsically** (from the outside), while `Comparable` compares **intrinsically** (the object compares itself). You can have many `Comparator<Dog>` classes at once: `NameComparator`, `SpeedComparator`, `SizeComparator`.
+
+The real `Comparator` interface has a lot of default methods; the lecture explicitly skips them.
+
+### 12. Comparable/Comparator vs Iterable/Iterator
+
+The names look parallel in English ("-able" and "-or") but the relationships are **not** analogous:
+
+- `Comparable`: I can be compared to another object. `int compareTo(T other)`
+- `Comparator`: I can tell you how to compare two objects. `int compare(T x1, T x2)`
+- `Iterable`: I can **give you** an iterator. `Iterator<T> iterator()`
+- `Iterator`: I can feed you objects. `boolean hasNext()`, `T next()`
+
+An `Iterable` *produces* an `Iterator`. A `Comparable` does **not** produce a `Comparator`; it gives you the comparison answer directly.
+
+---
+
+## Definitions
+
+**Polymorphism**: "The ability in programming to present the same programming interface for differing underlying forms" (Wikipedia, as quoted in lecture).
+
+**Operator overloading**: Defining what a built-in operator (like `>`) means for your own type. A form of polymorphism. Available in Python (via magic methods like `__gt__`); **not available in Java**.
+
+**Function passing**: Supplying a function as an argument to another function, e.g. Python's `max(doglist, key=name_len)`. Java has this (lambdas, streams) but it is not taught in CS 61B and is not idiomatic for comparison.
+
+**Higher order function**: A function that takes a function as an argument (or returns one), e.g. Python's `max` with a `key` parameter. (extra context: this is the standard term for what `get_the_max(x, key)` is doing; the lecture demonstrated the idea without dwelling on the phrase.)
+
+**Duck typing**: Python's approach in which you do not declare whether a capability like `>` is available; you just use it and find out at runtime.
+
+**Subtype polymorphism**: The pattern where a supertype specifies a capability via an abstract method, a subtype overrides it, and Java selects the implementation at runtime based on the type of the invoking object.
+
+**`Comparable<T>`**: Java interface with the single abstract method `int compareTo(T o)`, returning a negative integer, zero, or a positive integer as `this` is less than, equal to, or greater than `o`. Implementing it declares that your class has a natural order.
+
+**`compareTo(T o)`**: The `Comparable` method. `this` is the object being compared; `o` is the other object.
+
+**Natural order**: The ordering implied by a `Comparable`'s `compareTo` method. Exactly one per class.
+
+**`Comparator<T>`**: Java interface whose core abstract method is `int compare(T o1, T o2)`. Used to define an ordering **extrinsically**, from outside the class being ordered. A class may have arbitrarily many associated `Comparator`s.
+
+**`compare(T o1, T o2)`**: The `Comparator` method. Both arguments are external objects; returns negative/zero/positive under the same sign convention as `compareTo`.
+
+**Intrinsic vs extrinsic comparison**: Intrinsic = the object compares itself to another (`Comparable`). Extrinsic = a separate object supplies the comparison rule (`Comparator`).
+
+**Static nested class**: A nested class declared `static`, meaning it can be instantiated without an enclosing instance of the outer class. Needed for `NameComparator` inside `Dog`, since a `NameComparator` should not require a particular `Dog` to exist.
+
+**`Collections.max(collection)`**: Returns the maximum element according to the elements' natural order. Requires the element type to be `Comparable`.
+
+**`Collections.max(collection, comparator)`**: Returns the maximum element according to the given `Comparator`.
+
+---
+
+## Worked Examples
+
+### Example 1: The failure that motivates everything
+
+Start with the bare `Dog` class from lecture:
+
+```java
+package lec11_inheritance3;
+
+public class Dog {
+    public String name;
+    public int size;
+
+    public Dog(String n, int s) {
+        name = n;
+        size = s;
+    }
+}
+```
+
+And the demo:
+
+```java
+package lec11_inheritance3;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class CollectionsDogDemo {
+    public static void main(String[] args) {
+        List<Dog> dogs = new ArrayList<>();
+
+        dogs.add(new Dog("Grigometh", 200));
+        dogs.add(new Dog("Pelusa", 5));
+        dogs.add(new Dog("Clifford", 9000));
+
+        // operator overloading in Java does not exist
+
+        Dog maxDog = Collections.max(dogs);
+    }
+}
+```
+
+**What happens:** this does not compile. The error message is, in the instructor's words, "incomprehensible": IntelliJ complains that `max` expects something like `Collection<? extends T>` where `T` is comparable, and you gave it `List<Dog>`.
+
+**Why:** `Collections.max` must, at some point, ask "is element A bigger than element B?" Its only vocabulary for that is `compareTo`. A plain `Dog` has no `compareTo`, and more importantly has not *declared* that it can be compared. The compiler catches this before the program ever runs.
+
+**Box-and-pointer / environment reasoning in words:** `dogs` is a variable holding a reference to an `ArrayList` object. That `ArrayList` holds an internal array of three references, pointing to three separate `Dog` objects on the heap. Each `Dog` object has two boxes inside it: a `name` box holding a reference to a `String` object, and a `size` box holding an `int` value directly (`200`, `5`, `9000`). Nothing in any of these boxes tells `Collections.max` which of the three to prefer. The missing information is not data, it is *behavior*, and in Java behavior arrives through a type's method table, which is why the fix is a type-level declaration.
+
+### Example 2: Making `Dog` comparable
+
+Two steps, as stated on the slides: add `implements Comparable<Dog>` to the class header, and override `compareTo`.
+
+First, the verbose version written live in lecture:
 
 ```java
 public class Dog implements Comparable<Dog> {
-    ...
+    public String name;
+    public int size;
+
+    public Dog(String n, int s) {
+        name = n;
+        size = s;
+    }
+
     @Override
     public int compareTo(Dog uddaDog) {
         if (size > uddaDog.size) {
@@ -129,7 +349,11 @@ public class Dog implements Comparable<Dog> {
 }
 ```
 
-The lecture then shows the "better approach," which it calls "very common in Java":
+**Reading it:** `this` is me, the dog on which `compareTo` was called. `uddaDog` ("the other dog") is the argument. `size` with no qualifier means `this.size`. If I am bigger, return a positive number; if smaller, negative; otherwise zero. That is exactly the interface contract.
+
+A student proposed comparing with `equals`. The instructor's response: `==` is fine and `equals` is wrong here, because `size` is a primitive `int`, and `equals` does not apply to primitives at all.
+
+Then the cleaner version, described on the slides as "very common in Java":
 
 ```java
 public class Dog implements Comparable<Dog> {
@@ -141,19 +365,78 @@ public class Dog implements Comparable<Dog> {
 }
 ```
 
-This works precisely because the contract only cares about sign. `200 - 5` is positive, which is all `max` needs to know.
+**Why this works:** if my size is 30 and theirs is 20, `30 - 20 = 10`, a positive number: correct, I am greater. If my size is 5 and theirs is 9000, `5 - 9000 = -8995`, a big negative number: correct, I am smaller. Equal sizes give 0. This idiom is *only* legal because the contract permits any negative and any positive value, not specifically `-1` and `+1`.
 
-With this in place, `Collections.max(dogs)` compiles and returns Clifford.
+Now the original demo compiles and runs:
 
-### 8. Natural order vs. alternate orders
+```java
+Dog maxDog = Collections.max(dogs);   // maxDog points at Clifford
+```
 
-The lecture introduces **natural order**: "the ordering implied by a Comparable's `compareTo` method." For `Dog` as defined, the natural order is by `size`, so the ordering is Pelusa (5), Grigometh (200), Clifford (9000).
+**Stepping through what `Collections.max` does:** it walks the collection keeping a running "best so far." Conceptually it starts with Grigometh (200) as the best, then reaches Pelusa and evaluates `pelusa.compareTo(grigometh)`, which is `5 - 200 = -195`, negative, so Pelusa is smaller and the best stays Grigometh. Then it reaches Clifford: `clifford.compareTo(grigometh)` is `9000 - 200 = 8800`, positive, so the best becomes Clifford. After the loop, the `maxDog` variable holds a reference to the very same `Dog` object that is also referenced from inside the `ArrayList`: one object, two arrows pointing at it, no copy made. In the debugger the instructor showed exactly this: `maxDog` pointing at Clifford.
 
-But you often want a *different* order, for example alphabetically by name: Clifford, Grigometh, Pelusa. A class only gets **one** natural order, because it only gets one `compareTo`. So alternate orders need a different mechanism.
+**The polymorphism payoff:** `Collections.max` was compiled years ago at Oracle, long before `Dog` existed. It contains a call like `items[i].compareTo(items[maxDex])`. At runtime, when that call fires on a `Dog` object, Java dispatches to `Dog`'s `compareTo`. The library code did not need to know anything about dogs. That is subtype polymorphism.
 
-### 9. `Comparator`: comparison packaged as an object
+### Example 3: Compilation Error Puzzle #1 (`hugcode.com/piano`)
 
-In Python, the alternate order is supplied by function passing (`key=name_len`). In Java, we again use subtype polymorphism: we define a class whose *whole job* is to compare two `Dog`s, and we pass an **instance** of it.
+Set up four files:
+
+```java
+public class DogLauncher {                        public class Dog
+  public static void main(String[] args) {          implements Comparable<Dog> {
+    ...                                               ...
+    Dog[] dogs = new Dog[]{d1, d2, d3};               public int compareTo(Dog o) {
+    System.out.println(Collections.max(dogs));          return this.size - o.size;
+  }                                                   }
+}                                                     ...
+                                                  }
+
+public interface Collections {                    public interface Comparable<T> {
+    // the max function                               public int compareTo(T o);
+    ...                                           }
+    int cmp = items[i].compareTo(items[maxDex]);
+    ...
+}
+```
+
+(These `Collections`/`Comparable` sketches are the lecture's simplified stand-ins for the real library code.)
+
+**Q: If we omit `compareTo()` from `Dog`, which file fails to compile?**
+A. DogLauncher.java  B. Dog.java  C. Collections.java  D. Comparable.java
+
+**Answer: B (Dog.java).**
+
+**Reasoning, step by step:**
+
+1. **Rule out C and D immediately.** `Collections` and `Comparable` are part of Java. They were written and compiled at Oracle *before your code existed*. "Fails to compile" means "there is something wrong inside that piece of code." Nothing you write in `Dog.java`, no matter how broken, can retroactively make `Comparable.java` ill-formed. Compilation of each file asks: is this code good, do the types check, is the syntax right? Thumbs up or thumbs down, per file.
+
+2. **Do not reach for a runtime mental model.** A tempting but wrong story is: "the program runs, `Collections.max` tries to call `compareTo`, and boom, the method is not there." In Java that is impossible. The entire point of compile-time checking is to catch this before anything runs.
+
+3. **So what is wrong with `Dog`?** `Dog` declares `implements Comparable<Dog>` but does not supply all the abstract methods that interface requires. That is a broken promise, and the compiler rejects it. The instructor's analogy: "you're claiming to be in BTS, but you cannot dance."
+
+4. **The pedantic addendum:** `DogLauncher` will also fail, since `Dog.class` never gets produced. But the *source* of the problem, the file with something actually wrong in it, is `Dog.java`. B is the best answer.
+
+### Example 4: Compilation Error Puzzle #2 (`hugcode.com/tiger`)
+
+Same four files. **Q: If we omit `implements Comparable<Dog>` (keeping the `compareTo` method), which file fails to compile?**
+
+**Answer: A (DogLauncher.java)**, with an important caveat about `@Override`.
+
+**Reasoning:**
+
+1. **C and D are out for the same reason as before.**
+
+2. **Is `Dog` itself broken?** Consider `Dog` in isolation: a class with fields, a constructor, and a method `public int compareTo(Dog o)`. Is that legal Java? **Yes.** It is perfectly fine to have a method named `compareTo` without implementing `Comparable`. The instructor's version of the analogy: "you can dance even if you're not in BTS." So `Dog` compiles.
+
+3. **The `@Override` caveat.** If the `compareTo` method still carries an `@Override` annotation while the class no longer implements anything that declares `compareTo`, then `Dog` **does** fail to compile: you claimed to override something and you are not overriding anything. So B is also a defensible answer *if* you were accounting for `@Override`. This is why the lecture called B "correct if you were thinking about the override tag."
+
+4. **What breaks is `DogLauncher`.** It calls `Collections.max(dogs)` where `dogs` is a `Dog[]`. `Collections.max` demands `Comparable` elements. `Dog` is not declared `Comparable`, so the call is a type error. And yes, `Dog` visibly *has* a `compareTo` method sitting right there, but the Java compiler is strict: **you have to declare that you are `Comparable`, otherwise you don't count.** Java does not do structural/duck typing on interfaces.
+
+**Why this puzzle matters:** it clarifies the *scope* of the compiler. Compilation is a per-file verdict on whether that code obeys the language rules, given the declared types of everything it touches. It happens before execution, and library code is immune to your mistakes.
+
+### Example 5: A `Comparator` for name order
+
+Java's interface:
 
 ```java
 public interface Comparator<T> {
@@ -162,30 +445,82 @@ public interface Comparator<T> {
 }
 ```
 
+Our implementation. Note the `static` keyword and why it must be there:
+
 ```java
-public class NameComparator implements Comparator<Dog> {
+import java.util.Comparator;
+
+public class Dog implements Comparable<Dog> {
+    public String name;
+    public int size;
+
+    public Dog(String n, int s) {
+        name = n;
+        size = s;
+    }
+
     @Override
-    public int compare(Dog a, Dog b) {
-        return a.name.compareTo(b.name);
+    public int compareTo(Dog uddaDog) {
+        return size - uddaDog.size;
+    }
+
+    // Must be static: a NameComparator can be instantiated
+    // without any actual Dog being involved.
+    public static class NameComparator implements Comparator<Dog> {
+        @Override
+        public int compare(Dog a, Dog b) {
+            return a.name.compareTo(b.name);
+        }
     }
 }
 ```
 
-Note the delegation: `String` already implements `Comparable<String>`, so `a.name.compareTo(b.name)` reuses the natural order of strings and returns a correctly-signed int. This is the standard way to write a `Comparator` over a field.
+**Why the body is just one line.** We cannot write `if (o1.name < o2.name)`: relational operators do not work on `String` in Java. But `String` itself `implements Comparable<String>`, so it already has a `compareTo`. We delegate: ask dog A's name to compare itself to dog B's name. The instructor called this "the laziest thing we could possibly do," approvingly. This is subtype polymorphism used twice in one line: our `Comparator` implements an interface, and inside it we invoke `String`'s implementation of another interface.
 
-The slides note `Comparator` has "a LOT of default methods. We won't talk about them."
+**Why `static` is required.** This was flagged in lecture as "the very edge of any Java syntax I want to talk about." A non-static nested class (like `Node` inside an `SLList`) is tied to a specific instance of its enclosing class: every `Node` belongs to some particular `SLList`. But a `NameComparator` is not *about* any one dog; it is a free-floating rule for comparing any two dogs. Marking it `static` means it can be instantiated without an enclosing `Dog` object, which is what we need.
 
-Usage:
+Using it:
 
 ```java
+List<Dog> dogs = new ArrayList<>();
+dogs.add(new Dog("Grigometh", 200));
+dogs.add(new Dog("Pelusa", 5));
+dogs.add(new Dog("Clifford", 9000));
+
 Dog maxNameDog = Collections.max(dogs, new Dog.NameComparator());
 ```
 
-The slide annotates this explicitly: **"This second argument is an object of type `Comparator<Dog>`."** Python passes a function; Java passes an object that wraps a function.
+**What flows where:** the second argument is an **object** of type `Comparator<Dog>`, not a function. `Collections.max` receives a reference to a freshly allocated `NameComparator` object (which, note, has no instance fields at all: it exists purely to carry a method). Inside `max`, whenever a comparison is needed, it calls `comparator.compare(x, y)`, and dynamic dispatch routes that to *our* `compare`. The maximum by name here is Pelusa, since alphabetically Clifford < Grigometh < Pelusa.
 
-### 10. Avoiding the awkward instantiation
+**Side-by-side with Python:**
 
-The instructor finds `new Dog.NameComparator()` at every call site "awkward and aesthetically unpleasant." The fix shown is one pre-instantiated static reference, named in all caps by convention:
+```python
+def name_len(dog):
+    return len(dog.name)
+
+dogs = [Dog("Grigometh", 10), Dog("Pelusa", 5), Dog("Clifford", 9000)]
+max(dogs, key=name_len)
+```
+
+Python passes the function directly. Java wraps the comparison logic inside an object and relies on subtype polymorphism. Same goal, opposite philosophy. (The Python version uses name *length* rather than name itself, so it is an analogy, not an exact translation.)
+
+### Example 6: From a getter method to a static constant
+
+In lecture the instructor first built an accessor:
+
+```java
+public static Comparator<Dog> getAComparator() {
+    return new NameComparator();
+}
+```
+
+```java
+Dog maxNameDog = Collections.max(dogs, Dog.getAComparator());
+```
+
+This works but is not the common idiom, and calling `Collections.max(dogs, new Dog.NameComparator())` directly was described as "awkward and aesthetically unpleasant."
+
+The idiomatic fix: a pre-instantiated static constant, named in ALL_CAPS per the usual convention for global constants:
 
 ```java
 public static NameComparator NAME_COMPARATOR = new NameComparator();
@@ -195,357 +530,19 @@ public static NameComparator NAME_COMPARATOR = new NameComparator();
 Dog maxNameDog = Collections.max(dogs, Dog.NAME_COMPARATOR);
 ```
 
-This is exactly the commented-out line in `CollectionsDogDemo.java`:
-```java
-//Dog maxByName = Collections.max(dogs, Dog.NAME_COMPARATOR);
-```
+**Why this is nicer:** the `Dog` class now has a comparator "glued to it" that anyone can grab at any time. When the `Dog` class is loaded, one `NameComparator` object is created, and exactly one ever needs to exist, since it is stateless. The instructor described this as "the most common way you'll see in somewhat older school but idiomatic Java code."
 
-Note the comparator is written as a **nested static class** of `Dog` in the quiz slides (`public static class NameComparator implements Comparator<Dog>`), which is why it is referred to as `Dog.NameComparator`.
-
-### 11. Bonus (not tested): lambdas
-
-Marked on the slides as a bonus: "We will not teach Java lambdas in 61B, nor will you be expected to learn them."
+### Example 7: The Comparator quiz (`hugcode.com/lemon`)
 
 ```java
-Comparator<Dog> dc = (d1, d2) -> d1.name.compareTo(d2.name);
-Dog maxNameDog = Collections.max(dogs, dc);
-```
-
-The lambda "defines and instantiates a Comparator object" in one line. Java does have function passing; it just isn't this course's idiom.
-
-### 12. Comparable vs. Comparator, and why they are *not* like Iterable vs. Iterator
-
-This is a deliberate warning on the slides, because the name pairs look parallel and are not.
-
-| Interface | Meaning | Method |
-|---|---|---|
-| `Comparable<T>` | "I can be compared to another object." | `int compareTo(T other)` |
-| `Comparator<T>` | "I can tell you how to compare two objects." | `int compare(T x1, T x2)` |
-| `Iterable<T>` | "I can give you an iterator." | `Iterator<T> iterator()` |
-| `Iterator<T>` | "I can feed you objects." | `boolean hasNext()`, `T next()` |
-
-The Iterable/Iterator pair is a *factory* relationship: an Iterable hands you an Iterator. Comparable and Comparator have no such relationship at all. They are two independent, alternative answers to the same question ("how do I order these?"), one intrinsic and one extrinsic.
-
-Structurally:
-- `Comparable` is implemented **by the class being compared**. There can be only one such order per class.
-- `Comparator` is implemented **by some other class**, comparing "extrinsically." You may have many: `NameComparator`, `SpeedComparator`, `SizeComparator`, all implementing `Comparator<Dog>`.
-
-### 13. Style asides from the opening of lecture
-
-Before the main topic, the lecture reviewed Project 1 style. These are not exam content but are graded style expectations (mandatory "starting a bit after the midterm"):
-
-- **Make code obvious and easy to read.** It is fine to create variables that exist only to *name* things; the performance penalty is negligible or nonexistent. Compare:
-
-```java
-// student version                        // instructor version
-public T removeFirst() {                  public T removeFirst() {
-    if (!isEmpty()) {                         if (size == 0) {
-        T replace = sentinel.next.item;           return null;
-        sentinel.next = sentinel.next.next;   }
-        sentinel.next.prev = sentinel;
-        size--;                               Node oldFront = sentinel.next;
-        return replace;                       Node newFront = sentinel.next.next;
-    }
-    return null;                              sentinel.next = newFront;
-}                                             newFront.prev = sentinel;
-
-                                              size -= 1;
-                                              return oldFront.value;
-                                          }
-```
-
-- **Good style**: consistent spacing, camelCase variable names in Java.
-- **Project 2 spoiler**: do not repeat non-obvious modulus math everywhere.
-
-```java
-// repeated everywhere:
-T removed = items[(nextLast - 1 + items.length) % items.length];
-items[(nextLast - 1 + items.length) % items.length] = null;
-
-// instead, one helper:
-private int wrapIndex(int index) {
-    return (index + items.length) % items.length;
-}
-T removed = items[wrapIndex(nextLast - 1)];
-items[wrapIndex(nextLast - 1)] = null;
-```
-
----
-
-## Definitions
-
-**Polymorphism**: "The ability in programming to present the same programming interface for differing underlying forms." One calling syntax, many possible underlying implementations.
-
-**Subtype polymorphism**: The flavor of polymorphism used in Java, in which a supertype (interface or superclass) declares a capability as an abstract method, subtypes override it, and Java selects which implementation to run **at runtime** based on the type of the object invoking the method.
-
-**Operator overloading**: Python's flavor of polymorphism for comparison, in which a universal operator (such as `>`) is given a class-specific meaning by defining a special method (such as `__gt__`). Java does not have operator overloading.
-
-**Function passing**: Supplying behavior to a routine by handing it a function as an argument (for example Python's `key=` parameter to `max`). Java supports it via lambdas, but 61B does not teach it.
-
-**Duck typing**: Python's approach, in which you do not have to declare whether a capability (such as `>`) is available; it is simply attempted when used.
-
-**Interface**: The Java construct used to declare that a class has a certain capability. To give a class a capability in Java, "we must implement some interface."
-
-**`Comparable<T>`**: The Java interface declaring that an object can compare *itself* to another object. Its single abstract method is `public int compareTo(T o)`, which returns a negative integer, zero, or a positive integer as this object is less than, equal to, or greater than the specified object.
-
-**`compareTo(T o)`**: The `Comparable` method. Contractually only the **sign** of the return value matters.
-
-**Natural order**: The ordering implied by a class's `compareTo` method. Each class has at most one. For `Dog`, it is by `size`.
-
-**`Comparator<T>`**: The Java interface for objects "designed for comparing other objects," that is, comparing *extrinsically*. Its central abstract method is `int compare(T o1, T o2)`. A class may have many distinct Comparators, each specifying one order.
-
-**`compare(T o1, T o2)`**: The `Comparator` method. Returns a negative, zero, or positive int as `o1` is less than, equal to, or greater than `o2`.
-
-**`Collections.max(collection)`**: Library method returning the maximum element by natural order; requires the elements to be `Comparable`.
-
-**`Collections.max(collection, comparator)`**: Overload taking a `Comparator<T>` object as its second argument, returning the maximum element by that comparator's order.
-
-**`@Override`**: Annotation asserting that the tagged method overrides a method from a supertype. If it does not actually override anything, the file fails to compile.
-
-**Lambda (Java)**: Syntax `(d1, d2) -> ...` that defines and instantiates an implementing object of a functional interface in one expression. Bonus material; not taught or tested in 61B.
-
----
-
-## Worked Examples
-
-### Example 1: The polymorphic `max` in Python
-
-```python
-def get_the_max(x):
-    max_value = x[0]
-    for item in x:
-        if item > max_value:
-            max_value = item
-    return max_value
-
-class Dog:
-    def __init__(self, name, size):
-        self.name = name
-        self.size = size
-    def __gt__(self, other):
-        return self.size > other.size
-
-max_value = get_the_max([1, 2, 3, 4, 5])
-
-list_of_dogs = [Dog("Grigometh", 10),
-                Dog("Pelusa", 5),
-                Dog("Clifford", 9000)]
-max_dog = get_the_max(list_of_dogs)
-```
-
-Step by step:
-
-1. `get_the_max([1, 2, 3, 4, 5])`: `max_value` starts at `1`. Each `item > max_value` uses int comparison. Result: `5`.
-2. `get_the_max(list_of_dogs)`: `max_value` starts as the Grigometh object. The loop evaluates `item > max_value` on two `Dog` objects. Python looks up `__gt__` on `Dog` and runs `self.size > other.size`.
-   - Grigometh vs Grigometh: `10 > 10` is False.
-   - Pelusa vs Grigometh: `5 > 10` is False.
-   - Clifford vs Grigometh: `9000 > 10` is True, so `max_value` becomes Clifford.
-3. Result: Clifford.
-
-The point: **`get_the_max` was not modified at all** to handle Dogs. One interface (`>`), two underlying forms (int and Dog). That is polymorphism.
-
-### Example 2: The function-passing `max` in Python
-
-```python
-def get_the_max(x, key):
-    max_value = x[0]
-    for item in x:
-        if key(item) > key(max_value):
-            max_value = item
-    return max_value
-
-def length_of_name(dog):
-    return len(dog.name)
-
-dogs = [Dog("Grigometh", 10),
-        Dog("Pelusa", 5),
-        Dog("Clifford", 9000)]
-
-max_dog = get_the_max(dogs, length_of_name)
-```
-
-Step by step:
-
-1. `key` is bound to the *function object* `length_of_name`. Nothing is called yet; the function itself was passed as a value.
-2. `max_value` starts at Grigometh. `key(max_value)` is `len("Grigometh")` = 9.
-3. Grigometh: `9 > 9` False. Pelusa: `len("Pelusa")` = 6, `6 > 9` False. Clifford: `len("Clifford")` = 8, `8 > 9` False.
-4. Result: Grigometh.
-
-Note this gives a *different* answer than Example 1 on the same list, because the ordering criterion changed from size to name length. Also note `Dog.__gt__` is never consulted here: `get_the_max` never uses `>` on Dogs, only on the ints returned by `key`.
-
-The slide version uses `max(doglist, key=name_len)` with the built-in; the demo file writes the loop out so you can see where `key` gets called.
-
-### Example 3: `Collections.max` fails, then works
-
-The starting code, from `CollectionsDogDemo.java` and `Dog.java`:
-
-```java
-public class Dog {
-    public String name;
-    public int size;
-
-    public Dog(String n, int s) {
-        name = n;
-        size = s;
-    }
-}
-```
-
-```java
-List<Dog> dogs = new ArrayList<>();
-dogs.add(new Dog("Grigometh", 200));
-dogs.add(new Dog("Pelusa", 5));
-dogs.add(new Dog("Clifford", 9000));
-Dog maxDog = Collections.max(dogs);   // does not compile
-```
-
-**Why it fails.** Picture the memory: `dogs` is a reference to an `ArrayList` object, which holds three references, to three `Dog` objects, each with a `name` reference (to a `String`) and an `int size` stored directly in the box. Nothing in any of those `Dog` boxes, and nothing in the `Dog` class, provides a `compareTo` method. `Collections.max` is written generically and its body must do something like `items[i].compareTo(items[maxDex])`. Since `Dog` is not a subtype of `Comparable`, the compiler rejects the call. As the slide says, the error message is incomprehensible, but the cause is just: **max doesn't know how to compare two Dog objects.**
-
-**The fix.** Declare the capability and implement it:
-
-```java
-public class Dog implements Comparable<Dog> {
-    public String name;
-    public int size;
-
-    public Dog(String n, int s) {
-        name = n;
-        size = s;
-    }
-
-    @Override
-    public int compareTo(Dog uddaDog) {
-        return size - uddaDog.size;
-    }
-}
-```
-
-**Trace of `Collections.max(dogs)`** (as sketched by the quiz slides' pseudocode for `max`): the routine walks the list keeping `maxDex`. Conceptually:
-
-1. `maxDex = 0` (Grigometh).
-2. Compare Pelusa to Grigometh: `items[1].compareTo(items[0])` calls `Dog.compareTo`, computing `5 - 200 = -195`, negative, so Pelusa is smaller. `maxDex` unchanged.
-3. Compare Clifford to Grigometh: `9000 - 200 = 8800`, positive, so `maxDex = 2`.
-4. Returns the `Dog` at index 2, Clifford.
-
-The crucial dynamic-dispatch moment is step 2 and 3: `max`'s code was compiled knowing only that it holds `Comparable` references. At runtime, the objects on the heap are `Dog`s, so `Dog`'s `compareTo` body executes. `Collections.max` was never recompiled or modified.
-
-**On `size - uddaDog.size` vs. the if-chain.** Both satisfy the contract. The if-chain returns exactly `1`, `-1`, or `0`; subtraction returns any signed int. `Collections.max` only checks the sign, so both work. (extra context: subtraction can overflow for extreme int values, for example a very large positive minus a very large negative; the lecture does not raise this, and for dog sizes it is irrelevant, but `Integer.compare(size, uddaDog.size)` avoids it.)
-
-### Example 4: Compilation Error Puzzle #1 (hugcode.com/piano)
-
-Setup, with the three relevant files:
-
-```java
-public class DogLauncher {                     public class Dog
-  public static void main(String[] args) {     implements Comparable<Dog> {
-    ...                                          ...
-    Dog[] dogs = new Dog[]{d1, d2, d3};          public int compareTo(Dog o) {
-    System.out.println(Collections.max(dogs));     return this.size - o.size;
-  }                                              }
-}                                              }
-
-public interface Collections {   // the max function
-    ...
-    int cmp = items[i].compareTo(items[maxDex]);
-    ...
-}
-```
-
-**Q: If we omit `compareTo()`, which file fails to compile?**
-A. DogLauncher.java  B. Dog.java  C. Collections.java  D. Comparable.java
-
-**Answer: B, Dog.java.**
-
-Reasoning: `Dog` claims `implements Comparable<Dog>`, which is a promise to provide every abstract method of that interface. If `compareTo` is missing, `Dog` is a concrete class with an unimplemented abstract method, which is a compile error *in Dog.java*. The slide adds a parenthetical: "(And I suppose DogLauncher will fail as well since Dog.class doesn't exist)," that is, the downstream failure is a consequence, but the *primary* error is in `Dog.java`.
-
-Why not the others? `Collections.java` compiles fine: its `items[i].compareTo(...)` type-checks against the `Comparable` interface, which is unchanged. `Comparable.java` is a library file, untouched.
-
-### Example 5: Compilation Error Puzzle #2 (hugcode.com/tiger)
-
-Same three files. **Q: If we omit `implements Comparable<Dog>`, which file fails to compile?**
-
-**Answer: A, DogLauncher.java.**
-
-Reasoning: `Dog` still has a perfectly legal method named `compareTo`; a class is allowed to have any method it likes. So `Dog.java` compiles. `Collections.java` compiles, since it is written against `Comparable`. But `DogLauncher` calls `Collections.max(dogs)` where `dogs` is a `Dog[]`, and `max` requires `Comparable`s. Since `Dog` no longer declares itself a `Comparable`, **the call site in DogLauncher is what fails**: "it tries to pass things that are not Comparable, and Collections expects Comparables."
-
-**The `@Override` wrinkle.** The slide adds: "If we used `@Override`, Dog will not compile, because we have an override tag but we're not overriding (if we omit implements Comparable)." So the answer flips to `Dog.java` when the annotation is present. This is precisely what `@Override` is for: it converts a silent semantic mistake into a loud, local compile error.
-
-The pair of puzzles together makes the general lesson: **the location of a compile error depends on which promise was broken.**
-- Broke the promise "I implement this interface's methods" → error in the *implementing* class.
-- Broke the promise "this object is of the required type" → error at the *call site*.
-
-### Example 6: Building and using a `NameComparator`
-
-```java
-public class Dog implements Comparable<Dog> {
-    public String name;
-    public int size;
-
-    public Dog(String n, int s) { name = n; size = s; }
-
-    @Override
-    public int compareTo(Dog uddaDog) {
-        return size - uddaDog.size;
-    }
-
-    public static class NameComparator implements Comparator<Dog> {
-        @Override
-        public int compare(Dog a, Dog b) {
-            return a.name.compareTo(b.name);
-        }
-    }
-
-    public static NameComparator NAME_COMPARATOR = new NameComparator();
-}
-```
-
-```java
-List<Dog> dogs = new ArrayList<>();
-dogs.add(new Dog("Grigometh", 200));
-dogs.add(new Dog("Pelusa", 5));
-dogs.add(new Dog("Clifford", 9000));
-
-Dog maxDog     = Collections.max(dogs);                  // Clifford (size 9000)
-Dog maxNameDog = Collections.max(dogs, Dog.NAME_COMPARATOR);  // Pelusa (name "Pelusa")
-```
-
-Step by step for `maxNameDog`:
-
-1. `Dog.NAME_COMPARATOR` evaluates to a reference to a single `NameComparator` object that was created once, when the `Dog` class was loaded. In box-and-pointer terms this object carries no instance data at all; it is just a handle whose type tells Java which `compare` body to run.
-2. `Collections.max(dogs, cmp)` walks the list, calling `cmp.compare(candidate, currentMax)`.
-3. Grigometh vs Grigometh: `"Grigometh".compareTo("Grigometh")` = 0.
-4. Pelusa vs Grigometh: `"Pelusa".compareTo("Grigometh")` is positive ("P" after "G"), so Pelusa becomes the max.
-5. Clifford vs Pelusa: `"Clifford".compareTo("Pelusa")` is negative ("C" before "P"), so no change.
-6. Result: Pelusa.
-
-Note that `maxDog` and `maxNameDog` are different dogs from the *same list*, which is the entire motivation for Comparators.
-
-Also note the inner `a.name.compareTo(b.name)`: this is `String`'s own `compareTo`, that is, we are using `String`'s Comparable natural order to build `Dog`'s alternate order.
-
-**Side-by-side with Python** (from the slides):
-
-```python
-def name_len(dog):
-    return len(dog.name)
-max(dogs, key=name_len)     # Python: pass a function directly
-```
-```java
-Collections.max(dogs, new NameComparator());  // Java: pass an object wrapping the function
-```
-
-The slide's annotation: "In Java we package our comparison function inside of a Comparator object. We rely on subtype polymorphism."
-
-### Example 7: Comparator Quiz (hugcode.com/lemon)
-
-```java
-IO.println("Frank".compareTo("Zeke"));   // negative number
-
 Dog a = new Dog("Frank", 1);
 Dog b = new Dog("Zeke", 1);
 Comparator<Dog> nc = new Dog.NameComparator();
 System.out.println(nc.compare(a, b));
 ```
+
 with
+
 ```java
 public static class NameComparator implements Comparator<Dog> {
     @Override
@@ -555,84 +552,99 @@ public static class NameComparator implements Comparator<Dog> {
 }
 ```
 
-**Q: What is the output?** A. `+1`  B. Positive Number  C. `-1`  D. Negative Number  E. Zero
+Options: A. `+1`  B. Positive Number  C. `-1`  D. Negative Number  E. Zero
 
-**Answer: D, a Negative Number.**
+**Answer: D, Negative Number.**
 
-Step by step:
+**Trace:** `nc` holds a reference to a `NameComparator` object. `nc.compare(a, b)` dispatches to our `compare`. Inside, `a.name` is the `String` `"Frank"` and `b.name` is `"Zeke"`. So the whole expression reduces to exactly:
 
-1. `nc` has static type `Comparator<Dog>` and dynamic type `NameComparator`. The call `nc.compare(a, b)` is legal because `compare` is declared in `Comparator`; the body that runs is `NameComparator`'s.
-2. Inside, `a.name` is `"Frank"` and `b.name` is `"Zeke"`.
-3. `"Frank".compareTo("Zeke")` returns a negative number because "Frank" is alphabetically less than "Zeke".
-4. That value is returned unchanged and printed.
+```java
+System.out.println("Frank".compareTo("Zeke"));
+```
 
-**Why D and not C.** This is the point of the quiz. `String.compareTo` promises only the *sign*, not the value `-1`. (extra context: for strings differing at their first character it actually returns the difference of the char codes, here `'F' - 'Z'` = -20, but you should never rely on the magnitude.) The same trap applies to `Dog.compareTo` returning `size - uddaDog.size`: an exam asking "what does `clifford.compareTo(pelusa)` return?" wants "a positive number," not "1," unless the if-chain version is shown.
+"Frank" is alphabetically before "Zeke", so by the `Comparable` contract this must be negative. **Can we say it is `-1`?** No. The contract promises only the *sign*. We do not know how `String.compareTo` is implemented internally. When the instructor actually ran it, the output was **`-20`** (note: `'F'` is 70 and `'Z'` is 90, and 70 - 90 = -20, so it is consistent with a character-difference implementation; the instructor said the precise mechanism is below our level of abstraction). The class was split roughly evenly between C and D, which is exactly the trap: **`-1` is a plausible-looking wrong answer; "some negative number" is the right one.**
 
-Note also that `a` and `b` both have `size == 1`, so the *natural* order would call them equal; the comparator sees them as clearly different. Different orderings, same objects.
+### Example 8 (bonus, explicitly not examinable): lambdas
+
+```java
+Comparator<Dog> dc = (d1, d2) -> d1.name.compareTo(d2.name);
+Dog maxNameDog = Collections.max(dogs, dc);
+```
+
+The lambda defines *and* instantiates a `Comparator` object in one line. The slides state: "We will not teach Java lambdas in 61B, nor will you be expected to learn them." Java also has streams and other function-passing machinery; the instructor mentioned these exist and invited curious students to explore, but they are out of scope.
 
 ---
 
 ## Common Pitfalls
 
-1. **Trying to use `>` on objects in Java.** There is no operator overloading in Java, period. `d1 > d2` for `Dog`s will never compile, no matter what methods you define. Only `compareTo`/`compare`.
+1. **Thinking you can overload `>` in Java.** You cannot. There is no operator overloading in Java, full stop. If you want ordering behavior, you implement an interface.
 
-2. **Assuming `compareTo` returns exactly -1, 0, or 1.** The contract is *negative, zero, positive*. Writing `if (a.compareTo(b) == 1)` is a bug; write `if (a.compareTo(b) > 0)`.
+2. **Writing `compareTo` but forgetting `implements Comparable<Dog>`.** The method existing is not enough. Java requires the *declaration*. Puzzle #2 is built entirely around this: the class compiles, but every caller that expects a `Comparable` rejects it.
 
-3. **Getting the direction backwards.** `a.compareTo(b)` is positive when **a is greater**. Similarly `compare(o1, o2)` is positive when **o1 is greater**. Writing `return uddaDog.size - size` silently reverses your ordering and `Collections.max` will return the minimum.
+3. **Writing `implements Comparable<Dog>` but forgetting `compareTo`.** The mirror-image error, and this one breaks `Dog.java` itself. You promised a capability and did not deliver.
 
-4. **Forgetting the type argument.** `implements Comparable` (raw) is not the same as `implements Comparable<Dog>`. With the raw form your method must take an `Object`, and `public int compareTo(Dog d)` will not override anything.
+4. **Assuming `compareTo` returns exactly `-1`, `0`, or `+1`.** The contract is only about the **sign**. `"Frank".compareTo("Zeke")` returned `-20`. Never write `if (x.compareTo(y) == -1)`; write `if (x.compareTo(y) < 0)`.
 
-5. **Writing `compareTo` but forgetting `implements`.** The method exists and `Dog.java` compiles, but `Dog` is not a `Comparable`, so every call site that needs a `Comparable` breaks (Puzzle #2). Conversely, writing `implements` but forgetting the method breaks `Dog.java` itself (Puzzle #1).
+5. **Believing the compiler catches missing methods at runtime.** It does not; that is the whole point. "Fails to compile" is a per-file, pre-execution verdict.
 
-6. **Omitting `@Override`.** Without it, a mis-typed or mis-named method silently fails to override and the problem surfaces far away as a confusing error. With it, you get an immediate, local error.
+6. **Believing your code can break `Collections.java` or `Comparable.java`.** Those were compiled before your code existed. They are always fine.
 
-7. **Confusing `compareTo` and `compare` signatures.** `Comparable` has a **one**-argument `compareTo` (the other operand is `this`). `Comparator` has a **two**-argument `compare` (the comparator itself is not one of the things being compared).
+7. **Leaving `@Override` on a method that no longer overrides anything.** This is itself a compile error, and it is the reason Puzzle #2 has a subtle second answer.
 
-8. **Expecting Comparator to be produced by Comparable.** It is tempting to pattern-match onto Iterable/Iterator, where `iterator()` hands you the Iterator. There is no such link here. Comparable and Comparator are independent alternatives.
+8. **Forgetting `static` on a nested `Comparator` class.** A non-static nested class requires an enclosing instance. `new Dog.NameComparator()` will not work without `static`, since a comparator is not associated with any particular dog.
 
-9. **Thinking a class can have several natural orders.** One `compareTo` per class, so one natural order. Multiple orders require multiple Comparators.
+9. **Confusing `compareTo` and `compare` arities.** `compareTo(T other)` takes **one** argument (the other is `this`). `compare(T o1, T o2)` takes **two**.
 
-10. **Passing the Comparator *class* instead of an *instance*.** `Collections.max(dogs, NameComparator)` is not legal; you need `new NameComparator()` or a pre-made static instance like `Dog.NAME_COMPARATOR`.
+10. **Assuming `Comparable` gives you a `Comparator`, by analogy with `Iterable` giving you an `Iterator`.** The names rhyme; the relationships do not match. A `Comparable` answers comparisons directly; it does not hand out comparator objects.
 
-11. **Forgetting the comparator must be an object of type `Comparator<Dog>`.** A plain helper method like `static int byName(Dog a, Dog b)` cannot be handed to `Collections.max` in the style this course teaches.
+11. **Using `equals` or `==` carelessly inside `compareTo`.** In the lecture's `Dog`, `size` is a primitive `int`, so `equals` does not apply to it at all. Also, mixing an `equals` check into a size-only comparison muddies the semantics.
 
-12. **Style traps carried over from the Project 1/2 discussion**: repeating non-obvious expressions (like the wraparound modulus) instead of naming them in a helper, and avoiding intermediate variables for fear of a performance cost that is "negligible or non-existent."
+12. **Trying `o1.name < o2.name` in a name comparator.** Relational operators do not work on `String` in Java. Use `String`'s own `compareTo`.
+
+13. **Repeating opaque expressions instead of naming them.** From the opening announcements: repeated modulus math, unnamed intermediate nodes. Naming things costs essentially nothing at runtime and buys a lot of readability.
 
 ---
 
 ## Likely Exam Points
 
-> Reminder from the slides: **this lecture is explicitly not in scope for Midterm 1.** The material does return later (TreeMaps, TreeSets, Priority Queues), so these points are aimed at later exams.
+> Reminder: the instructor stated this lecture is **not in scope for Midterm 1**. These points are for later exams and for the TreeMap/TreeSet/priority-queue material where comparison machinery reappears.
 
-### 1. Which file fails to compile?
+**1. Which file fails to compile when `compareTo` is missing?**
 
-**Q:** `Dog` declares `implements Comparable<Dog>` but has no `compareTo` method. `DogLauncher` calls `Collections.max(dogs)`. Which file fails to compile first, and why?
+*Q:* `Dog implements Comparable<Dog>` but has no `compareTo` method. `DogLauncher` calls `Collections.max(dogs)`. Which file fails to compile, and why?
 
-**A:** `Dog.java`. A concrete class that claims to implement an interface must define all of that interface's abstract methods; failing to do so is an error in the class itself. (`DogLauncher.java` will also fail downstream because `Dog.class` never gets produced.)
+*A:* `Dog.java`. It declares that it implements `Comparable<Dog>` but does not supply the required abstract method, so the class itself is ill-formed. `DogLauncher.java` will also fail downstream, since `Dog.class` is never produced, but `Dog.java` is the file with the actual defect. `Collections.java` and `Comparable.java` are part of Java, compiled long before your code existed, and nothing you write can break them.
 
-### 2. The mirror-image case
+**2. Which file fails to compile when `implements Comparable<Dog>` is missing?**
 
-**Q:** `Dog` has a method `public int compareTo(Dog o)` but the class header is just `public class Dog`, with no `implements`. Which file fails, and how does the answer change if the method is tagged `@Override`?
+*Q:* `Dog` has a method `public int compareTo(Dog o)` but does **not** declare `implements Comparable<Dog>`. Which file fails?
 
-**A:** Without `@Override`, `Dog.java` compiles fine (a class may define any method), and **`DogLauncher.java`** fails, since it passes non-`Comparable`s to `Collections.max`, which expects `Comparable`s. With `@Override` present, **`Dog.java`** fails instead: the annotation asserts an override that is not actually happening.
+*A:* `DogLauncher.java`, because it passes non-`Comparable` objects to `Collections.max`, which requires `Comparable` elements. `Dog.java` on its own is legal: a class may have a method named `compareTo` without implementing any interface. **Caveat:** if the method still has `@Override` on it, then `Dog.java` also fails, because there is nothing being overridden.
 
-### 3. What does `compareTo` return?
+**3. What does a `compareTo`/`compare` call return?**
 
-**Q:** Given `compareTo` implemented as `return size - uddaDog.size;`, with Clifford (9000) and Pelusa (5), what does `clifford.compareTo(pelusa)` return?
+*Q:* Given `NameComparator` as defined in lecture, what does `nc.compare(new Dog("Frank", 1), new Dog("Zeke", 1))` print?
 
-**A:** A positive number (specifically 8895 for this implementation, but the contractually correct answer is "positive"). A caller may only rely on the sign: negative means less than, zero means equal, positive means greater than.
+*A:* Some **negative number** (the actual observed value was `-20`). Not necessarily `-1`. The `Comparable` contract only specifies the sign: negative if the first is less, zero if equal, positive if greater.
 
-### 4. Comparator output sign
+**4. Write a `compareTo` obeying the contract.**
 
-**Q:** With `NameComparator.compare` returning `a.name.compareTo(b.name)`, what does `nc.compare(new Dog("Frank", 1), new Dog("Zeke", 1))` print?
+*Q:* Give a one-line `compareTo` for `Dog` ordering by `size`, and explain why it is valid.
 
-**A:** A negative number, because "Frank" is alphabetically less than "Zeke". Not necessarily `-1`, so "Negative Number" is the right multiple-choice answer over "-1".
+*A:*
+```java
+@Override
+public int compareTo(Dog uddaDog) {
+    return size - uddaDog.size;
+}
+```
+Valid because the contract accepts *any* negative/positive value, not just `-1`/`+1`. Bigger `this` gives a positive difference, smaller gives negative, equal gives zero.
 
-### 5. Write a Comparator
+**5. Write a `Comparator`.**
 
-**Q:** Write a `SizeComparator` for `Dog` that orders dogs by size, and show how to use it to find the largest dog in a `List<Dog> dogs`.
+*Q:* Add a `SizeComparator` to `Dog` that orders dogs by size, plus an idiomatic way to access it.
 
-**A:**
+*A:*
 ```java
 public static class SizeComparator implements Comparator<Dog> {
     @Override
@@ -640,56 +652,65 @@ public static class SizeComparator implements Comparator<Dog> {
         return a.size - b.size;
     }
 }
-...
-Dog biggest = Collections.max(dogs, new Dog.SizeComparator());
+
+public static SizeComparator SIZE_COMPARATOR = new SizeComparator();
 ```
-This duplicates the natural order, which is fine; it shows that a Comparator can express any order, including one already available.
+Used as `Collections.max(dogs, Dog.SIZE_COMPARATOR);`. The class must be `static` so it can be instantiated without an enclosing `Dog` instance, and the ALL_CAPS static field is the conventional naming for such a constant.
 
-### 6. Comparable vs. Comparator: which and why?
+**6. `Comparable` vs `Comparator`: state the difference.**
 
-**Q:** You have a `Student` class. You want students sorted by ID by default, but sometimes by GPA and sometimes by last name. What goes where?
+*Q:* In one sentence each, distinguish `Comparable` from `Comparator`, and say how many of each a class can have.
 
-**A:** Make `Student implements Comparable<Student>` with `compareTo` comparing IDs, since that is the single natural order. Write two separate classes implementing `Comparator<Student>`, one comparing GPA and one comparing last name, and pass instances of them when an alternate order is needed. Rationale: a class has only one `compareTo`, so it has only one natural order, but it can have arbitrarily many Comparators.
+*A:* `Comparable` means "I can compare myself to another object of my type" via `int compareTo(T other)`; it defines the class's single natural order, so there is exactly one. `Comparator` means "I can tell you how to compare two objects" via `int compare(T x1, T x2)`; it is extrinsic, defined in a separate class, and a type may have arbitrarily many (name, size, speed, etc.).
 
-### 7. Comparable/Comparator vs. Iterable/Iterator
+**7. Comparable/Comparator vs Iterable/Iterator.**
 
-**Q:** Is the relationship between `Comparable` and `Comparator` analogous to that between `Iterable` and `Iterator`? Give the method signatures to justify your answer.
+*Q:* Is the relationship between `Comparable` and `Comparator` the same as between `Iterable` and `Iterator`? Explain.
 
-**A:** No. `Iterable` produces an `Iterator` (`Iterator<T> iterator()`), and the `Iterator` then feeds objects (`boolean hasNext()`, `T next()`), so they are a factory/product pair. `Comparable` (`int compareTo(T other)`, "I can be compared to another object") and `Comparator` (`int compare(T x1, T x2)`, "I can tell you how to compare two objects") are two independent mechanisms for ordering, one intrinsic and one extrinsic; neither produces the other.
+*A:* No. An `Iterable` **produces** an `Iterator` (`Iterator<T> iterator()`), and the `Iterator` then feeds out objects (`hasNext`, `next`). A `Comparable` does **not** produce a `Comparator`; it answers comparison queries directly. The English parallel in the names is misleading.
 
-### 8. Python vs. Java mechanism
+**8. Python vs Java philosophy.**
 
-**Q:** In Python, `max(doglist)` works if `Dog` defines `__gt__`, and `max(doglist, key=name_len)` works by passing a function. Name the mechanism each corresponds to, and state what Java uses in each case.
+*Q:* How does Python let you customize how `max` picks its answer, and how does Java do the equivalent?
 
-**A:** `__gt__` is **operator overloading**, a form of polymorphism; `key=name_len` is **function passing**. Java uses **subtype polymorphism** for both: `implements Comparable<Dog>` with `compareTo` for the natural order, and a class implementing `Comparator<Dog>` with `compare` (an *object* passed as the second argument to `Collections.max`) for alternate orders. Java has no operator overloading at all, and although Java lambdas allow function passing, idiomatic 61B Java does not use them.
+*A:* Python has two options: overload `__gt__` so the universal `>` operator works on your type (operator overloading), or pass a `key` function to `max` (function passing). Java has no operator overloading, and idiomatic Java avoids explicit function passing; instead it uses **subtype polymorphism**: implement `Comparable` for the natural order, or package an alternate order inside a `Comparator` object and pass that object to `Collections.max`.
 
-### 9. Where does dynamic dispatch happen?
+**9. Define subtype polymorphism.**
 
-**Q:** `Collections.max` was compiled long before `Dog` was ever written. How can its `items[i].compareTo(items[maxDex])` call run `Dog`'s code?
+*Q:* What are the three ingredients of subtype polymorphism as described in lecture?
 
-**A:** Subtype polymorphism. `max`'s code is type-checked against the supertype `Comparable`, which guarantees a `compareTo` exists. At **runtime**, Java selects the method implementation based on the actual (dynamic) type of the invoking object, so `Dog`'s overriding `compareTo` body runs.
+*A:* (i) A supertype (e.g. the `Comparable` interface) specifies a capability via an abstract method. (ii) A subtype (e.g. `Dog`) overrides that method. (iii) Java decides at **runtime**, based on the actual type of the invoking object, which implementation to execute.
 
-### 10. Naming convention for a shared comparator
+**10. Why does `compareTo` return `int` rather than `boolean`?**
 
-**Q:** Rewrite `Collections.max(dogs, new Dog.NameComparator())` so a fresh comparator is not built at each call site.
+*Q:* Explain the design choice.
 
-**A:** Add `public static NameComparator NAME_COMPARATOR = new NameComparator();` to `Dog`, then call `Collections.max(dogs, Dog.NAME_COMPARATOR);`. The all-caps name is the usual convention for such a static constant.
+*A:* A single `int` encodes all three possible outcomes (less than, equal to, greater than) in one method. Python needs separate `__gt__`, `__lt__`, `__le__`, `__ge__` methods; Java gets by with one, and the caller tests the sign for whichever question it cares about.
+
+**11. Why `compareTo(Dog)` but `equals(Object)`?**
+
+*Q:* Explain the asymmetry.
+
+*A:* `equals` is called by all kinds of library code between arbitrary, unrelated types, so it must accept any `Object` and be able to answer "not equal." Comparison is conventionally between a type and itself, since ordering unrelated types is usually meaningless. You *could* write `implements Comparable<Object>`, but it is not idiomatic.
 
 ---
 
 ## Summary
 
-- **Polymorphism** = "the same programming interface for differing underlying forms." Two ways to tell a generic routine how to compare: polymorphism, or function passing.
-- **Python** uses both: `__gt__` (operator overloading) for the intrinsic order, and `key=` functions (function passing) for alternate orders. Python is **duck typed**; no capability is ever declared.
-- **Java** has **no operator overloading** and idiomatically does not use function passing (61B never teaches Java lambdas). It uses **subtype polymorphism** for both jobs. To give a class a capability in Java, **implement an interface**.
-- **Subtype polymorphism**: a supertype declares the capability, a subtype overrides the abstract method, and Java picks the implementation **at runtime** from the object's actual type.
-- **`Comparable<T>`**: "I can be compared to another object." One method, `int compareTo(T o)`, returning **negative / zero / positive** as `this` is less than / equal to / greater than `o`. Only the sign is contractual.
-  - `Dog implements Comparable<Dog>` with `return size - uddaDog.size;` is the clean, idiomatic version, and it makes `Collections.max(dogs)` work.
-- **Natural order** = the order implied by `compareTo`. Exactly one per class.
-- **`Comparator<T>`**: "I can tell you how to compare two objects." Method `int compare(T o1, T o2)`. Implemented by a *separate* class, so a class can have many (`NameComparator`, `SizeComparator`, `SpeedComparator`, ...).
-  - `Collections.max(dogs, new Dog.NameComparator())`; the second argument is an **object** of type `Comparator<Dog>`. A pre-made `public static NameComparator NAME_COMPARATOR` avoids repeated instantiation.
-  - `NameComparator.compare` delegates to `String`'s own `compareTo`.
-- **Compile-error rules**: missing `compareTo` while claiming `implements` breaks the **implementing class**; missing `implements` while having the method breaks the **call site** (unless `@Override` is present, which breaks the class instead). `@Override` turns silent mistakes into local compile errors.
-- **Comparable/Comparator are not Iterable/Iterator.** Iterable *produces* an Iterator; Comparable and Comparator are independent alternatives (intrinsic vs. extrinsic ordering).
-- **Style**: name intermediate values with variables, factor repeated non-obvious math (`wrapIndex`) into helpers, keep spacing consistent, use camelCase. Mandatory a bit after the midterm.
-- **Scope**: not on Midterm 1, but essential background for TreeMaps, TreeSets, and Priority Queues.
+- **Polymorphism** = "the same programming interface for differing underlying forms." **Function passing** = handing a function to another function as an argument. Python uses both; idiomatic Java leans overwhelmingly on polymorphism.
+- Python compares via **operator overloading** (`__gt__` backing the universal `>`) and via **key functions** (`max(doglist, key=name_len)`). Python is **duck typed**: no declaration required.
+- **Java has no operator overloading.** To give a class a capability, you **implement an interface**.
+- **`Comparable<T>`** has one method, `int compareTo(T o)`: negative / zero / positive as `this` is less than / equal to / greater than `o`. Implementing it defines the class's **natural order** (for `Dog`, size). There is exactly one natural order per class.
+- The **sign** is all that is guaranteed, never a specific magnitude. This is why `return size - uddaDog.size;` is the common idiom, and why `"Frank".compareTo("Zeke")` returning `-20` is perfectly correct.
+- Once `Dog implements Comparable<Dog>`, `Collections.max(dogs)` works. Library code written years before `Dog` existed calls `compareTo`, and Java dispatches to your implementation at **runtime**. That is **subtype polymorphism**: supertype specifies, subtype overrides, runtime dispatches.
+- **Compilation is per-file and happens before execution.** A file "fails to compile" when something is wrong *inside it*. Your code can never break `Collections.java` or `Comparable.java`.
+  - Missing `compareTo` with the `implements` clause present: **`Dog.java`** breaks (broken promise).
+  - Missing `implements` with `compareTo` present: **`DogLauncher.java`** breaks (passing non-`Comparable`s); `Dog.java` is legal unless `@Override` remains, in which case it breaks too.
+  - Java does not duck type interfaces: having the method is not enough, you must **declare** the interface.
+- **`Comparator<T>`** has `int compare(T o1, T o2)` and defines an order **extrinsically**, from a separate class. A type may have many: `NameComparator`, `SizeComparator`, `SpeedComparator`.
+- A nested `Comparator` class must be **`static`**, since it need not be tied to any instance of the enclosing class. Idiomatically, expose it as an ALL_CAPS static constant: `public static NameComparator NAME_COMPARATOR = new NameComparator();`, then `Collections.max(dogs, Dog.NAME_COMPARATOR)`.
+- Implement name ordering by delegating to `String`'s own `compareTo`: `return a.name.compareTo(b.name);`. Relational operators do not work on `String`.
+- **Comparable/Comparator is not analogous to Iterable/Iterator.** `Iterable` *gives you* an `Iterator`; `Comparable` does **not** give you a `Comparator`, it gives answers directly.
+- Out of scope but mentioned: Java **lambdas** (`Comparator<Dog> dc = (d1, d2) -> d1.name.compareTo(d2.name);`) and streams. Not taught, not examined.
+- Style takeaways from the announcements: name your intermediate values (the JIT compiler makes the cost negligible), hide repeated non-obvious arithmetic behind helpers like `wrapIndex`, and keep spacing and camelCase consistent. Style becomes mandatory a bit after the midterm.
+- **This lecture is not in scope for Midterm 1**, but is important groundwork for TreeMaps, TreeSets, and priority queues later in the course.
