@@ -1,222 +1,225 @@
-<!-- Fri, Sep 25, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Fri, Sep 25, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 13: Asymptotics I
 
-This lecture is the pivot point of CS 61B: up to now we have mostly cared about *programming cost* (how long code takes to write, read, and maintain), and from here to the end of the course we care about *execution cost* (how much time and memory a program uses when it runs). The core question is: as the size of the input grows, what happens to the runtime? Rather than trying to compute an exact runtime (which depends on the machine, the compiler, the data, and a hundred other things), we characterize the *order of growth* of the runtime: we ignore low-order terms and ignore multiplicative constants, so that `8N`, `N`, and `N + 500` all collapse to the same answer, "grows like N." The lecture gives a mechanical (and deliberately tedious) recipe (count every operation in terms of N), then shows the shortcut that makes it practical (pick one representative operation as a *cost model* and count only that). Finally, it formalizes "order of growth" as **Big-Theta** (Θ), an "equals"-like statement that pins a function between two constant multiples of a simpler function for large N, and introduces **Big O** as the "less than or equal" variant used for upper bounds. The punchline, stressed on the slides as "extremely important," is that for very large N the highest-order term dominates no matter what the hardware-dependent constants are.
+## Overview
+
+This lecture opens the second phase of CS 61B: instead of asking "how expensive is this code to *write* and maintain?" we start asking "how expensive is this code to *run*?" The motivating problem is deciding, rigorously, why `dup2` (scan a sorted array and compare each element to its neighbor) is better than `dup1` (compare every possible pair). A raw answer like "it took 0.3 seconds" is useless because it depends on the machine and on the particular input, so we build a characterization that is machine-independent, input-robust, mathematical, and short. The tool is the **order of growth** of a function: take the function, throw away low-order terms, throw away multiplicative constants, and keep the shape. Formally this is written with **Big Theta**, `R(N) ∈ Θ(f(N))`, which is just set membership: `R` belongs to the family of functions that grow like `f`. The lecture builds this bottom-up (intuition from graphs, then the order-of-growth rule, then the formal two-sided-bound definition with its geometric reading), then comes back to code: count operations in a table, restrict to the **worst case**, argue that whatever the per-operation times are the largest term dominates, and conclude `dup1` has worst-case runtime in `Θ(N²)` while `dup2` is in `Θ(N)`. Because the tedious counting table is overkill, the lecture introduces the **cost model**: pick one representative operation deep inside the loops and count only that. Finally, the table of runtimes across orders of growth shows why this matters at all: for `N = 100,000`, linear is about a second, `N²` is hours, `N³` is decades, and exponential is effectively never.
+
+A note on sources: the posted slide deck is the Spring 2026 deck (footers say "Lecture 12," and it is flagged as not yet updated), and the instructor rebuilt the live lecture that morning around `dup1`/`dup2` instead of the deck's `countEvens`. Both sets of examples are covered below. **Big O was on the slides but was not reached in lecture** and was explicitly deferred to the next lecture; it is included here, marked, because the slides are fair game.
 
 ---
 
 ## Key Concepts
 
-### Two flavors of efficiency
+### 1. Two flavors of efficiency
 
-The slides open with the line "An engineer will do for a dime what any fool will do for a dollar," then split efficiency in two:
+"An engineer will do for a dime what any fool will do for a dollar."
 
-- **Programming cost**: how long it takes to *develop* the program, and how easy it is to read, modify, and maintain. The slides emphasize this is more important than you might think, because the majority of software cost is maintenance, not development. This is what the course has focused on so far (interfaces, inheritance, generics, testing) and will revisit later.
-- **Execution cost**: how much *time* the program takes to execute and how much *memory* it requires. This is the subject from today until the end of the course.
+- **Programming cost**: how long it takes you to develop the program, and how easy it is to read, modify, and maintain. The majority of software cost is in *maintenance*, not initial development. This was the focus of the course so far, and the lecture notes it will be revisited later (including a guest lecture on agent-assisted programming).
+- **Execution cost**: how much *time* your program takes to run and how much *memory* it needs. This is the subject from here to the end of the course.
 
-Asymptotics is the tool for reasoning about execution cost in a machine-independent way.
+### 2. The motivating question: `dup1` vs `dup2`
 
-### "How long does this take?" is the wrong question
+Given a **sorted** `int[]`, does it contain duplicates?
 
-Consider the lecture's running example:
+- `dup1`: check every possible pair `(i, j)` with `j > i`.
+- `dup2`: check only adjacent pairs `(i, i+1)`. This is correct *because the array is sorted*: equal values must be adjacent.
 
-```java
-public static void countEvens(int[] numbers) {
-    int evens = 0;
-    for (int i = 0; i < numbers.length; i++) {
-        if (numbers[i] % 2 == 0) {
-            evens += 1;
-        }
-    }
-    IO.println("Number of evens: " + evens);
-}
+Intuitively `dup2` is better because each element only consults one neighbor instead of all later elements. But the lecture pushed harder with two student-answered questions:
+
+- Is `dup2` *always* much better? No. On a tiny array they are comparable, and if the duplicate pair is at the very front (e.g. `[-3, -3, ...]`) both return almost immediately.
+- So the characterization we want must deliberately ignore the lucky, cheap cases and focus on the cases where the algorithms actually have to do work, which is exactly where they differ. That motivates the **worst case** choice later.
+
+### 3. Runtime depends on the machine and on the input
+
+If someone asks how long `countEvens` takes, the honest answer has three parts:
+
+1. It depends how fast the computer is.
+2. It depends on the size of the array.
+3. It does some work per item, so the runtime "grows like `N`."
+
+Points 1 and 2 are precisely the things we want to abstract away (point 1 entirely, point 2 by making `N` the variable). What survives is the *shape* in point 3.
+
+### 4. Order of growth: the two simplifications
+
+For a one-variable function `Q(N)`, the order of growth is what you get after:
+
+- **Ignoring low-order terms.** As `N` gets large, smaller terms become negligible. `3N³ + N² → 3N³`.
+- **Ignoring multiplicative constants.** `3N³ → N³`. Also `8N` grows the same way `N` does.
+
+Two warnings from lecture:
+
+- You drop *multiplicative constants only*. In `Ne^N + N` you may not drop the leading `N`, because `N` is not a constant. The answer is `Ne^N`, not `e^N`. (If you dropped non-constant factors you could "simplify" `N⁴` to `N³`, which is obviously wrong.)
+- Keeping the constant, as in `3N³`, is a legitimate but different convention (tilde notation). It is not what this course uses.
+
+### 5. Growth-rate intuition, built from graphs
+
+The lecture demonstrated this live by plotting `100,000N`, `N²`, `N³`, and `3N³ + N²` and then zooming out.
+
+- At `N = 50`, `100,000N` is already about `5 × 10⁶` and dwarfs `N²`. Small-`N` behavior is misleading.
+- Zoom out and the parabola crosses the line and never looks back. Zoom out more and the cubics cross the parabola.
+- Zoom out far enough and `100,000N` and `N²` are visually pinned to the x-axis: they have become irrelevant.
+- `N³` and `3N³ + N²` keep a fixed ratio forever. One is always bigger, but it never pulls away. **That is what "grows at the same rate" means.** (A calculus-flavored way to see it: look at the limit of the ratio of the two functions as `N → ∞`. The instructor noted the limit-based definition is a valid alternative to the one taught here.)
+
+Student poll result on "which grows fastest": roughly 3% / 6% / 39% / 90% across the four functions, with the plurality view picking only `3N³ + N²`, and a minority correctly picking both cubics as tied.
+
+### 6. Why asymptotics, not stopwatches
+
+We care about very large `N` because the real workloads are large: billions of interacting particles in a materials simulation, billions of social network users, billions of logged transactions, billions of bytes of video, millions of tokens through an attention mechanism. Algorithms that scale well (look like lines) beat algorithms that scale poorly (look like parabolas).
+
+The `glorp` example from the slides: `glorp1` takes `2N²` operations, `glorp2` takes `500N`. For small `N`, `glorp1` is faster, but as the dataset grows the parabola falls farther and farther behind.
+
+(The instructor's aside on attention using "millions" of tokens while other examples use "billions" is exactly this effect: a quadratic mechanism cannot be pushed to billions.)
+
+The runtime table (from Kleinberg & Tardos, *Algorithm Design*), for `N = 100,000` under the slide's assumptions:
+
+| order of growth | time to solve `N = 100,000` |
+| --- | --- |
+| `N` | about a second |
+| `N log N` | still very feasible |
+| `N²` | about 3 hours |
+| `N³` | about 32 years |
+| `2^N`, `N!` | "very long time," defined as more than `10²⁵` years |
+
+Two consequences drawn in lecture: improving `N³` to `N²` on such a problem turns 32 years into 3 hours, and the hopelessness of exponential work is *why cryptography works at all* (a `2^N` algorithm on `N = 100` on a slow machine needs on the order of `10¹⁷` years). Much of theoretical CS is about moving problems leftward in that table, and quantum computing is largely about moving specific problems leftward.
+
+### 7. Big Theta is just "order of growth," formalized
+
+If `R(N)` has order of growth `f(N)`, we write `R(N) ∈ Θ(f(N))`.
+
+The `∈` is literal set membership. `Θ(N⁴)` is the *set of all one-variable functions whose order of growth is `N⁴`*, an infinite family; `N³ + 3N⁴` is one member of it. Examples from the slides:
+
+| function `R(N)` | order of growth | Big Theta |
+| --- | --- | --- |
+| `N³ + 3N⁴` | `N⁴` | `Θ(N⁴)` |
+| `1/N + N³` | `N³` | `Θ(N³)` |
+| `1/N + 5` | `1` | `Θ(1)` |
+| `Ne^N + N` | `Ne^N` | `Θ(Ne^N)` |
+| `40 sin(N) + 4N²` | `N²` | `Θ(N²)` |
+
+Notes from lecture on this table: for `1/N + 5` the dominant piece is the constant `5`, and after dropping the multiplicative constant the order of growth is `1`. `1/N` by itself is in `Θ(1/N)`. And `40 sin(N)` is pure bounded noise (range `[-1, 1]` scaled by 40), so it cannot affect the order of growth of anything polynomial.
+
+Crucially: **switching from the words "order of growth" to the symbol `Θ` does not change how you analyze code at all.** You never need to produce `k1` or `k2` when analyzing a program.
+
+A poll asked which of several functions were in `Θ(x²)`; three of the listed functions were, and the class got about 97% right. The takeaway the instructor stressed is that this is a question you must not miss.
+
+### 8. The formal definition and its geometric meaning
+
+`R(N) ∈ Θ(f(N))` means there exist positive constants `k1` and `k2` such that
+
+```
+k1 · f(N)  ≤  R(N)  ≤  k2 · f(N)
 ```
 
-If someone asks "how long does `countEvens` take to run?", any honest answer has to admit:
+for all `N` greater than some `N0` (that is, for all sufficiently large `N`).
 
-- Runtime depends on **how fast the computer is**. A 2005 laptop and a 2026 server give wildly different numbers for identical code.
-- Runtime depends on the **size of the array**. There is no single number; there is a *function* of the input size.
-- The code does some fixed amount of work **for each item in the array**, so the runtime "grows like N," where N is the length of `numbers`.
+Geometrically: draw a "small" copy of `f` and a "big" copy of `f`. `R` is eventually sandwiched between them forever. In the lecture's picture for `R(N) = 40 sin(N) + 4N²` with `f(N) = N²`, `k1 = 3` and `k2 = 5`: near the origin `R` may wiggle outside the band, but past some critical `N0` (the demo showed about 5.48) it stays inside no matter how far you zoom out. The specific value of `N0` carries no meaning; all that matters is that one exists.
 
-That last statement is the useful one. It is true on any machine, in any decade, for any array contents. That is what makes order of growth the right abstraction: we throw away exactly the parts of the answer that depend on things we do not control, and keep the part that describes the algorithm.
+"What does it mean to grow like `N²`? It means you have a small `N²` below you and a big `N²` above you, and you are always in between."
 
-### Defining order of growth
+A student asked whether the upper curve is "worst case" and the lower is "best case." The answer given: not really. They are upper and lower *bounds on a single function*; best case and worst case are a separate idea (which input you feed the algorithm). Conflating the two is the root of most misuse of this notation, and the instructor flagged that "most people use Big O incorrectly," promising to return to it.
 
-**Order of growth answers: as N (the size of the input) grows, what happens to the runtime of the algorithm?**
+Historical note from lecture: the notation convention comes from Donald Knuth's 1970s paper ("after discussing this problem with people for several years, I have concluded that the following definitions will be useful..."), and **Big Theta was suggested to Knuth by Bob Tarjan**.
 
-Two simplifications make this precise and usable:
+### 9. From a table of operation counts to a single runtime function
 
-1. **Focus on behavior as N gets large, so ignore low-order terms.** In `countEvens`, the time to initialize `evens` and the time to print the result are *constant*: they do not change when the array gets bigger. As N grows, that fixed overhead becomes negligible compared to the N units of loop work. Terms that grow more slowly get swamped.
+This is the step the instructor called "extremely important, make sure you understand it."
 
-2. **Ignore multiplicative constants.** `8N` grows in the same *way* that `N` does: double N and both double. The factor of 8 might come from the loop body doing eight machine operations instead of one, or from a slower CPU, neither of which tells you anything about the algorithm. So `8N`, `N/2`, and `500N` all have order of growth `N`.
+An operation-count table gives, for each `N`, a *tuple* of numbers, not a runtime. To convert it to a runtime function you assign a per-operation time: suppose `i = 0` costs `α` nanoseconds, `j = i + 1` costs `β`, each `<` costs `γ`, each increment `δ`, each `==` costs `ε`, each array access `ζ`. Then the total time is a sum like
 
-Applying both to `countEvens`: **order of growth is N**, which has the concrete consequence that **if N doubles, runtime doubles**.
+```
+α · 1 + β · (count of j = i+1) + γ · (count of <) + δ · (...) + ...
+```
 
-### Counting operations (the tedious approach)
+which for `dup1` is a polynomial whose biggest term is a constant times `N²`. **For very large `N` that term dominates regardless of the values of `α, β, γ, δ, ε, ζ`.** So the Θ class is determined by the counting table alone, and the unknown hardware constants never matter.
 
-The mechanical way to find order of growth is to count how many times each operation could execute, in terms of N (where N is `numbers.length`):
+The slides give the same argument abstractly:
 
 | operation | count |
-|---|---|
-| `evens = 0` | 1 |
-| `i = 0` | 1 |
-| `i < numbers.length` | N + 1 |
-| `i++` | N |
-| `% 2` | N |
-| equals (`==`) | N |
-| `evens += 1` | 0 to N |
-| `IO.println` | 1 |
+| --- | --- |
+| `<` | `100N² + 3N` |
+| `>` | `2N³ + 1` |
+| `&&` | `5,000` |
 
-A few things to notice about this table, since each one is a spot where students slip:
+Total time `= α(100N² + 3N) + β(2N³ + 1) + 5000γ` nanoseconds, so the runtime is in `Θ(N³)` because the `2βN³` term eventually swamps everything else.
 
-- The loop *condition* runs **N + 1** times, not N: it is checked once before each of the N iterations, plus one final time that fails and exits the loop.
-- `i++` runs N times (once at the end of each iteration).
-- `evens += 1` is a **range, 0 to N**, because it only runs when the current element is even. The count depends on the *contents* of the array, not just its size. An all-odd array gives 0; an all-even array gives N. (This is the seed of "best case vs worst case," which the summary slide gestures at by noting we often, but not always, consider the worst case count.)
-- Every entry is either a constant or something that grows like N. The whole table is "a bunch of constants plus a constant number of things proportional to N," which is why the answer is N.
+Honest caveat stated in lecture: real machines have branch prediction, caching, and so on, so "each operation costs a fixed number of nanoseconds" is a simplified mental model. It is close enough, and it works out in the end.
 
-### Cost models: the shortcut
+### 10. Worst case
 
-Building that whole table for every program would be unbearable. The fix: **choose a representative operation as your cost model, and use the count of that one operation as the order of growth.** The slides label all of the table's operations "all reasonable cost models" precisely because every one of them (once you strip constants and low-order terms) gives the same answer: N.
+An algorithm's runtime is not a function of `N` alone; it also depends on *which* input of size `N` you get. `dup1` on `[-3, -3, ...]` returns immediately; `dup1` on an array with no duplicates does all the work. That is why the count table entries are ranges (`0 to (N² + N)/2`, etc.).
 
-Choosing `==` as the cost model for `countEvens`: it runs N times, so **order of growth is N**. One row of the table, same conclusion, a fraction of the work.
+The resolution: **throw away the lucky cases and define `R(N)` to be the worst-case runtime over inputs of size `N`.** Justification: when comparing algorithms we usually care about the worst case, and the worst case is exactly where the two algorithms differ. The slides add the caveat "often (but not always) we consider the worst case count," so this is a convention, not a law.
 
-The reason this is legitimate is spelled out in the slide the deck flags as "Extremely important point. Make sure you understand it!" Suppose an algorithm's operation counts are:
+### 11. Cost models
 
-| operation | count |
-|---|---|
-| less than (`<`) | 100N² + 3N |
-| greater than (`>`) | 2N³ + 1 |
-| and (`&&`) | 5,000 |
+Building the whole table is "extremely exhausting" and unnecessary. Instead:
 
-Let `<` take α nanoseconds, `>` take β nanoseconds, and `&&` take γ nanoseconds on whatever machine you have. Total time is:
+> Choose one representative operation as your **cost model**, count only that operation, and take its order of growth as the order of growth of the runtime.
 
-```
-α(100N² + 3N) + β(2N³ + 1) + 5000γ  nanoseconds
-```
+The implicit assumption is that the runtime is proportional to the count of the chosen operation.
 
-For very large N, the `2βN³` term dwarfs all the others **regardless of the values of α, β, and γ**. The hardware constants cannot rescue a cubic term, and cannot sink one either. So the order of growth is **N³**, and you could have gotten there by looking only at the `>` row. Picking the operation that occurs most often (the "representative" one) is enough.
+For `dup1`, which operations are good cost models?
 
-### Why scaling matters
+- `i = 0`: bad, it happens once.
+- `return true`: bad, happens at most once.
+- `j = i + 1`: bad, it is `Θ(N)`, not `Θ(N²)`, so it does not track the runtime.
+- `<`: good.
+- `==`: good.
+- array accesses: good.
 
-In most real settings we care only about asymptotic behavior, that is, what happens for very large N. The slides list the motivating cases:
+The pattern: **the good cost models are exactly the ones whose counts came out `Θ(N²)`, that is, the operations buried deepest in the loops.** How do you find them? Intuition, by asking what is executed over and over in the innermost loop. The warning: with sufficiently clever code the operation you *think* is representative may not be, so this takes care. (Term borrowed from Sedgewick and Wayne, *Algorithms*, 4th edition.)
 
-- Simulation of billions of interacting particles.
-- A social network with billions of users.
-- Logging of billions of transactions.
-- Encoding of billions of bytes of video data.
+### 12. The triangle trick (preview of the next lecture)
 
-Algorithms that scale well (whose runtime curves "look like lines") have better asymptotic behavior than algorithms that scale poorly ("look like parabolas"). The lecture's illustration: suppose `glorp1` takes 2N² operations and `glorp2` takes 500N operations to glorpify N items. For *small* N, `glorp1` is faster (2N² < 500N whenever N < 250). But as the dataset grows, the parabolic algorithm falls farther and farther behind, and the gap keeps widening. The constant 500 buys `glorp2` nothing in the long run; the exponent is what matters.
+Rather than summing a series, draw the grid of all `(i, j)` pairs and mark the ones the nested loop actually visits. For `dup1`/`countDuplicates` the marked cells form a right triangle with legs of about `N`, so the count is about `N² / 2`, which is in `Θ(N²)`. The instructor explicitly said he would restart the next lecture from this picture.
 
-The deck also shows a table from Kleinberg & Tardos of runtimes for various orders of growth, with the note that the effect is **dramatic**, and often determines whether a problem can be solved *at all* rather than merely how fast it is solved.
+### 13. Big O (on the slides, deferred in lecture)
 
-### Formalizing: Big-Theta
+Informally, `Θ` behaves like "equals" and `O` behaves like "less than or equal."
 
-Given a function Q(N), apply the two simplifications (drop low-order terms, drop multiplicative constants) to get its order of growth. Example: Q(N) = 3N³ + N² has order of growth N³.
+`R(N) ∈ O(f(N))` means there exists a positive constant `k2` such that `R(N) ≤ k2 · f(N)` for all `N` greater than some `N0`. Only the upper bound is required.
 
-The lecture's exercise table, with answers:
-
-| function R(N) | order of growth |
-|---|---|
-| N³ + 3N⁴ | N⁴ |
-| 1/N + N³ | N³ |
-| 1/N + 5 | 1 |
-| Ne^N + N | Ne^N |
-| 40 sin(N) + 4N² | N² |
-
-Worth pausing on three of these:
-
-- **1/N + N³ → N³**: the 1/N term *shrinks* toward 0 as N grows, so it is about as low-order as a term can be.
-- **1/N + 5 → 1**: nothing grows here at all. The function tends to the constant 5, and "constant" is written as order of growth **1**, not 5 (constants are dropped).
-- **40 sin(N) + 4N² → N²**: sin(N) has range [-1, 1], so `40 sin(N)` is trapped between -40 and 40 forever. A bounded wiggle is low-order compared to N².
-
-**Big-Theta notation** is just a symbol for this. If R(N) has order of growth f(N), we write **R(N) ∈ Θ(f(N))**. So:
-
-- N³ + 3N⁴ ∈ Θ(N⁴)
-- 1/N + N³ ∈ Θ(N³)
-- 1/N + 5 ∈ Θ(1)
-- Ne^N + N ∈ Θ(Ne^N)
-- 40 sin(N) + 4N² ∈ Θ(N²)
-
-The formal definition: **R(N) ∈ Θ(f(N))** means there exist positive constants k₁ and k₂ such that
+Consequence: all of the following are true simultaneously.
 
 ```
-k1 * f(N)  <=  R(N)  <=  k2 * f(N)
+N³ + 3N⁴ ∈ Θ(N⁴)
+N³ + 3N⁴ ∈ O(N⁴)
+N³ + 3N⁴ ∈ O(N⁶)
+N³ + 3N⁴ ∈ O(N!)
+N³ + 3N⁴ ∈ O(N^(N!))
 ```
 
-for all values of N greater than some N₀ (i.e. for very large N). In words: R(N) is sandwiched between two constant multiples of f(N), eventually and forever. The "for all N greater than some N₀" clause is what lets us ignore small-N misbehavior (like `glorp1` beating `glorp2` below N = 250, or `40 sin(N) + 4N²` dipping around near the origin).
+| | informal meaning | family | some members |
+| --- | --- | --- | --- |
+| `Θ(f(N))` | order of growth *is* `f(N)` | `Θ(N²)` | `N²/2`, `2N²`, `N² + 38N + N` |
+| `O(f(N))` | order of growth is *at most* `f(N)` | `O(N²)` | `N²/2`, `2N²`, `lg(N)` |
 
-The lecture's worked instances of the definition:
-
-- **40 sin(N) + 4N² ∈ Θ(N²)** with f(N) = N², k₁ = 3, k₂ = 5, since `3N² <= 40 sin(N) + 4N² <= 5N²` for large enough N (the ±40 wiggle is eventually buried by the N² slack on either side).
-- The **countEvens-then-countDuplicates** example: runtime is c₁N + c₂N², and `c2*N² <= c1*N + c2*N² <= (c1 + c2)*N²` for N ≥ 1, giving Θ(N²).
-- The challenge problem: R(N) = (4N² + 3N·ln(N)) / 2. Answer: **f(N) = N², k₁ = 1, k₂ = 3**. (R(N) = 2N² + 1.5N·ln(N); the N·ln(N) term grows more slowly than N², so R is eventually between 1·N² and 3·N².)
-
-The lecture is emphatic that this formalism **does not change how you analyze code at all**. You do not go hunting for k₁ and k₂ when analyzing a loop. The only difference is that you write the Θ symbol anywhere you previously wrote "order of growth."
-
-### Big O
-
-Where Big-Theta can informally be thought of as "equals," **Big O can informally be thought of as "less than or equal."** Big O gives an *upper bound* on the order of growth.
-
-All of the following are true simultaneously:
-
-- N³ + 3N⁴ ∈ Θ(N⁴)
-- N³ + 3N⁴ ∈ O(N⁴)
-- N³ + 3N⁴ ∈ O(N⁶)
-- N³ + 3N⁴ ∈ O(N!)
-- N³ + 3N⁴ ∈ O(N^(N!))
-
-The formal definition drops the lower bound: **R(N) ∈ O(f(N))** means there exists a positive constant k₂ such that
-
-```
-R(N)  <=  k2 * f(N)
-```
-
-for all values of N greater than some N₀. Example from the slides: 40 sin(N) + 4N² ∈ O(N⁴) with R(N) = 40 sin(N) + 4N², f(N) = N⁴, and k₂ = 1.
-
-Thinking of these as **families** helps:
-
-| | Informal meaning | Family | Family members |
-|---|---|---|---|
-| **Big Theta** Θ(f(N)) | Order of growth **is** f(N). | Θ(N²) | N²/2, 2N², N² + 38N + N |
-| **Big O** O(f(N)) | Order of growth is **less than or equal to** f(N). | O(N²) | N²/2, 2N², lg(N) |
-
-Note that `lg(N)` belongs to the O(N²) family but *not* the Θ(N²) family: it is bounded above by N² but grows far more slowly, so it fails the lower bound k₁N² ≤ lg(N). Θ is the more informative statement; O is weaker but sometimes all you can honestly say. The slides promise we will see why Big O is practically useful in the upcoming Disjoint Sets lecture.
+Visualization example from the slides: `40 sin(N) + 4N² ∈ O(N⁴)` with `f(N) = N⁴` and `k2 = 1` (only a ceiling is needed, and a very loose ceiling is still valid). The slides promise that Big O becomes practically useful in the Disjoint Sets lecture.
 
 ---
 
 ## Definitions
 
-**Programming cost**: The cost of developing and maintaining software: how long it takes to write, and how easy it is to read, modify, and maintain. The majority of software cost is maintenance, not development.
-
-**Execution cost**: The cost of running the program: how much time it takes to execute and how much memory it requires.
-
-**N**: A property of the input to a function, often the size of the input (for `countEvens`, the length of the array `numbers`). All runtime analysis is expressed in terms of N.
-
-**R(N)**: The runtime of a code snippet expressed as a function of N.
-
-**Order of growth**: The answer to "as N grows, what happens to the runtime of the algorithm?", obtained by taking R(N) and (a) ignoring low-order terms and (b) ignoring multiplicative constants. Example: 3N³ + N² has order of growth N³.
-
-**Low-order term**: A term in R(N) that grows more slowly than the dominant term (including constants and terms that shrink, like 1/N, or that stay bounded, like 40 sin(N)). Low-order terms become negligible as N grows and are discarded.
-
-**Multiplicative constant**: A constant factor multiplying a term. Discarded, because 8N grows in the same way that N does.
-
-**Cost model**: A single representative operation chosen to stand in for total work; the count of that operation, as a function of N, is used as the order of growth. Terminology credited to *Algorithms, 4th edition* by Sedgewick and Wayne.
-
-**C(N)**: The count of how many times the chosen representative operation occurs, as a function of N.
-
-**Asymptotic behavior**: The behavior of a function for very large N; what we almost always care about in practice.
-
-**Big-Theta, R(N) ∈ Θ(f(N))**: Means there exist positive constants k₁ and k₂ such that k₁·f(N) ≤ R(N) ≤ k₂·f(N) for all N greater than some N₀. Informally, "the order of growth of R(N) *is* f(N)"; it behaves like "equals."
-
-**Big O, R(N) ∈ O(f(N))**: Means there exists a positive constant k₂ such that R(N) ≤ k₂·f(N) for all N greater than some N₀. Informally, "the order of growth of R(N) is *less than or equal to* f(N)"; an upper bound.
-
-**N₀**: The threshold beyond which the Θ or O inequalities must hold. Its existence is what lets us ignore small-N behavior entirely.
+- **Programming cost**: the human cost of software, that is, time to develop plus difficulty of reading, modifying, and maintaining code. Most of it is maintenance.
+- **Execution cost**: the machine cost of software, that is, running time and memory usage.
+- **`N`**: a chosen property of the input, usually its size (in these examples, the length of the array).
+- **`R(N)`**: the runtime of a code snippet expressed as a function of `N`. Usually taken to be the *worst-case* runtime over inputs of size `N`.
+- **Asymptotic behavior**: the behavior of a function for very large `N`.
+- **Order of growth of `Q(N)`**: the function obtained from `Q(N)` by discarding low-order terms and discarding multiplicative constants.
+- **Low-order term**: a term whose contribution becomes negligible relative to another term as `N → ∞` (for example `N²` inside `3N³ + N²`).
+- **Multiplicative constant**: a constant factor multiplying a term (the `3` in `3N³`). Non-constant factors such as the `N` in `Ne^N` may *not* be dropped.
+- **Big Theta**: `R(N) ∈ Θ(f(N))` iff there exist positive constants `k1`, `k2` and a threshold `N0` such that `k1·f(N) ≤ R(N) ≤ k2·f(N)` for all `N > N0`. Equivalently, `R` has order of growth `f`. `Θ(f(N))` is a *set* of functions.
+- **Big O**: `R(N) ∈ O(f(N))` iff there exists a positive constant `k2` and a threshold `N0` such that `R(N) ≤ k2·f(N)` for all `N > N0`. An upper bound only. (Slides; not reached in lecture.)
+- **`N0`**: the threshold past which the bounds must hold. Its particular value is meaningless; only its existence matters.
+- **Cost model**: a single representative operation chosen to stand in for the whole runtime; you count only that operation, assuming runtime is proportional to its count.
+- **Worst case**: the most expensive input of a given size `N`; used to pin `R(N)` down to a single well-defined function.
 
 ---
 
 ## Worked Examples
 
-### Example 1: `countEvens`, order of growth N
+### Example 1: `countEvens` (the slide deck's running example)
 
 ```java
 public static void countEvens(int[] numbers) {
@@ -230,25 +233,34 @@ public static void countEvens(int[] numbers) {
 }
 ```
 
-**What it does:** walks the array once, testing each element for evenness with `% 2 == 0`, incrementing a counter when the test passes, and printing the total.
+What it does: walk the array once, bump a counter for each even element, print the total. Let `N = numbers.length`.
 
-**Step by step.** Let N = `numbers.length`.
+Full operation count table:
 
-1. Set up: `evens = 0` and `i = 0` each happen exactly once. These are constant work, independent of N.
-2. The loop condition `i < numbers.length` is evaluated N + 1 times: once before each of the N iterations, and once more (returning false) to terminate.
-3. Per iteration: one array access `numbers[i]`, one `% 2`, one `== 0`, one `i++`. Each therefore happens N times in total.
-4. The body `evens += 1` executes somewhere between 0 and N times, depending on the array's contents. This is the only operation whose count depends on the *values* in the array rather than just its length.
-5. `IO.println` runs once.
+| operation | count |
+| --- | --- |
+| `evens = 0` | 1 |
+| `i = 0` | 1 |
+| `i < numbers.length` | `N + 1` |
+| `i++` | `N` |
+| `% 2` | `N` |
+| `== 0` | `N` |
+| `evens += 1` | `0 to N` |
+| `IO.println` | 1 |
 
-**Pointer reasoning in words (extra context: the lecture does not draw boxes here, but connecting to earlier lectures is useful).** `numbers` is a reference variable holding the address of an array object on the heap; passing it to `countEvens` copies the *address*, not the N elements, so the call itself is constant work no matter how large the array is. `numbers[i]` follows that reference and reads the i-th slot, which is a constant-time operation. `numbers.length` reads a field of the array object, also constant time, so the loop condition does not secretly hide a scan.
+Step by step:
 
-**Total:** a handful of constants plus a constant number of N-proportional terms, i.e. something of the form c₁N + c₂. Ignore low-order terms (the constant setup and print), ignore multiplicative constants (c₁), and you get **order of growth N**, that is, **Θ(N)**. Concretely: if N doubles, runtime doubles.
+1. The two initializations and the final print happen once each, so they contribute constants. As `N` grows, the time to initialize `evens` and to print becomes negligible: these are low-order terms.
+2. The loop guard runs `N + 1` times (one extra evaluation to discover it is false and exit). The increment, the `% 2`, and the `== 0` each run `N` times.
+3. `evens += 1` is input-dependent: `0` times if no element is even, `N` times if all are. Worst case `N`.
+4. Every nonconstant entry is `Θ(N)`, so under any reasonable cost model the answer is the same. Pick `==` as the cost model: count is `N`, so the **order of growth is `N`** and the runtime is in `Θ(N)`.
+5. Sanity check in plain language: if `N` doubles, the runtime doubles.
 
-**Via cost model:** pick `==` as the representative operation. C(N) = N. C(N) ∈ Θ(N). Done.
+The slides make the point that `evens = 0`, `i = 0`, `i < numbers.length`, `i++`, `% 2`, `==`, `evens += 1`, and `IO.println` are "all reasonable cost models" in the sense that the counting table is dominated by linear entries; the shortcut is to pick one and count it.
 
----
+(Extra context on box-and-pointer reasoning: `numbers` is a local variable holding a *reference* to an array object on the heap, so each `numbers[i]` is "follow the reference, then index." This is why "array access" appears as its own row in the `dup1` table below. For asymptotics it does not change anything, since following a reference is constant time.)
 
-### Example 2: `count1` vs `count2`, both Θ(N)
+### Example 2: `count1` vs `count2`, one pass or two
 
 ```java
 public static void count1(int[] numbers) {
@@ -285,18 +297,13 @@ public static void count2(int[] numbers) {
 }
 ```
 
-**What they do:** both count evens and odds in the array. `count1` does it in a single pass with an if/else; `count2` does it in two separate passes, one per parity.
+`count1` makes one pass and branches; `count2` makes two separate passes. Picking `%` as the cost model: `count1` does about `N` of them, `count2` does about `2N`. Since we ignore multiplicative constants, `2N` and `N` have the same order of growth.
 
-**Step by step.**
+**Both are `Θ(N)`. If `N` doubles, runtime doubles for both.**
 
-- `count1`: one loop of N iterations. Each iteration does one parity test and exactly one increment (either the `if` branch or the `else` branch fires, never both, never neither). So roughly cN operations.
-- `count2`: two loops, each of N iterations. The first does N parity tests; the second does another N parity tests. So roughly 2cN operations, about twice the work of `count1`.
+This does not mean they are equally fast in wall-clock terms; `count2` plausibly does roughly twice the work. It means they *scale* identically, and scaling is what order of growth measures.
 
-**Both have order of growth N, i.e. Θ(N).** The factor of 2 separating them is exactly the kind of multiplicative constant we throw away. `count2` genuinely does more work, and on a real machine will be measurably slower, but it *scales* identically: doubling N doubles the runtime of both. Asymptotics is a statement about scaling, not about which of two programs wins a stopwatch race at a fixed N.
-
----
-
-### Example 3: `countDuplicates`, order of growth N²
+### Example 3: `countDuplicates` and the triangle
 
 ```java
 public static void countDuplicates(int[] a) {
@@ -312,41 +319,29 @@ public static void countDuplicates(int[] a) {
 }
 ```
 
-**What it does:** examines every *unordered pair* of distinct positions (i, j) with j > i, and counts how many pairs hold equal values. Starting the inner loop at `j = i + 1` (rather than 0) avoids comparing an element to itself and avoids checking each pair twice.
+What it does: for each index `i`, compare `a[i]` against every *later* element `a[j]`, counting matches. It never returns early, so the count is the same for every input of size `N`.
 
-**The intuitive approach:** ask "how many pairs do we check?" and use `==` as the cost model.
+Cost model: `==`. The intuitive question is "how many pairs do we check?"
 
-**The triangle picture (reconstructed from the slide's grid, N = 6).** Imagine a 6x6 grid with i as the row and j as the column. A `==` happens at cell (i, j) only when j > i, so the marks fill the strictly-upper-triangular region:
+For `N = 6`, the visited `(i, j)` cells are (the lecture's grid, reconstructed):
 
-```
-        j = 0   1    2    3    4    5
-i = 0           ==   ==   ==   ==   ==     (5 comparisons)
-i = 1                ==   ==   ==   ==     (4)
-i = 2                     ==   ==   ==     (3)
-i = 3                          ==   ==     (2)
-i = 4                               ==     (1)
-i = 5                                      (0)
-```
+| `i` \ `j` | 0 | 1 | 2 | 3 | 4 | 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **0** | | == | == | == | == | == |
+| **1** | | | == | == | == | == |
+| **2** | | | | == | == | == |
+| **3** | | | | | == | == |
+| **4** | | | | | | == |
+| **5** | | | | | | |
 
-For general N: when i = 0 the inner loop runs N - 1 times, when i = 1 it runs N - 2 times, and so on down to 0.
+Two ways to count the marks:
 
-**Two ways to total it.**
+1. **Exact.** Row `i = 0` has `N - 1` marks, row `1` has `N - 2`, and so on down to `1` and then `0`. So the total is `1 + 2 + ... + (N - 1) = N(N - 1)/2`. (The pairing argument: there are `N` values arranged so that you get `(N - 1)/2` groups of `N`, giving `N(N-1)/2`.)
+2. **The triangle shortcut.** The marks form a right triangle of width about `N` and height about `N`, so the area is about `N²/2`.
 
-*Geometric (fast and good enough):* the marks form a right triangle of legs about N by N, so the count is about the area of that triangle, **~N² / 2**. Halving is a multiplicative constant, so the **order of growth is N²**.
+Either way, `N(N-1)/2 = (N² - N)/2`, drop the low-order `-N/2` and the constant `1/2`, and the **order of growth is `N²`**, that is, runtime `Θ(N²)`.
 
-*Exact (the slide's summation):* the count is
-
-```
-(N - 1) + (N - 2) + ... + 3 + 2 + 1  =  N(N - 1) / 2
-```
-
-The slide justifies this by the classic pairing argument: lay the sum out in a rectangle of dimensions N by N and observe that the terms fill exactly half of it, giving (N - 1)/2 pairs of terms each summing to N, hence N(N - 1)/2. Expanding: N²/2 - N/2. Drop the low-order -N/2 term and the multiplicative 1/2, and the **order of growth is N², i.e. Θ(N²)**.
-
-**Consequence:** if N doubles, runtime roughly *quadruples*.
-
----
-
-### Example 4: `countZerps`, Θ(N²) with a mystery helper
+### Example 4: `countZerps`, when a helper is involved
 
 ```java
 public static void countZerps(int[] a) {
@@ -362,234 +357,241 @@ public static void countZerps(int[] a) {
 }
 ```
 
-**What it does:** structurally identical to `countDuplicates`, except the pair test `a[i] == a[j]` has been replaced by a call to an unknown method `isZerp`.
+Structurally identical to `countDuplicates`, with `==` replaced by an opaque call `isZerp`. The loops visit about `N²/2` pairs, so the order of growth is `N²`, **but only under a stated assumption: `isZerp`'s runtime depends only on its two parameters and not on `N`.** If `isZerp` were itself, say, linear in `N`, the whole thing would be `Θ(N³)`.
 
-**Step by step.** The loop structure is unchanged, so `isZerp` is called N(N - 1)/2 times, which is Θ(N²) calls. If each call costs some constant amount of time, the total is (constant) x Θ(N²), and the constant is discarded.
+The lesson: a method call is not automatically constant time. You must know or assume something about the callee.
 
-**Order of growth is N², assuming that `isZerp`'s runtime depends only on its two parameters and not on N.** That caveat is the entire lesson of this example. `isZerp` takes two `int`s, so there is nothing of size N inside it to scan, and its cost is a constant. But if a helper's runtime did grow with N (say, it took the array and searched it), you could no longer pull its cost out as a constant, and the answer would change. **You cannot analyze a method that calls a helper without knowing the helper's runtime.**
-
----
-
-### Example 5: `count`, sequential composition
+### Example 5: `count`, dropping a low-order term across methods
 
 ```java
 public static void count(int[] numbers) {
-    countEvens(numbers);
-    countDuplicates(numbers);
+    countEvens(numbers);       // Theta(N)
+    countDuplicates(numbers);  // Theta(N^2)
 }
 ```
 
-**What it does:** calls the Θ(N) method, then the Θ(N²) method, on the same array.
+The two calls run in sequence, so the runtime is the *sum*: something like `c1·N + c2·N²`. The `c1·N` term is a low-order term, so drop it. **`count` is `Θ(N²)`.**
 
-**Step by step.** The two calls run one after another, so their costs *add*: R(N) = c₁N + c₂N² for some positive constants c₁ and c₂. Now apply the rules: c₁N is a low-order term next to c₂N², so **drop this low-order term; it doesn't matter as N gets big.** Then drop c₂.
-
-**Order of growth is N², i.e. Θ(N²).**
-
-The slides verify this against the formal Big-Theta definition, with f(N) = N²:
+This is also the slides' worked instance of the formal Θ definition. With `R(N) = c1·N + c2·N²` and `f(N) = N²`:
 
 ```
-c2*N²  <=  c1*N + c2*N²  <=  (c1 + c2)*N²
+c2 · N²   ≤   c1·N + c2·N²   ≤   (c1 + c2) · N²     for all N ≥ 1
 ```
 
-Left inequality: adding the nonnegative c₁N only increases the value. Right inequality: for N ≥ 1 we have N ≤ N², so c₁N + c₂N² ≤ c₁N² + c₂N² = (c₁ + c₂)N². With k₁ = c₂, k₂ = c₁ + c₂, and N₀ = 1, the definition is satisfied.
+so `k1 = c2` and `k2 = c1 + c2` witness `R(N) ∈ Θ(N²)`. The right inequality holds because `c1·N ≤ c1·N²` once `N ≥ 1`.
 
-**General rule this illustrates:** when two code blocks run in sequence, the total order of growth is the *larger* of the two. Only when they are *nested* do the costs multiply.
+### Example 6: `dup1` vs `dup2`, the lecture's live example
 
----
+```java
+public static boolean dup1(int[] a) {
+    for (int i = 0; i < a.length; i += 1) {
+        for (int j = i + 1; j < a.length; j += 1) {
+            if (a[i] == a[j]) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+```
 
-### Example 6: applying the formal definition to 40 sin(N) + 4N²
+```java
+public static boolean dup2(int[] a) {
+    for (int i = 0; i < a.length - 1; i += 1) {
+        if (a[i] == a[i + 1]) {
+            return true;
+        }
+    }
+    return false;
+}
+```
 
-**Claim:** 40 sin(N) + 4N² ∈ Θ(N²), with k₁ = 3 and k₂ = 5.
+Both answer "does this **sorted** array contain a duplicate?" `dup1` checks all pairs; `dup2` relies on sortedness, so duplicates must be adjacent, and checks only neighbors. Both return early on the first match found.
 
-**Reasoning.** Because sin(N) has range [-1, 1], the term `40 sin(N)` never leaves the interval [-40, 40] no matter how large N gets. So:
+**Step 1: count operations.** The lecture did this concretely for `N = 10,000`, stressing that you should recognize these magnitudes as plausible without needing to rederive them, and that off-by-one errors are fine.
+
+`dup1`:
+
+| operation | count for `N = 10,000` | symbolic |
+| --- | --- | --- |
+| `i = 0` | 1 | 1 |
+| `j = i + 1` | 1 to 10,000 | 1 to `N` |
+| `<` | 2 to 50,015,001 | 2 to `(N² + 3N + 2)/2` |
+| increment (`i += 1`, `j += 1`) | 0 to 50,005,000 | 0 to `(N² + N)/2` |
+| `==` | 1 to 49,995,000 | 1 to `(N² - N)/2` |
+| array accesses | 2 to 99,990,000 | 2 to `N² - N` |
+
+Reading the table: the first row is once, `j = i + 1` runs once per outer iteration so it is only linear, and everything that lives inside the inner loop is quadratic. Array accesses are twice the `==` count because `a[i] == a[j]` performs two accesses. The low ends of each range come from returning `true` immediately.
+
+`dup2`:
+
+| operation | count | symbolic |
+| --- | --- | --- |
+| `i = 0` | 1 | 1 |
+| `<` | 1 to 10,000 | 1 to `N` |
+| increment | 0 to 9,999 | 0 to `N - 1` |
+| `==` | 1 to 9,999 | 1 to `N - 1` |
+| array accesses | 2 to 19,998 | 2 to `2(N - 1)` |
+
+Everything here grows like `N`. Again the array-access row is about `2N` because `a[i] == a[i + 1]` does two accesses.
+
+**Step 2: collapse the ranges with the worst case.** Define `R1(N)` as the worst-case runtime of `dup1` and `R2(N)` as the worst-case runtime of `dup2`, so we take the right-hand end of each range (the no-duplicates input).
+
+**Step 3: turn the table into a runtime.** Assign per-operation times `α, β, γ, δ, ε, ζ`. `R1(N)` becomes a polynomial such as
 
 ```
-4N² - 40  <=  40 sin(N) + 4N²  <=  4N² + 40
+R1(N) = α + β·N + γ·(N² + 3N + 2)/2 + δ·(N² + N)/2 + ε·(N² - N)/2 + ζ·(N² - N)
 ```
 
-For the lower bound, we need 3N² ≤ 4N² - 40, i.e. N² ≥ 40, which holds for all N ≥ 7. For the upper bound, we need 4N² + 40 ≤ 5N², i.e. N² ≥ 40 again. So taking N₀ = 7 works, and the definition is satisfied with k₁ = 3, k₂ = 5. (Extra context: the specific value N₀ = 7 is worked out here; the slides only state the constants k₁ = 3 and k₂ = 5 and note the bound holds for large N.)
+whose largest term is a positive constant times `N²`, whatever the per-operation constants are.
 
-The same function is also in **O(N⁴)** with k₂ = 1, since 40 sin(N) + 4N² ≤ N⁴ for large N. That is a true but much weaker statement: an upper bound need not be tight.
+**Step 4: read off the Θ class.**
 
----
+```
+R1(N) ∈ Θ(N²)
+R2(N) ∈ Θ(N)
+```
 
-### Example 7: the "extremely important" operation-count argument
+Class poll on `R1`: about 75% answered `Θ(N²)`.
 
-Given:
+**Step 5: compare.** `Θ(N)` is the better class, because less work means a faster program: better to wait about 100 units of time than about 100² units. This is the formal, machine-independent, input-robust statement that `dup2` beats `dup1`, which is exactly what we set out to produce.
+
+**Step 6: the fast route.** You would never actually build those tables. Pick `==` as the cost model for `dup1`, note the inner loop visits a triangle of `(i, j)` pairs with legs about `N`, conclude about `N²/2` comparisons, so `Θ(N²)`. For `dup2`, `==` happens at most `N - 1` times, so `Θ(N)`. Two lines instead of two tables.
+
+The instructor's analogy for why the tables were worth doing once: exactly modeling your commute by measuring wind, surface friction, and skateboard wheels is absurd overkill, but going through it once tells you which simplifications you are allowed to make.
+
+### Example 7: order of growth drills (slides)
+
+| function | order of growth | reasoning |
+| --- | --- | --- |
+| `N³ + 3N⁴` | `N⁴` | `N⁴` is the bigger term; drop the `3` |
+| `1/N + N³` | `N³` | `1/N` shrinks toward 0 |
+| `1/N + 5` | `1` | the constant `5` dominates; drop the multiplicative constant |
+| `Ne^N + N` | `Ne^N` | `N` is a low-order term; you may *not* drop the leading `N` since it is not a constant |
+| `40 sin(N) + 4N²` | `N²` | `sin(N)` is confined to `[-1, 1]`, so `40 sin(N)` is bounded noise |
+
+Side note raised in lecture: these are just mathematical functions, not runtimes, which is why one of them can take negative values. Runtimes cannot.
+
+### Example 8: the Big Theta challenge (the one time you produce `k1` and `k2`)
+
+Let `R(N) = (4N² + 3N·ln(N)) / 2`. Find a simple `f(N)` with constants `k1`, `k2`.
+
+Step by step:
+
+1. Simplify: `R(N) = 2N² + 1.5·N·ln(N)`.
+2. Which term dominates, `N²` or `N·ln(N)`? Cancel a factor of `N` from each and compare `N` against `ln(N)`. The natural log grows very slowly, `N` grows linearly, so `N²` wins and `N·ln(N)` is the low-order term.
+3. So `f(N) = N²`.
+4. The coefficient on `N²` after simplifying is `2` (the instructor flagged the `4` as a trap, since the whole expression is divided by 2). Therefore you need `k1 < 2` and `k2 > 2`.
+5. Answer: `f(N) = N²`, `k1 = 1`, `k2 = 3`. So `R(N) ∈ Θ(N²)`.
+
+Check the upper bound informally: `2N² + 1.5N·ln(N) ≤ 3N²` requires `1.5N·ln(N) ≤ N²`, which holds once `ln(N) ≤ N/1.5`, true for all large `N`. The lower bound `1·N² ≤ 2N² + 1.5N·ln(N)` holds for all `N ≥ 1`. Other valid answers exist: `k2 = 1,000,000` also works.
+
+The instructor's framing: "this is like eating vegetables," the only time in the course you will produce explicit constants, done so that later runtime analysis rests on something rigorous.
+
+### Example 9: from a count table straight to Θ (slides)
 
 | operation | count |
-|---|---|
-| less than (`<`) | 100N² + 3N |
-| greater than (`>`) | 2N³ + 1 |
-| and (`&&`) | 5,000 |
+| --- | --- |
+| `<` | `100N² + 3N` |
+| `>` | `2N³ + 1` |
+| `&&` | `5,000` |
 
-**Step by step.**
-
-1. Assign unknown per-operation costs: α ns for `<`, β ns for `>`, γ ns for `&&`.
-2. Total runtime = α(100N² + 3N) + β(2N³ + 1) + 5000γ nanoseconds.
-3. Expand and identify the dominant term: 2βN³ + 100αN² + 3αN + (β + 5000γ).
-4. As N grows large, 2βN³ overwhelms every other term **regardless of the values of α, β, and γ**, because a cubic eventually beats any constant multiple of a quadratic.
-
-**Order of growth is N³, i.e. Θ(N³).** Note the count 100N² has a huge leading constant and still loses. This is why the cost-model shortcut works: find the operation with the fastest-growing count and ignore the rest.
+Even though the `<` count has a huge constant (100) and the `&&` count is 5,000, the runtime is `α(100N² + 3N) + β(2N³ + 1) + 5000γ`, and the `2βN³` term eventually dominates for any positive `α, β, γ`. So the runtime is in **`Θ(N³)`**.
 
 ---
 
 ## Common Pitfalls
 
-- **Answering the runtime question with a number of seconds.** "It takes 3 ms" is not an answer about an algorithm; it is a fact about one machine, one input, and one day. Answer with a function of N.
-
-- **Keeping multiplicative constants.** Writing Θ(N²/2) for `countDuplicates` or Θ(2N) for `count2`. Constants are dropped: those are Θ(N²) and Θ(N). Writing Θ(5) for a constant-time operation is the same mistake; the answer is **Θ(1)**.
-
-- **Keeping low-order terms.** Θ(N² + N) should be written Θ(N²). Θ(N³ + 3N⁴) should be Θ(N⁴). The `count` example is the canonical trap: Θ(N) + Θ(N²) is Θ(N²), not Θ(N + N²).
-
-- **Being fooled by which term is written first.** In N³ + 3N⁴ the *first* term is not the dominant one, and 3N⁴ has the larger coefficient *and* the larger exponent. Always compare growth rates, not position or coefficient size.
-
-- **Thinking a bounded or shrinking term matters.** `40 sin(N)` is stuck in [-40, 40] forever, and `1/N` shrinks toward zero. Both are low-order next to any growing term. And 1/N + 5 is Θ(1), not Θ(1/N).
-
-- **Forgetting the +1 in loop condition counts.** `i < numbers.length` runs N + 1 times, not N. (It does not change the order of growth here, but it is exactly the kind of thing an exam asks for in an exact-count table.)
-
-- **Assuming the loop body always executes.** `evens += 1` runs between 0 and N times because it depends on the array's *contents*. Counts that depend on values, not just size, are why we distinguish best case from worst case.
-
-- **Assuming nested loops are automatically N².** In `countDuplicates` the inner loop starts at `i + 1`, not 0, so the number of comparisons is N(N - 1)/2, not N². It happens to still be Θ(N²) here, but the reasoning matters: the triangle is half the square, and half is just a constant factor. Other loop structures (for instance an inner loop that runs a fixed number of times) will not be quadratic at all.
-
-- **Adding when you should multiply, or vice versa.** Sequential code blocks: take the max of the two orders of growth. Nested loops: multiply. `count` calls two methods sequentially, so N and N² give N².
-
-- **Ignoring the cost of helper methods.** `countZerps` is Θ(N²) only because `isZerp`'s runtime depends on its two `int` parameters, not on N. Always state this assumption or check the helper.
-
-- **Hunting for k₁ and k₂ when analyzing code.** Big-Theta's formal definition exists to make "order of growth" precise, but using Θ "does not change the way we analyze code at all." You do not produce constants when asked for the runtime of a loop; you just write Θ(...).
-
-- **Treating Big O as if it were Big Theta.** N³ + 3N⁴ ∈ O(N!) is a perfectly *true* statement, just useless. O is "≤", so it can be arbitrarily loose. Conversely, being in O(N²) does not mean a function grows like N²: lg(N) ∈ O(N²) but lg(N) ∉ Θ(N²).
-
-- **Assuming the asymptotically better algorithm is always faster.** For small N, `glorp1` (2N²) beats `glorp2` (500N). Asymptotics is a statement about large N, which is exactly why the formal definitions all say "for all N greater than some N₀."
-
-- **Notation slips.** It is R(N) ∈ Θ(f(N)), with set membership: Θ(N²) is a *family* of functions (N²/2, 2N², N² + 38N + N are all members). Also, write Θ(N²), not Θ(N^2 operations) or Θ(N² time); the notation already describes growth.
+- **Dropping non-constant factors.** `Ne^N` is not `e^N`. Only multiplicative *constants* go away. The reductio from lecture: if you were allowed to drop non-constant factors, `N⁴` would "simplify" to `N³`.
+- **Judging by small `N`.** `100,000N` is far larger than `N²` at `N = 50`. Order of growth is a statement about large `N` only. (Real caveat from lecture: small-`N` behavior genuinely matters in practice sometimes. Naive `N³` matrix multiplication beats Strassen's asymptotically-faster algorithm on small matrices, which is why real libraries switch over at a threshold.)
+- **Thinking `Θ(N)` and `Θ(2N)` are different.** They are the same set. Write `Θ(N)`. Likewise, do not write `Θ(3N³ + N²)` when `Θ(N³)` is meant.
+- **Writing `=` instead of `∈`.** `Θ(f(N))` is a set of functions, so membership is the right relation.
+- **Forgetting that the runtime depends on the input, not just on `N`.** Without fixing a convention (normally worst case) there is no single function `R(N)` to talk about. Say which case you mean.
+- **Confusing the two-sided Θ bound with best case / worst case.** `k1·f(N)` and `k2·f(N)` are bounds on one function; best and worst case are about different *inputs*. The lecture called out this conflation as the reason "most people use Big O incorrectly."
+- **Picking a cost model that is not representative.** For `dup1`, `j = i + 1` happens only `Θ(N)` times even though the runtime is `Θ(N²)`. Pick an operation from the innermost loop, and in tricky code double-check that it really tracks the total work.
+- **Assuming helper calls are constant time.** `countZerps` is `Θ(N²)` only because we assume `isZerp` does not depend on `N`.
+- **Counting the loop guard as `N` instead of `N + 1`.** True, but irrelevant to the order of growth. Do not lose points by being sloppy if an exam asks for an exact count, and do not waste time on it if it asks for Θ.
+- **Keeping the low-order term when combining pieces.** Sequential `Θ(N)` then `Θ(N²)` code is `Θ(N²)`, not "`Θ(N + N²)`."
+- **Trying to compute `k1`, `k2`, `N0` during ordinary code analysis.** Not needed. `Θ` is purely a notational replacement for the phrase "order of growth."
+- **Assuming all functions have an order of growth.** The instructor noted the notion is not perfectly well defined in general ("yet people use it all the time in computer science"), and that functions of two variables (such as `N³ + K³`) open a separate can of worms deferred to later.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Give the order of growth of a code snippet
+### 1. Give the order of growth of a mathematical function
 
-**Q:** What is the runtime of the following, in Θ notation, in terms of N = `a.length`?
+**Q:** Give the simplest `f(N)` such that `R(N) = 7N² + 100N·lg(N) + 2^10 + 1/N ∈ Θ(f(N))`.
 
-```java
-public static void countDuplicates(int[] a) {
-    int duplicates = 0;
-    for (int i = 0; i < a.length; i++) {
-        for (int j = i + 1; j < a.length; j++) {
-            if (a[i] == a[j]) {
-                duplicates += 1;
-            }
-        }
-    }
-    IO.println("Duplicates: " + duplicates);
-}
-```
+**A:** `f(N) = N²`. The `N·lg(N)` term is lower order than `N²` (compare `lg(N)` against `N`), `2^10` is just the constant 1024, and `1/N` tends to 0. Drop the leading `7` as a multiplicative constant.
 
-**A:** Θ(N²). Using `==` as the cost model, the number of comparisons is (N - 1) + (N - 2) + ... + 1 = N(N - 1)/2 = N²/2 - N/2. Drop the low-order -N/2 term and the constant 1/2 to get N². Equivalently: the pairs checked form a right triangle with legs of about N, and its area is ~N²/2.
+### 2. Analyze a single loop
 
----
+**Q:** Using `==` as the cost model, give the worst-case runtime of `countEvens` in Θ notation, and say what happens to the runtime when `N` doubles.
 
-### 2. Simplify a function to its order of growth
+**A:** `Θ(N)`. The `==` executes `N` times; the initialization and the print are low-order constants. If `N` doubles, the runtime doubles.
 
-**Q:** Give the order of growth of each: (a) N³ + 3N⁴, (b) 1/N + N³, (c) 1/N + 5, (d) Ne^N + N, (e) 40 sin(N) + 4N².
+### 3. Analyze nested loops where the inner bound depends on the outer index
 
-**A:** (a) N⁴, (b) N³, (c) 1, (d) Ne^N, (e) N². For (c), nothing grows, so the answer is the constant class Θ(1). For (e), 40 sin(N) is bounded in [-40, 40] and therefore low-order compared to 4N².
+**Q:** How many times does `a[i] == a[j]` execute in `countDuplicates` on an array of length `N`, exactly, and what is the Θ class?
 
----
+**A:** Exactly `1 + 2 + ... + (N - 1) = N(N - 1)/2 = (N² - N)/2` times. Dropping the low-order `-N/2` and the constant `1/2` gives `Θ(N²)`. The quick route is the triangle of visited `(i, j)` cells: legs about `N`, so area about `N²/2`.
 
-### 3. Exact operation counts in a table
+### 4. Sequential code: which term survives
 
-**Q:** For `countEvens` on an array of length N, how many times is the loop condition `i < numbers.length` evaluated, and how many times does `evens += 1` execute?
+**Q:** Method `m` calls a `Θ(N)` helper, then a `Θ(N²)` helper, then a `Θ(N)` helper, in sequence. What is `m`'s runtime?
 
-**A:** The condition is evaluated **N + 1** times (once before each of the N iterations, plus the final failing check). `evens += 1` executes **between 0 and N times**, depending on how many elements of the array are even; its count depends on the array's contents, not just its length.
+**A:** `Θ(N²)`. Sequential costs add, and `N + N² + N` has order of growth `N²`. Both linear terms are low-order terms and get dropped.
 
----
+### 5. The "hardware constants do not matter" argument
 
-### 4. Sequential vs nested composition
+**Q:** An algorithm's operation counts are: `<` occurs `500N²` times, `>` occurs `N³/1000` times, `&&` occurs `10⁹` times. Someone claims the runtime is `Θ(N²)` because 500 is much bigger than 1/1000. Are they right?
 
-**Q:** `countEvens` is Θ(N) and `countDuplicates` is Θ(N²). What is the runtime of `count`, which calls `countEvens(numbers)` then `countDuplicates(numbers)`?
+**A:** No. The runtime is `α·500N² + β·N³/1000 + γ·10⁹` for some positive per-operation times. For large enough `N`, the cubic term dominates regardless of how small `β/1000` is and how large `α·500` is. The runtime is `Θ(N³)`. Constants never beat a higher order of growth asymptotically.
 
-**A:** Θ(N²). Sequential calls add: R(N) = c₁N + c₂N², and c₁N is a low-order term that is dropped. Formally, c₂N² ≤ c₁N + c₂N² ≤ (c₁ + c₂)N² for N ≥ 1, so with k₁ = c₂ and k₂ = c₁ + c₂ the Big-Theta definition is satisfied for f(N) = N².
+### 6. Produce `k1`, `k2`, `f(N)` from the formal definition
 
----
+**Q:** State the formal definition of `R(N) ∈ Θ(f(N))`, then give `f`, `k1`, `k2` for `R(N) = 40 sin(N) + 4N²`.
 
-### 5. Constant factors do not change the class
+**A:** `R(N) ∈ Θ(f(N))` means there exist positive constants `k1`, `k2` such that `k1·f(N) ≤ R(N) ≤ k2·f(N)` for all `N` greater than some `N0`. For this `R`: `f(N) = N²`, `k1 = 3`, `k2 = 5`, since `3N² ≤ 40 sin(N) + 4N² ≤ 5N²` once `N` is large enough (`40 sin(N)` is confined to `[-40, 40]`, so it is swamped by `N²`). Other constants work too, for example `k1 = 2`, `k2 = 1,000,000`.
 
-**Q:** `count1` counts evens and odds in one pass; `count2` does it in two separate passes over the same array. Which has the better order of growth?
+### 7. Choosing a cost model
 
-**A:** Neither; both are Θ(N). `count2` does roughly twice the work of `count1`, but a factor of 2 is a multiplicative constant and is discarded. Both double their runtime when N doubles.
+**Q:** For `dup1`, which of `i = 0`, `j = i + 1`, `<`, `==`, `return true` are valid cost models, and why?
 
----
+**A:** `<` and `==` (and array accesses). They occur `Θ(N²)` times, matching the runtime's order of growth. `i = 0` and `return true` happen at most once, and `j = i + 1` happens only `Θ(N)` times, so none of those three tracks the total work.
 
-### 6. State the formal definition of Big-Theta and verify it
+### 8. Big O versus Big Theta (slides; deferred in lecture, but examinable)
 
-**Q:** State what R(N) ∈ Θ(f(N)) means, then verify that 40 sin(N) + 4N² ∈ Θ(N²).
+**Q:** Which of these are true for `R(N) = N³ + 3N⁴`? (a) `R ∈ Θ(N⁴)` (b) `R ∈ O(N⁴)` (c) `R ∈ Θ(N⁶)` (d) `R ∈ O(N⁶)` (e) `R ∈ O(N!)`
 
-**A:** R(N) ∈ Θ(f(N)) means there exist positive constants k₁ and k₂ such that k₁·f(N) ≤ R(N) ≤ k₂·f(N) for all N greater than some N₀. For the example, take f(N) = N², k₁ = 3, k₂ = 5: since sin(N) ∈ [-1, 1], we have 4N² - 40 ≤ 40 sin(N) + 4N² ≤ 4N² + 40, and 3N² ≤ 4N² - 40 together with 4N² + 40 ≤ 5N² both hold once N² ≥ 40 (so N₀ = 7 works).
+**A:** (a), (b), (d), (e) are true. (c) is false: `Θ` requires a matching lower bound as well, and `N³ + 3N⁴` is not bounded below by any `k1·N⁶` for large `N`. Big O is only an upper bound, so arbitrarily loose O statements remain true.
 
----
+### 9. Scaling reasoning
 
-### 7. Find f, k₁, k₂ for a given R(N)
+**Q:** Algorithm A takes `2N²` operations, B takes `500N`. Which is faster, and for which `N`?
 
-**Q:** Suppose R(N) = (4N² + 3N·ln(N)) / 2. Find a simple f(N) and corresponding k₁ and k₂.
+**A:** They cross at `2N² = 500N`, that is, `N = 250`. A is faster below 250 and B is faster above. Asymptotically B is better, `Θ(N)` versus `Θ(N²)`, and the gap keeps widening, so B is the one you want for large data.
 
-**A:** f(N) = N², k₁ = 1, k₂ = 3. R(N) = 2N² + 1.5N·ln(N); since N·ln(N) grows more slowly than N², R(N) is eventually squeezed between 1·N² and 3·N².
+### 10. Why worst case
 
----
+**Q:** On an input like `[-3, -3, 0, 7]`, `dup1` returns after one comparison. Does that mean `dup1 ∈ Θ(1)`?
 
-### 8. Big O vs Big Theta
-
-**Q:** Which of the following are true for R(N) = N³ + 3N⁴? (i) R ∈ Θ(N⁴) (ii) R ∈ Θ(N⁶) (iii) R ∈ O(N⁶) (iv) R ∈ O(N!) (v) R ∈ O(N³)
-
-**A:** (i), (iii), and (iv) are true. (ii) is false: Θ requires a matching lower bound, and N³ + 3N⁴ grows strictly more slowly than N⁶. (iv) is true but extremely loose; O is only an upper bound ("less than or equal"). (v) is false: R grows faster than N³, so no constant k₂ can make R(N) ≤ k₂N³ hold for all large N.
-
----
-
-### 9. Is membership in O(f) enough to describe growth?
-
-**Q:** A classmate says "lg(N) ∈ O(N²), so lg(N) and N² grow at the same rate." What is wrong?
-
-**A:** Big O is an upper bound only, so O(N²) contains functions that grow much more slowly than N², including lg(N). "Same rate" would require lg(N) ∈ Θ(N²), which fails: no positive k₁ satisfies k₁N² ≤ lg(N) for all large N. Θ is the "equals"-like statement; O is "less than or equal."
-
----
-
-### 10. Reasoning from an operation-count table
-
-**Q:** A method's operation counts are: `<` occurs 100N² + 3N times, `>` occurs 2N³ + 1 times, `&&` occurs 5,000 times. What is the order of growth, and why do the per-operation hardware costs not matter?
-
-**A:** Θ(N³). If `<`, `>`, `&&` cost α, β, γ nanoseconds respectively, total time is α(100N² + 3N) + β(2N³ + 1) + 5000γ. For very large N the 2βN³ term dominates all others regardless of α, β, and γ, because no constant factor can let a quadratic overtake a cubic. Constants affect the absolute time, never the order of growth.
-
----
-
-### 11. Helper method assumptions
-
-**Q:** What is the runtime of `countZerps`, and what assumption does your answer depend on?
-
-**A:** Θ(N²), assuming `isZerp`'s runtime depends only on its two `int` parameters and not on N (i.e. it is constant time). The loop structure makes N(N - 1)/2 calls; if each call is constant time, that constant is dropped. If `isZerp`'s cost grew with N, the total would be larger.
-
----
-
-### 12. Small N vs large N
-
-**Q:** `glorp1` takes 2N² operations and `glorp2` takes 500N. Which is faster, and does that contradict the claim that `glorp2` has better asymptotic behavior?
-
-**A:** For small N (specifically N < 250), `glorp1` is faster. There is no contradiction: asymptotic claims describe behavior for large N, which is exactly why the Θ and O definitions require the inequalities to hold only "for all N greater than some N₀." As the dataset grows, the parabolic `glorp1` falls farther and farther behind.
+**A:** No. Runtime depends on the input as well as on `N`, so `dup1`'s cost for a given `N` is a *range*. We pin it down by taking the worst case over inputs of size `N` (an array with no duplicates), giving `Θ(N²)`. Best-case behavior is `Θ(1)`, and saying so is fine as long as you label the case you mean.
 
 ---
 
 ## Summary
 
-- Efficiency has two flavors: **programming cost** (development and, mostly, maintenance) and **execution cost** (time and memory). From here on the course is about execution cost.
-- Given a code snippet, express its runtime as a function **R(N)**, where N is a property of the input, usually its size.
-- We rarely want R(N) exactly; we want its **order of growth**: as N grows, what happens to the runtime?
-- Two simplifications produce the order of growth: **ignore low-order terms** (constants, bounded terms like 40 sin(N), shrinking terms like 1/N) and **ignore multiplicative constants** (8N grows like N).
-- The tedious method is to count every operation in a table. Useful gotchas: loop conditions run **N + 1** times, and body counts can be ranges (0 to N) when they depend on input *values*.
-- The practical method (not universal) is a **cost model**: pick one representative operation, let **C(N)** be its count, and find f(N) with C(N) ∈ Θ(f(N)). Often, but not always, use the worst-case count.
-- This shortcut is valid because per-operation hardware costs α, β, γ can never let a lower-order term overtake a higher-order one for large N. ("Extremely important point.")
-- **Composition rules:** sequential blocks add, so take the larger order of growth (Θ(N) then Θ(N²) is Θ(N²)); nested loops multiply. A nested loop starting at `j = i + 1` gives N(N - 1)/2 ≈ N²/2 pairs, which is still Θ(N²).
-- **Big-Theta:** R(N) ∈ Θ(f(N)) iff there exist positive k₁, k₂ with k₁f(N) ≤ R(N) ≤ k₂f(N) for all N > N₀. Informally "equals"; it *is* order of growth in formal clothing, and using it changes nothing about how you analyze code.
-- **Big O:** R(N) ∈ O(f(N)) iff there exists positive k₂ with R(N) ≤ k₂f(N) for all N > N₀. Informally "less than or equal"; an upper bound that may be arbitrarily loose (N³ + 3N⁴ ∈ O(N!)). Θ(N²) and O(N²) are *families*; lg(N) is in the second but not the first.
-- Scaling matters enormously at real-world sizes (billions of users, particles, transactions, bytes) and often determines whether a problem is solvable at all, not merely how quickly.
-- Canonical results from this lecture: `countEvens` ∈ Θ(N), `count1` and `count2` ∈ Θ(N), `countDuplicates` ∈ Θ(N²), `countZerps` ∈ Θ(N²) (given constant-time `isZerp`), `count` ∈ Θ(N²).
-- Big O's practical usefulness is previewed for the upcoming **Disjoint Sets** lecture.
+- Efficiency has two flavors: **programming cost** (development plus maintenance, dominated by maintenance) and **execution cost** (time and memory). From here on, execution cost.
+- Raw runtimes depend on the machine and on the particular input, so we characterize code by a function `R(N)` and then by the **order of growth** of `R(N)`.
+- Order of growth = **drop low-order terms** + **drop multiplicative constants**. Only *constant* factors may be dropped: `Ne^N + N → Ne^N`, not `e^N`.
+- `Θ` is just notation for order of growth: `R(N) ∈ Θ(f(N))` iff there exist positive `k1`, `k2` with `k1·f(N) ≤ R(N) ≤ k2·f(N)` for all `N > N0`. Geometrically, `R` is eventually sandwiched between a small copy and a big copy of `f` forever. `Θ(f(N))` is a *set* of functions, hence `∈`.
+- Using `Θ` instead of the words "order of growth" changes nothing about how you analyze code. You never produce `k1` or `k2` during code analysis.
+- Pipeline for analyzing code: count operations in terms of `N`, restrict to the **worst case** to get a single function, note that for any positive per-operation constants the largest term dominates, and read off the `Θ` class. The last step is the point the instructor called extremely important.
+- Counting every operation is tedious and unnecessary. Choose a **cost model**: one representative operation, typically from the innermost loop, and count only it. For `dup1`, `==` works; `j = i + 1` does not.
+- The **triangle trick**: nested loops with `j` starting at `i + 1` visit about `N²/2` pairs, so `Θ(N²)`. More of this next lecture.
+- Lecture results: `countEvens`, `count1`, `count2`, `dup2` are `Θ(N)`; `countDuplicates`, `countZerps` (assuming `isZerp` is independent of `N`), `count`, `dup1` are `Θ(N²)`.
+- Scaling dominates everything at large `N`. At `N = 100,000`: linear is about a second, `N²` about 3 hours, `N³` about 32 years, exponential effectively never (and that is why cryptography works). Much of theoretical CS, including quantum computing, is about moving problems into a better column.
+- **Big O** (on the slides, deferred in lecture) is "less than or equal to": only the upper bound `R(N) ≤ k2·f(N)` is required, so `N³ + 3N⁴` is in `O(N⁴)`, `O(N⁶)`, and `O(N!)` all at once. `Θ` behaves like "equals." Big O becomes genuinely useful at Disjoint Sets.
+- Historical footnote: this notation convention for CS comes from Knuth's 1970s paper, and Big Theta was Bob Tarjan's suggestion.
