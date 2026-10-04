@@ -1,45 +1,88 @@
-<!-- Mon, Sep 28, 2026 | sources: slides + code (no transcript available) -->
+<!-- Mon, Sep 28, 2026 | sources: slides + code + YouTube auto-transcript -->
 # Lecture 14: Linked Lists
 
-This lecture makes the recursive view of sequences explicit. It opens with a tree-recursion warm-up (`longest`) that treats a Python list as "a first item `s[0]` and the rest `s[1:]`", then builds a data structure that *is* exactly that definition: a **linked list** is either empty (represented by the empty tuple `()`) or a `Link` object with a `first` value and a `rest` that is itself a linked list. Because the type is defined recursively, every operation on it has the same shape: check `isinstance(s, Link)`, do something with `s.first`, and recurse (or loop) on `s.rest`. We implement the standard toolkit (`len_link`, `getitem_link`, `sum_link`, `range_link`, `extend_link`, `map_link`, `filter_link`, `join_link`) in both iterative and recursive forms, see how to build a linked list from the back forward, and finish with `partitions`, which returns a *Python list* of *linked lists*, showing how the two kinds of sequence compose.
+This lecture finishes the container/type-hint material (tuples and type hints for containers, including recursively defined types), works one more tree-recursion-over-lists problem (`longest`), and then introduces the **linked list**: a recursively defined sequence built from `Link` objects, where each `Link` has a `first` value and a `rest` that is itself a linked list (with the empty tuple `()` standing in for the empty linked list). Because Python has no built-in linked list, we define our own `Link` data class, and then we re-implement all the familiar sequence operations (length, indexing, sum, range, concatenation, map, filter, join) both iteratively (with the `s = s.rest` pattern) and recursively (with the `Link(x, recursive_call(...))` pattern). The two big habits to internalize: **always check `isinstance(s, Link)` before touching `.first` or `.rest`**, and **whenever you call `Link(x, r)`, the second argument `r` must itself evaluate to a linked list**. The lecture closes with `partitions`, which returns a Python list of linked lists, combining a list comprehension with the linked-list constructor.
 
 ---
 
 ## Key Concepts
 
-### 1. A sequence is a first item and the rest
+### 1. Tuples (lead-in material from the recording)
 
-The central idea of the whole lecture. For a Python list `s`, the pair `(s[0], s[1:])` contains all the information in `s`. This gives every list problem a recursive decomposition: solve the problem for `s[1:]`, then decide what to do with `s[0]`. The empty list is the base case.
+A tuple is another sequence type, similar to a list, but immutable.
 
-This is only a *view* for Python lists (slicing `s[1:]` copies). For linked lists it is the literal definition of the data type.
+- Written with parentheses: `(4, 5, 6, 7)`. The parentheses are technically optional (`4, 5, 6, 7` is also a tuple), but you should always write them for readability.
+- Indexing and slicing work just like lists: `s[0]`, `s[1:]`.
+- `list(s)` converts a tuple to a list with the same elements.
+- `+` concatenates tuples; `*` repeats them, just like lists.
+- The empty tuple is `()`. A one-element tuple **needs a trailing comma**: `(5,)`. Without the comma, `(5)` is just the integer `5`.
+- **Tuples can be dictionary keys**; lists and dictionaries cannot. This matters when you want a composite key. (Caveat from lecture: if the tuple itself contains a list or dict, it can no longer be used as a key.)
+- Multiple assignment is secretly tuples. Given `x = 3`, the statement `x, y = 5, x + 1` builds the tuple `(5, 4)` first (the right-hand side is fully evaluated *before* any name is rebound), then unpacks it, so `y` is `4`, not `6`.
+- Returning "multiple values" from a function returns a tuple.
 
-### 2. Tree recursion over a list: include or exclude the first item
+### 2. Type hints for containers
 
-When you are searching for a **sublist** (a subsequence: items in order, not necessarily contiguous), there are two recursive subproblems for each item, not one:
+- `list[int]`: a list whose elements are all `int`. `list[list[int]]`: a list of lists of ints. **There is no way to express the length of a list in its type**, so a `list[int]` hint says nothing about whether the list is empty.
+- `dict[int, str]`: integer keys, string values. `dict[int, list[int]]`: integer keys, values that are lists of ints.
+- **Tuple hints are different**: they are positional and fixed-length. `tuple[int, int]` means exactly two elements, both ints. `tuple[str, float]` means a string then a float. For a tuple of arbitrary length and contents, just write `tuple`.
+- `tuple[()]` is the type that matches only the empty tuple. This is exactly what the linked-list type alias uses.
 
-- **include** `s[0]`: then the rest must make up `n - s[0]`, so recurse as `longest(s[1:], n - s[0])`
-- **exclude** `s[0]`: then the rest must still make up `n`, so recurse as `longest(s[1:], n)`
+### 3. Recursive type aliases
 
-Two recursive calls per frame means tree recursion, which is the right tool for "search for a variant" or "count the variants" problems. The two results are then combined: here, `max(..., key=len)` picks the longer one.
+The lecture motivated recursive types with "nested list of integers": a list containing integers and nested lists of integers, to any depth. Several naive hints fail:
 
-An important subtlety: the return type is `list[int] | None`, so "no solution" and "the empty solution" are different values. `None` means *no sublist sums to n*; `[]` means *the empty sublist works* (which happens when `n == 0`). That is why the code tests `isinstance(result, list)` instead of truthiness: `[]` is falsy but is a legitimate answer. This is the reason the slide lists "Use `isinstance(s, list)` to test whether `s` is a list" as a useful concept.
+- `list[int | list]`: too permissive, the inner list could contain a string.
+- `list[int | list[int]]`: too restrictive, rules out a list of lists of lists of ints.
+- `list[int | list[int | list]]`: still too permissive at depth 3.
 
-### 3. A linked list is a recursive data structure
+The fix is to name the type and use it inside its own definition:
+
+```python
+type NestedList = list[int | NestedList]   # (exact slide form not in the provided text; reconstructed from the recording)
+```
+
+This same trick gives us the linked-list type:
+
+```python
+type LinkedList[T] = Link[T] | tuple[()]
+```
+
+"A `LinkedList` of `T` is either a `Link` of `T` (non-empty) or the empty tuple."
+
+### 4. Tree recursion over lists: first item and the rest
+
+A key reframing used throughout this lecture: **a Python list `s` can be viewed as a first item `s[0]` plus the rest `s[1:]`**. Search problems over sublists then become tree recursion with two branches:
+
+- include `s[0]` in the answer, and recursively solve the smaller problem on `s[1:]`
+- exclude `s[0]`, and recursively solve on `s[1:]` with the same goal
+
+This is exactly the shape of `longest` below, and the same include/exclude idea appears in `partitions` (use an `m` or do not).
+
+### 5. Linked list structure
 
 > A linked list is either empty or a first value and the rest of the linked list.
 
-Two representations are needed, one for each case of that sentence:
+The sequence `3, 4, 5` is three `Link` instances chained together:
 
-- **empty linked list**: the empty tuple `()`
-- **non-empty linked list**: a `Link` instance, which has a `first` attribute and a `rest` attribute
+- A `Link` with `first: 3` whose `rest` is ...
+- a `Link` with `first: 4` whose `rest` is ...
+- a `Link` with `first: 5` whose `rest` is `()`.
 
-`Link(3, Link(4, Link(5, ())))` is a chain of three `Link` objects. The slide notes that this is the same as `Link(3, Link(4, Link(5)))`, because `rest` defaults to `()`.
+Box-and-pointer in words: draw three two-compartment boxes side by side. The left compartment holds the value (3, then 4, then 5); the right compartment holds an arrow to the next box. The last box's right compartment gets a slash (the drawing convention for the empty linked list) rather than an arrow.
 
-**Box-and-pointer reasoning in words:** picture three boxes side by side. Box 1 holds `first: 3` and its `rest` arrow points at Box 2. Box 2 holds `first: 4` and its `rest` arrow points at Box 3. Box 3 holds `first: 5` and its `rest` is the empty linked list (often drawn as a slash or as `()`). Only the *outermost* box needs a name: `s` is bound to Box 1, and everything else is reached by following `rest` arrows. So `s.rest.rest.first` is 5, and `s.rest.rest.rest == ()` is `True`.
+The crucial insight the lecture emphasized: **each individual `Link` in the chain represents an entire sequence**. The last `Link` *is* the linked list `(5)`. The second-to-last *is* the linked list `(4 5)`. The first *is* `(3 4 5)`. The `rest` attribute is not "a pointer to one more element", it is "a whole linked list containing all the remaining elements".
 
-Crucially, a `Link` object is **never empty**. If you have a `Link`, you are guaranteed `first` and `rest` exist. Emptiness lives entirely in the other case, `()`.
+Constructed in one expression:
 
-### 4. The `Link` data class and its types
+```python
+Link(3, Link(4, Link(5, ())))
+# or, using the default value for rest:
+Link(3, Link(4, Link(5)))
+```
+
+**How to print it:** `(3 4 5)`. Parentheses distinguish it from a built-in list, and no commas distinguish it from a tuple. This display convention comes from the Lisp programming language.
+
+### 6. The `Link` data class
 
 ```python
 type LinkedList[T] = Link[T] | tuple[()]
@@ -49,172 +92,72 @@ class Link[T]:
     "A Link has a first value of type T and the rest of the linked list."
     first: T
     rest: LinkedList[T] = ()  # rest defaults to an empty linked list
+
+    def __str__(self):
+        return format_link(self)
 ```
 
-- `type LinkedList[T] = Link[T] | tuple[()]` declares a **type alias**: a `LinkedList` of `T` is either a `Link` of `T` or an empty tuple. `tuple[()]` is the type of the empty tuple.
-- `T` is a **type variable**: it stands for the type of the items. `Link(3, Link(4, Link(5)))` is a `Link[int]`, and also a `LinkedList[int]`.
-- `@dataclass` generates `__init__` (so `Link(3, Link(4))` works), `__repr__` (so the REPL shows `Link(first=3, rest=Link(first=4, rest=()))`), and `__eq__` (so `==` compares structurally).
-- `rest: LinkedList[T] = ()` gives `rest` a default, which is why `Link(5)` is a one-item linked list.
-- The annotations are documentation for readers and type checkers; Python does not enforce them at runtime. `from __future__ import annotations` at the top of the file lets annotations mention names (like `Link` inside the class body) without evaluation-order problems.
+Points worth noticing:
 
-### 5. Printing versus the repr
+- A `Link` object is **never empty**: it always has a `first` and a `rest`. Emptiness is represented by `()`, which is a different type entirely. That is why `LinkedList` is a union of two types.
+- `rest` has default value `()`, so `Link(5)` is a one-element linked list.
+- `T` is a **type variable** describing the type of the items in the list. `Link(3, Link(4, Link(5)))` has type `Link[int]`, and also `LinkedList[int]`, and you may also just write `Link` or `LinkedList` without parameterizing.
+- Because it is a dataclass, you get `__repr__` and `__eq__` for free: `repr(s)` is `Link(first=3, rest=Link(first=4, rest=Link(first=5, rest=())))`, and `s.rest.rest.rest == ()` is `True`. (extra context: the generated `__eq__` compares structurally, so two separately built `Link(3, Link(4))` objects are `==` to each other even though they are distinct objects.)
+- `__str__` delegates to `format_link`, which is why `print(s)` gives the compact `(3 4 5)`.
 
-The data class gives a `repr` that shows the nesting, which is accurate but verbose. The lecture adds a `__str__` so `print` produces the compact Scheme-style form:
+### 7. Two rules for working with linked lists
+
+**Rule 1: check before you access.** For a `LinkedList s`, confirm it is a `Link` before touching `.first` or `.rest`:
 
 ```python
-def __str__(self):
-    return format_link(self)
-
-def format_link(s: Link):
-    """Return a Link s formatted as items within parentheses."""
-    string = '(' + str(s.first)
-    remaining = s.rest
-    while isinstance(remaining, Link):
-        string += ' ' + str(remaining.first)
-        remaining = remaining.rest
-    assert remaining == (), f'{s!r} is not a LinkedList'
-    return string + ')'
+if isinstance(s, Link):          if not isinstance(s, Link):
+    ...  # s.first, s.rest OK        ...  # s is ()
+                                 else:
+                                     ...  # s.first, s.rest OK
 ```
 
-So: *"How to print it: `(3 4 5)`."* Note the two different displays of the same object:
+Either arrangement works; the `not isinstance(...)` version is the common shape of a recursive base case, since repeated `s = s.rest` or recursion on `s.rest` eventually reaches `()`. A type checker in your editor understands this narrowing too, so `.first` and `.rest` stop being flagged inside the guarded block. If emptiness is an *error* rather than a base case, use `assert isinstance(s, Link), 'Index out of range'`.
 
-```python
->>> s                                  # repr, from @dataclass
-Link(first=3, rest=Link(first=4, rest=Link(first=5, rest=())))
->>> print(s)                           # str, from format_link
-(3 4 5)
-```
+**Rule 2: the second argument to `Link` must be a linked list.** Legal forms:
 
-`format_link` also demonstrates the standard iterative traversal pattern: a `remaining` variable advanced by `remaining = remaining.rest`, with the loop condition `isinstance(remaining, Link)`. The final `assert remaining == ()` catches a malformed structure (something that is neither a `Link` nor `()` in a `rest` position).
+- `Link(4, ())` or the shorthand `Link(4)`
+- `Link(4, Link(...))`
+- `Link(4, s)` where `s` is a name bound to a linked list
+- `Link(4, f(...))` where `f` returns a linked list, very commonly a recursive call
 
-Because `str` is called on each `first`, **nested** linked lists print as nested parentheses:
+### 8. Iteration versus recursion, and the order things happen
 
-```python
->>> print(Link(s))
-((3 4 5))
->>> print(Link(3, Link(Link(4, Link(5)), Link(6))))
-(3 (4 5) 6)
-```
+Both work, but they build and process in **opposite orders**, which is the single most important structural fact in this lecture.
 
-`Link(s)` is a one-item linked list whose single item is itself a linked list, hence the double parentheses.
+- **Iteration** naturally works *backward*: start with `s = ()` and repeatedly do `s = Link(k, s)`, adding each new item to the *front*. To get `(3 4 5)` this way you must add 5, then 4, then 3.
+- **Recursion** naturally works *forward*: `Link(start, range_link_recursive(start + 1, end))`. Because operand expressions are evaluated before the call, the rest of the list `(4 5)` is fully constructed *before* the `Link` whose `first` is 3 is created.
 
-### 6. The `isinstance(s, Link)` discipline
-
-Since a `LinkedList` is a union of two types, you must find out which one you have before touching `.first` or `.rest`:
-
-```python
-if isinstance(s, Link):
-    ...            # here you may access s.first and s.rest
-```
-
-or the inverted form:
-
-```python
-if not isinstance(s, Link):
-    ...            # the empty case
-else:
-    ...            # here you may access s.first and s.rest
-```
-
-The second form is what almost every recursive function in the lecture code uses, because the empty case is the base case.
-
-Symmetrically, when you *construct*, the second argument to `Link` must itself be a linked list. The slide spells out the legal shapes:
-
-- `Link(4, ())` or `Link(4, Link(...))`
-- `Link(4, s)` as long as `s` names a linked list
-- `Link(4, f(...))` as long as `f` returns a linked list
-
-### 7. Build the rest first, then add to the front
-
-A `Link` is created with its `rest` already in hand, so linked lists are naturally constructed **back to front**:
-
-```python
->>> s = ()
->>> s = Link(5, s)
->>> s = Link(4, s)
->>> s = Link(3, s)
->>> print(s)
-(3 4 5)
-```
-
-Each line creates a *new* `Link` whose `rest` is the previous value of `s`, then rebinds the name `s`. Nothing is mutated. In box-and-pointer terms, each step adds one box to the left of the existing chain and moves the name `s` onto the new box. The old chain is still intact and is now shared as the tail of the new one.
-
-### 8. Iteration and recursion are two spellings of the same traversal
-
-Every linked list function in the lecture appears in both forms. The pattern is mechanical:
-
-| | iterative | recursive |
-|---|---|---|
-| advance | `s = s.rest` in a loop | pass `s.rest` to the recursive call |
-| stop | `while isinstance(s, Link)` | `if not isinstance(s, Link): return <base>` |
-| accumulate | mutate a local (`total += s.first`) | combine in the return (`s.first + sum_link_recursive(s.rest)`) |
-
-The iterative versions reassign the *parameter* `s` as they walk, which is safe: that rebinds a local name and does not change the caller's linked list.
-
-### 9. Recursion that works backward using an accumulator
-
-The slides ask: `range_link` iteratively starts at `k = end - 1` and counts down, prepending as it goes. Can recursion do the same? Yes, by carrying the partially built list as an extra argument:
-
-```python
-def range_link_tail(start: int, end: int) -> LinkedList[int]:
-    def f(k, s):
-        if k < start:
-            return s
-        else:
-            return f(k-1, Link(k, s))
-    return f(end-1, ())
-```
-
-Here `s` plays exactly the role of the loop variable `s` in the `while` version, and `k` plays the role of the loop counter. The base case returns the accumulator rather than `()`. The slide writes the helper with the arguments in the other order, `f(s, k)` with the call `f((), end-1)`; the lecture code uses `f(k, s)` with `f(end-1, ())`. Either is fine, they just have to be consistent.
-
-(extra context) This shape is called *tail recursion*: the recursive call is the entire return expression, so nothing is left to do after it returns. CPython does not optimize it away, so it still builds a new frame per step, but the pattern is the direct translation of a `while` loop and will matter a lot once we get to Scheme.
-
-### 10. Linked lists can be elements of ordinary lists
-
-`partitions` returns `list[LinkedList[int]]`: a Python list whose items are linked lists. This is the natural fit because the number of partitions is data we want to collect and concatenate (`with_m + without_m`), while each individual partition is built by prepending one part at a time (`Link(m, p)`).
-
-A list comprehension turns a list of partitions into a list of longer partitions:
-
-```python
-with_m = [Link(m, p) for p in partitions(n-m, m)]
-```
-
-Note the annotation on the slide: each `p` in `partitions(n-m, m)` **sums to `n-m`, not `n`**; prepending `m` is what makes the whole thing sum to `n`.
-
-### 11. Two base cases that look similar but mean opposite things
-
-```python
-if n == 0:
-    return [()]   # a list containing just the empty partition: one way to make 0
-elif n < 0 or m == 0:
-    return []     # an empty list: no partitions at all
-```
-
-`[()]` has length 1 (success: there is exactly one way to sum to 0, using nothing). `[]` has length 0 (failure). Returning the wrong one silently makes every count zero or every count wrong. This mirrors the `None` versus `[]` distinction in `longest`.
+So: "to make a linked list, you must already have made the rest of it." If you want to reason from the first element onward, recursion is natural. If you want to build from the back forward, the `s = Link(k, s)` loop is natural.
 
 ---
 
 ## Definitions
 
-- **Linked list**: a sequence that is either empty or consists of a first value together with the rest of the linked list. In this lecture, the empty linked list is the empty tuple `()` and a non-empty linked list is a `Link` instance.
-- **`Link`**: a data class with attributes `first` (the first value, of type `T`) and `rest` (a `LinkedList[T]`, defaulting to `()`). A `Link` is never empty.
-- **`first`**: the attribute holding the first item of a non-empty linked list.
-- **`rest`**: the attribute holding the remainder of the linked list, which is itself a linked list (either another `Link` or `()`).
-- **`LinkedList[T]`**: the type alias `Link[T] | tuple[()]`, that is, the union of the non-empty and empty cases.
-- **`tuple[()]`**: the type whose only value is the empty tuple.
-- **Type variable (`T`)**: a placeholder in a generic type that stands for the type of the contained items, so `LinkedList[int]` is a linked list of integers.
-- **Data class (`@dataclass`)**: a class decorator that generates `__init__`, `__repr__`, and `__eq__` from the annotated class attributes.
-- **`__str__` versus `__repr__`**: `__str__` is used by `print` (here producing `(3 4 5)`); `__repr__` is used when the REPL displays a value (here produced by `@dataclass`, showing `Link(first=3, ...)`).
-- **Sublist (as used in `longest`)**: a subsequence, that is, items of the original list in their original order but not necessarily adjacent.
-- **Tree recursion**: a recursive function that makes more than one recursive call per invocation, producing a branching call structure; used for searching and counting variants.
-- **Partition of `n` using parts up to `m`**: a multiset of positive integers, each at most `m`, summing to `n`. The "increasing order" constraint in the recursive formulation (never using a part larger than the current `m` in subproblems) is what makes each partition be generated exactly once rather than once per ordering.
-- **Accumulator**: an extra parameter that carries the partially built result through a recursive process, playing the role of a loop variable.
+- **Tuple**: an immutable built-in sequence type, written with parentheses; supports indexing, slicing, `+`, `*`; usable as a dictionary key (when its contents are themselves hashable).
+- **`tuple[()]`**: the type hint that matches only the empty tuple.
+- **Type variable (`T`)**: a placeholder in a generic class or type alias standing for the type of the contained items, e.g. the `T` in `Link[T]` and `LinkedList[T]`.
+- **Recursive type alias**: a `type` definition that mentions its own name, needed for types whose values nest to arbitrary depth (nested lists of ints, linked lists).
+- **Linked list**: a sequence that is either empty or consists of a first value and a rest, where the rest is itself a linked list.
+- **`Link`**: the data class describing a *non-empty* linked list, i.e. one link in the chain; it has attributes `first` (the item) and `rest` (the remainder of the linked list, defaulting to `()`).
+- **`LinkedList[T]`**: the type `Link[T] | tuple[()]`, i.e. a possibly-empty linked list of items of type `T`.
+- **`first`**: attribute of a `Link` holding the element at index 0 of the sequence it represents.
+- **`rest`**: attribute of a `Link` holding the entire linked list of all remaining elements.
+- **Empty linked list**: represented in this course by the empty tuple `()`; drawn as a slash rather than an arrow.
+- **Sublist (as used in `longest`)**: a subsequence obtained by choosing, for each item in order, whether to include it; the relative order of chosen items is preserved.
+- **Mapping a function over a sequence**: applying that function to each element, producing a new sequence of the results.
+- **Filtering a sequence**: keeping exactly those elements for which a one-argument predicate returns a true value.
+- **Partition of `n` using parts up to `m`**: a multiset of positive integers, each at most `m`, that sums to `n`; here represented as a linked list of its parts.
 
 ---
 
 ## Worked Examples
 
-### Example 1: `longest`, tree recursion over a Python list
+### Example 1: `longest` (tree recursion over a Python list)
 
 ```python
 def longest(s: list[int], n: int) -> list[int] | None:
@@ -242,25 +185,25 @@ def longest(s: list[int], n: int) -> list[int] | None:
         return without_first
 ```
 
-Step by step, for `longest([4, 1, 3, -1, 2, -1], 5)`:
+Step by step, and why each piece is there:
 
-1. **Base case.** `s` is empty only when we have consumed every item. At that point the empty sublist is the only candidate, so it works exactly when the remaining target `n` is 0: return `[]`. Otherwise there is no way to finish, so return `None`.
-2. **Two subproblems.** `s[0]` is 4.
-   - `minus_first = longest(s[1:], 5 - 4)` asks: what is the longest sublist of `[1, 3, -1, 2, -1]` summing to 1? Answer: `[1, -1, 2, -1]` (sums to 1, length 4).
-   - `without_first = longest(s[1:], 5)` asks: what is the longest sublist of `[1, 3, -1, 2, -1]` summing to 5? Answer: `[1, 3, -1, 2]` (sums to 5, length 4).
-3. **Rebuild.** Since `minus_first` is a list, including `s[0]` is viable: `with_first = [4] + [1, -1, 2, -1] = [4, 1, -1, 2, -1]`, which sums to 5 and has length 5.
-4. **Combine.** `without_first` is also a list, so return `max(with_first, without_first, key=len)`, which is the length-5 `[4, 1, -1, 2, -1]`. That matches the docstring.
-5. If `minus_first` is `None`, including `s[0]` is impossible, so just return `without_first` (which may itself be `None`, correctly propagating failure).
+1. **Base case.** If `s` is empty, the only sublist available is `[]`, which sums to 0. So if `n == 0` return `[]` (a successful empty answer), otherwise return `None` (no sublist exists). Note that `[]` and `None` are very different results here: `[]` means "found it, the answer has no items", `None` means "impossible".
+2. **Two recursive calls (the tree recursion).** `minus_first = longest(s[1:], n - s[0])` asks: among sublists of the rest, what is the longest one summing to `n - s[0]`? If one exists, prepending `s[0]` to it gives a sublist of `s` summing to `n`. `without_first = longest(s[1:], n)` asks the same question without using `s[0]` at all.
+3. **Why `isinstance(..., list)` and not a truthiness test.** Each recursive call returns either a list or `None`, so you must distinguish "returned `None`" from "returned a list". And `[]` is a *valid* answer that is falsy, so `if minus_first:` would be wrong. `isinstance(minus_first, list)` is the correct test.
+4. **Combining.** If both branches succeeded, return the longer one: `max(with_first, without_first, key=len)`. The `key=len` makes `max` compare by length rather than by comparing the lists element-wise. If only one succeeded, return that one. If neither, `without_first` is `None` and returning it propagates the failure.
 
-Why `isinstance` and not `if minus_first:`? Because `[]` is a perfectly good answer (it is the answer whenever the remaining target is 0) but it is falsy. `isinstance(x, list)` distinguishes "an answer, possibly empty" from "no answer".
+Tracing the docstring example `longest([4, 1, 3, -1, 2, -1], 5)`:
 
-Why `key=len`? `max` on two lists would otherwise compare them lexicographically by element. `key=len` makes it compare lengths, which is what "longest" means. Note the tie-breaking rule: when lengths are equal, `max` returns the *first* argument it saw, so `with_first` wins ties.
+- `s[0]` is 4, so `minus_first = longest([1, 3, -1, 2, -1], 1)`, which finds `[1, -1, 2, -1]` (sums to 1, length 4, the longest such).
+- `with_first = [4] + [1, -1, 2, -1] = [4, 1, -1, 2, -1]`, which sums to 5 and has length 5.
+- `without_first = longest([1, 3, -1, 2, -1], 5)` finds `[1, 3, -1, 2]` (sums to 5, length 4).
+- `max(..., key=len)` picks the length-5 answer: `[4, 1, -1, 2, -1]`.
 
-For `longest([3, 1, 4], 6)`: every subset of `{3, 1, 4}` sums to 0, 1, 3, 4, 5, 7, 8, or 4+3+1=8; none is 6, so every branch bottoms out in `None` and `None` propagates all the way up.
+Two notes on the provided material: the slide annotation "`[4, 1, 3, -1, 2]` is a way to make 5" does not sum to 5 (it sums to 9) and appears to be a slide typo for `[4, 1, -1, 2, -1]`; and the docstring in `14.py` mistakenly calls the function `count_sums` in its doctests, so those doctests would not run as written.
 
-Two notes on the material: the slide's third annotation box reads "`[4, 1, 3, -1, 2]` is a way to make 5", which does not sum to 5; the PDF extraction appears to have garbled which blank that annotation belongs to, and the correct `with_first` for this call is `[4, 1, -1, 2, -1]`. Also, the docstring in `14.py` mistakenly uses the name `count_sums` in its doctest lines, so those doctests would fail as written even though the function body is correct; the slide version of the docstring uses `longest`.
+(extra context) `max` returns the **first** maximal element on a tie, so when `with_first` and `without_first` have equal length, `with_first` wins. Any longest sublist is an acceptable answer, so this is fine, but it does determine which one you get.
 
-### Example 2: Constructing and inspecting a linked list
+### Example 2: Building and traversing a linked list
 
 ```python
 >>> s = Link(3, Link(4, Link(5)))
@@ -275,21 +218,43 @@ True
 >>> s
 Link(first=3, rest=Link(first=4, rest=Link(first=5, rest=())))
 >>> s.rest.rest
-Link(first=5, rest=Link(first=5, rest=()))  # (no: see below)
+Link(first=5, rest=Link... )   # actually: Link(first=5, rest=())
+>>> print(s)
+(3 4 5)
 ```
 
-The actual lecture output for the last one is:
+Reading this as box-and-pointer: `s` names the leftmost box. `s.rest` names the middle box, which by itself is the linked list `(4 5)`. `s.rest.rest` names the rightmost box, the linked list `(5)`. `s.rest.rest.rest` is `()`, the empty linked list, the slash at the end of the chain.
+
+So the practical lesson: if you `print(s)` and see `(3 4 5)`, the way to reach the `4` is `s.rest.first`, not `s[1]`. **Linked lists do not support indexing, slicing, `len`, or iteration with `for`** unless you write those operations yourself.
+
+Nesting works too, because `first` can be any value, including another linked list:
 
 ```python
->>> s.rest.rest
-Link(first=5, rest=())
+>>> print(Link(s))
+((3 4 5))
+>>> print(Link(3, Link(Link(4, Link(5)), Link(6))))
+(3 (4 5) 6)
 ```
 
-Reading this as boxes: three `Link` boxes chained left to right. `s` names the leftmost. `s.rest` is the middle box, `s.rest.rest` is the rightmost box, and `s.rest.rest.rest` is `()`, the end of the chain. Notice that `s.rest.rest` is not a copy of anything, it *is* the third box, so any name bound to it refers to the very same object that is the tail of `s`.
+`Link(s)` is a one-element linked list whose single element is the linked list `(3 4 5)`, so it prints as `((3 4 5))`. This works because `format_link` calls `str` on each `first`, and `str` of a `Link` is its parenthesized form.
 
-`Link(5)` works because `rest` defaults to `()`. The `==` test against `()` succeeds because the third link's `rest` really is the empty tuple.
+### Example 3: `format_link` (how printing works)
 
-### Example 3: `len_link` and `sum_link`, iteratively
+```python
+def format_link(s: Link):
+    """Return a Link s formatted as items within parentheses."""
+    string = '(' + str(s.first)
+    remaining = s.rest
+    while isinstance(remaining, Link):
+        string += ' ' + str(remaining.first)
+        remaining = remaining.rest
+    assert remaining == (), f'{s!r} is not a LinkedList'
+    return string + ')'
+```
+
+This is the canonical iterative pattern. Start with the open paren and the first item (safe, because `format_link` is only called on a `Link`). Then walk down the chain with `remaining = remaining.rest`, appending each item, stopping when `remaining` is no longer a `Link`. The `assert` after the loop catches the case where someone built `Link(4, 5)`: the loop would exit because `5` is not a `Link`, but `5 != ()`, so the assertion fires with a clear message.
+
+### Example 4: `len_link` and `getitem_link`, iteratively
 
 ```python
 def len_link(s: LinkedList):
@@ -305,20 +270,7 @@ def len_link(s: LinkedList):
     return length
 ```
 
-The loop walks a pointer along the chain. On entry `s` is box 1 (`isinstance` is true), so `length` becomes 1 and `s` becomes box 2; then 2 and box 3; then 3 and `()`. At that point `isinstance((), Link)` is false and the loop ends, returning 3. Reassigning the parameter `s` only rebinds the local name in this frame; the caller's linked list is untouched.
-
-```python
-def sum_link(s: LinkedList[float]) -> float:
-    total = 0
-    while isinstance(s, Link):
-        total += s.first
-        s = s.rest
-    return total
-```
-
-Same walk, accumulating `s.first` instead of counting. `sum_link(Link(3, Link(4, Link(5))))` is `0 + 3 + 4 + 5 = 12`. The empty linked list correctly sums to 0 because the loop body never runs.
-
-### Example 4: `getitem_link`, with bounds checking
+The loop condition *is* the emptiness check, so `s.rest` inside the body is always safe. Rebinding the parameter `s` is fine and idiomatic here: it only changes the local frame's `s`, not the caller's list, and the list itself is never modified.
 
 ```python
 def getitem_link(s: LinkedList, i: int):
@@ -335,52 +287,62 @@ def getitem_link(s: LinkedList, i: int):
     return s.first
 ```
 
-Linked lists have no random access: to get index `i` you must take `i` steps, so this is linear time, not constant time like Python list indexing. The two asserts are both needed: the one inside the loop catches running off the end while advancing, and the one after the loop catches `i` pointing exactly one past the end (for example index 3 in a three-item list, where the loop finishes with `s == ()`).
+Walking through `getitem_link(Link(3, Link(4, Link(5))), 1)` as the lecture did:
 
-Tracing `getitem_link(Link(3, Link(4, Link(5))), 1)`: `i` is 1, so one iteration runs, `s` becomes box 2 and `i` becomes 0. The loop exits, `s` is a `Link`, and `s.first` is 4.
+- In the new frame, `s` is the whole list `(3 4 5)` and `i` is 1.
+- `i > 0`, so assert that `s` is a `Link` (it is), then `s = s.rest` rebinds `s` to the linked list `(4 5)`, and `i` becomes 0.
+- The loop exits. The second `assert` checks that the *new* `s` is still non-empty: this is a separate check, because the first assertion only told us the *old* `s` was non-empty, and a one-element list has an empty `rest`.
+- Return `s.first`, which is `4`. Note this is not the original first element, because `s` was rebound.
 
-### Example 5: The same three functions, recursively
+**Why there are two asserts:** every access to `.rest` needs a prior check, and every access to `.first` needs a prior check, and rebinding `s` invalidates the previous check. This is the general discipline for linked lists.
+
+### Example 5: `sum_link`, iteratively and recursively, and the order of operations
 
 ```python
-four = Link(1, Link(2, Link(3, Link(4))))
-
-def len_link_recursive(s: LinkedList) -> int:
-    """>>> len_link_recursive(four)
-    4
-    """
-    if not isinstance(s, Link):
-        return 0
-    return 1 + len_link_recursive(s.rest)
-
-def getitem_link_recursive(s: LinkedList, i: int):
-    """>>> getitem_link_recursive(four, 2)
-    3
-    """
-    assert isinstance(s, Link), 'Index out of range'
-    if i == 0:
-        return s.first
-    return getitem_link_recursive(s.rest, i - 1)
+def sum_link(s: LinkedList[float]) -> float:
+    total = 0
+    while isinstance(s, Link):
+        total += s.first
+        s = s.rest
+    return total
 
 def sum_link_recursive(s: LinkedList[float]) -> float:
-    """>>> sum_link_recursive(four)
-    10
-    """
     if not isinstance(s, Link):
         return 0
     return s.first + sum_link_recursive(s.rest)
 ```
 
-`len_link_recursive(four)` expands to `1 + (1 + (1 + (1 + len_link_recursive(()))))`, and the innermost call hits the base case and returns 0, giving 4. The recursive structure exactly mirrors the data structure: one frame per `Link`, plus one for `()`.
+Both return 12 for `Link(3, Link(4, Link(5)))`, but they add in opposite orders:
 
-`getitem_link_recursive(four, 2)`: the index counts down as we walk in. Frame 1 has `i = 2` on box 1, frame 2 has `i = 1` on box 2, frame 3 has `i = 0` on box 3, which returns `s.first`, that is 3. The single assert at the top covers both out-of-range situations because every call re-checks before touching `.first` or `.rest`.
+- Iterative: `0 + 3 = 3`, then `3 + 4 = 7`, then `7 + 5 = 12`. Front to back.
+- Recursive: the outer call knows it will add 3 to something but must evaluate the recursive call first; likewise for 4; the innermost call returns 0; then `5 + 0 = 5`, then `4 + 5 = 9`, then `3 + 9 = 12`. Back to front.
 
-`sum_link_recursive(four)` is `1 + 2 + 3 + 4 + 0 = 10`.
+For addition the order does not matter, but for operations that are not associative or commutative, or for building a linked list (where you need the rest before you can make the `Link`), it matters a great deal.
 
-### Example 6: `range_link`, three ways
+Recursive versions of the other two:
+
+```python
+def len_link_recursive(s: LinkedList) -> int:
+    if not isinstance(s, Link):
+        return 0
+    return 1 + len_link_recursive(s.rest)
+
+def getitem_link_recursive(s: LinkedList, i: int):
+    assert isinstance(s, Link), 'Index out of range'
+    if i == 0:
+        return s.first
+    return getitem_link_recursive(s.rest, i - 1)
+```
+
+In `getitem_link_recursive`, the assert comes first and covers both the `s.first` on the next line and the `s.rest` in the recursive call. Each recursive call shrinks both the list and the index together, so index 0 of the shortened list is the right target.
+
+### Example 6: `range_link` three ways
 
 ```python
 def range_link(start: int, end: int) -> LinkedList[int]:
-    """>>> print(range_link(3, 7))
+    """Return a linked list containing the items of range(start, end).
+
+    >>> print(range_link(3, 7))
     (3 4 5 6)
     """
     s = ()
@@ -391,11 +353,21 @@ def range_link(start: int, end: int) -> LinkedList[int]:
     return s
 ```
 
-Iterative, building from the back. For `range_link(3, 7)`: `s = ()`, `k = 6`. Then `s = Link(6, ())` and `k = 5`; `s = Link(5, Link(6))` and `k = 4`; `s = Link(4, Link(5, Link(6)))` and `k = 3`; `s = Link(3, Link(4, Link(5, Link(6))))` and `k = 2`. Now `3 <= 2` is false, so return. Prints `(3 4 5 6)`. Each iteration allocates exactly one new box and reuses the whole previously built chain as its `rest`.
+Walking `range_link(3, 6)` (which should produce `(3 4 5)`):
+
+- `s = ()`, `k = 5`.
+- `3 <= 5`: `s = Link(5, ())`, so `s` is `(5)`. `k` becomes 4.
+- `3 <= 4`: `s = Link(4, s)`, so `s` is `(4 5)`. `k` becomes 3.
+- `3 <= 3`: `s = Link(3, s)`, so `s` is `(3 4 5)`. `k` becomes 2.
+- `3 <= 2` is false; return `(3 4 5)`.
+
+This must go from largest to smallest, because each new `Link` must be given an already-built rest.
 
 ```python
 def range_link_recursive(start: int, end: int) -> LinkedList[int]:
-    """>>> print(range_link_recursive(3, 7))
+    """Return a linked list containing the items of range(start, end).
+
+    >>> print(range_link_recursive(3, 7))
     (3 4 5 6)
     """
     if start >= end:
@@ -404,7 +376,21 @@ def range_link_recursive(start: int, end: int) -> LinkedList[int]:
         return Link(start, range_link_recursive(start + 1, end))
 ```
 
-Recursive, building from the front in the *source text* but still allocating from the back at *run time*: the recursive call must return before `Link(start, ...)` can be evaluated, so the innermost box (holding 6) is created first. The base case `start >= end` returns `()`, which satisfies the rule that the second argument to `Link` must be a linked list.
+Here the recursion counts *up*. `range_link_recursive(3, 6)` returns `Link(3, range_link_recursive(4, 6))`. The operand must be evaluated before `Link` is called, so `(4 5)` is built first, then the `Link` whose `first` is 3 is created around it. The code reads forward while the construction happens backward.
+
+**The slide question:** can recursion instead start from `k = end - 1` and work backward with `k = k - 1`, mimicking the loop? Yes, with an accumulator (tail-recursive form). The slide's filled-in version:
+
+```python
+def range_link(start: int, end: int) -> LinkedList[int]:
+    def f(s, k):
+        if k < start:
+            return s
+        else:
+            return f(Link(k, s), k-1)
+    return f((), end-1)
+```
+
+The code file `14.py` has the same function with the parameters in the other order, which is equivalent:
 
 ```python
 def range_link_tail(start: int, end: int) -> LinkedList[int]:
@@ -416,9 +402,9 @@ def range_link_tail(start: int, end: int) -> LinkedList[int]:
     return f(end-1, ())
 ```
 
-This is the answer to the slide's fill-in-the-blanks question ("Can recursion start from `k = end - 1` and work backward using `k = k - 1`?"). Compare directly with the `while` version: `k < start` is the negation of the loop condition `start <= k`; `Link(k, s)` is the loop body's assignment; `k-1` is the decrement; `f(end-1, ())` is the initialization. The call sequence for `range_link_tail(3, 7)` is `f(6, ())`, `f(5, (6))`, `f(4, (5 6))`, `f(3, (4 5 6))`, `f(2, (3 4 5 6))`, and that last call returns the accumulator unchanged. Note that the inner `f` closes over `start`, so `start` does not need to be a parameter.
+Compare the three pieces to the loop: `k < start` is the negation of the loop condition `start <= k`; the accumulator `s` plays the role of the loop variable `s`, updated to `Link(k, s)`; the initial call `f((), end-1)` supplies the loop's initializers `s = ()` and `k = end - 1`. The base case returns the accumulated list rather than `()`, which is the hallmark of accumulator-style recursion.
 
-### Example 7: `extend_link`, concatenation
+### Example 7: `extend_link` (concatenation)
 
 ```python
 def extend_link(s: LinkedList, t: LinkedList) -> LinkedList:
@@ -433,13 +419,22 @@ def extend_link(s: LinkedList, t: LinkedList) -> LinkedList:
         return Link(s.first, extend_link(s.rest, t))
 ```
 
-The base case is the key insight: when `s` runs out, the answer is just `t`. So the result is a *fresh copy of every box of `s`*, with the last copy's `rest` pointing at the original `t`. In box terms: four new boxes holding 1, 2, 3, 4, then an arrow into the existing `(5 6)` chain. `s` itself is not modified and `t` is not copied. This "copy the first argument, share the second" behavior is characteristic of linked list concatenation.
+Reasoning with `s = (3 4)` and `t = (5 6)`:
 
-### Example 8: `map_link` and `filter_link`
+- If `s` is empty, then "all of `s` followed by all of `t`" is just `t`, so return `t` directly. This is both the base case and a correct answer, not a placeholder.
+- Otherwise the answer starts with `s.first`, and its rest is "all of `s.rest` followed by all of `t`", which is exactly a recursive call. `extend_link(s.rest, t)` returns a linked list, which is why it is legal as the second argument to `Link`.
+
+(extra context) Only the links of `s` are rebuilt; the resulting list's tail *is* the original `t` object, shared rather than copied.
+
+### Example 8: `map_link`, `filter_link`, and `join_link` (the comprehension pipeline)
+
+For built-in lists you would write `[square(x) for x in range(1, 6) if odd(x)]`. For linked lists there is no comprehension syntax, so you write functions and compose them: `map_link(square, filter_link(odd, range_link(1, 6)))`.
 
 ```python
 def map_link(f, s: LinkedList) -> LinkedList:
-    """>>> print(map_link(lambda x: x * x, four))
+    """Return a linked list of f applied to each item of s.
+
+    >>> print(map_link(lambda x: x * x, four))
     (1 4 9 16)
     """
     if not isinstance(s, Link):
@@ -448,11 +443,13 @@ def map_link(f, s: LinkedList) -> LinkedList:
         return Link(f(s.first), map_link(f, s.rest))
 ```
 
-One new box per input box, holding `f` of the original value. The base case returns `s` rather than `()`; these are the same thing here, since reaching the base case means `s` already *is* the empty linked list. Returning `()` explicitly would be equally correct.
+Note the base case `return s`. At that point `s` is `()`, so this is the same as `return ()`, but writing `return s` keeps the type checker satisfied and reads as "an empty input maps to an empty output". The recursive case applies `f` to `s.first` (safe, because we are in the guarded branch) and recursively maps the rest.
 
 ```python
 def filter_link(f, s: LinkedList) -> LinkedList:
-    """>>> print(filter_link(lambda x: x % 2 == 0, range_link(1, 10)))
+    """Return a linked list with the items of s for which f returns a true value.
+
+    >>> print(filter_link(lambda x: x % 2 == 0, range_link(1, 10)))
     (2 4 6 8)
     """
     if not isinstance(s, Link):
@@ -465,13 +462,13 @@ def filter_link(f, s: LinkedList) -> LinkedList:
             return kept
 ```
 
-Here the recursive result is computed first and named `kept`, then used in both branches. If `f(s.first)` is true we prepend a new box; if not, we return `kept` directly, which simply omits this item from the result. Tracing `filter_link(even, (1 2 3 4 5 6 7 8 9))`: the odd items each return their `kept` unchanged, and the even items each add one box, producing `(2 4 6 8)`.
-
-### Example 9: `join_link`, building a string
+The lecture developed this incrementally: filtering the rest is needed in *both* branches, so name it `kept` once. Then the only question is whether `s.first` survives. If `f(s.first)` is true, the answer is `Link(s.first, kept)`; note the rest is `kept`, **not** `s.rest`, because `s.rest` still contains the items that should be filtered out. If `f(s.first)` is false, the answer is just `kept`, which is shorter than `s` by one link.
 
 ```python
 def join_link(s: LinkedList, separator: str) -> str:
-    """>>> join_link(four, " + ")
+    """Return a string of all items in s separated by separator.
+
+    >>> join_link(four, " + ")
     '1 + 2 + 3 + 4'
     """
     if not isinstance(s, Link):
@@ -482,9 +479,22 @@ def join_link(s: LinkedList, separator: str) -> str:
         return str(s.first) + separator + join_link(s.rest, separator)
 ```
 
-This needs **two** base cases because the separator goes *between* items, not after each one. The second case (`s.rest` is empty, so `s` is the last link) returns the item with no trailing separator. Note that the second case may only test `s.rest` because the first case already established that `s` is a `Link`. For `four` and `" + "`: `"1" + " + " + ("2" + " + " + ("3" + " + " + "4"))`, giving `'1 + 2 + 3 + 4'`.
+Three cases, because a separator goes *between* items, not after the last one. Empty list gives `""`. A one-element list (checked with `not isinstance(s.rest, Link)`, which is safe only because the first branch already established that `s` is a `Link`) gives just the item with no separator. Otherwise, item, separator, then the joined rest.
 
-### Example 10: `partitions`, a Python list of linked lists
+Checking the pipeline in the interpreter:
+
+```python
+>>> print(range_link(1, 6))
+(1 2 3 4 5)
+>>> print(filter_link(odd, range_link(1, 6)))
+(1 3 5)
+>>> print(map_link(square, filter_link(odd, range_link(1, 6))))
+(1 9 25)
+```
+
+which matches `[square(x) for x in range(1, 6) if odd(x)]`.
+
+### Example 9: `partitions` returning linked lists
 
 ```python
 def partitions(n: int, m: int) -> list[LinkedList[int]]:
@@ -492,35 +502,33 @@ def partitions(n: int, m: int) -> list[LinkedList[int]]:
     Each partition is represented as a linked list.
     """
     if n == 0:
-        return [()]  # A list containing the empty partition
+        return [()]   # A list containing just the empty partition
     elif n < 0 or m == 0:
-        return []
+        return []     # An empty list with no partitions at all
     else:
         with_m = [Link(m, s) for s in partitions(n-m, m)]
         without_m = partitions(n, m-1)
         return with_m + without_m
 ```
 
-The decomposition, straight from the slide: summing to `n` with pieces up to `m` means either using at least one `m` (then sum to `n-m`, still allowed to use `m` again) or not using `m` at all (then sum to `n` with pieces up to `m-1`).
+The recursive decomposition (same include/exclude shape as `longest`): summing to `n` with parts up to `m` means either using at least one `m` and then summing to `n - m` with parts up to `m`, or using no `m` at all and summing to `n` with parts up to `m - 1`.
 
-- `with_m`: each `s` returned by `partitions(n-m, m)` sums to `n-m`; prepending `m` with `Link(m, s)` yields a linked list summing to `n`. The list comprehension does this for every partition of `n-m`.
-- `without_m`: already a list of partitions of `n`, no modification needed.
-- `with_m + without_m` is **Python list concatenation**, producing one list containing all partitions from both branches.
+Read the types very carefully, since **two different kinds of list** are in play:
 
-Base cases:
-- `n == 0`: exactly one partition, the empty one, so return `[()]`, a list of length 1 whose single element is the empty linked list.
-- `n < 0 or m == 0`: no partitions, so return `[]`, a list of length 0.
+- The return value is a **Python list** of partitions.
+- Each **partition** is a `LinkedList[int]`.
+- Base case `n == 0`: there is exactly one way to sum to 0, namely take nothing, so return `[()]`: a Python list of length 1 containing the empty linked list. Returning `()` or `[[]]` here would be wrong.
+- Base case `n < 0 or m == 0`: no partitions at all, so return `[]`, a Python list of length 0.
+- `with_m` uses a **list comprehension** over `partitions(n-m, m)`. Each `s` in that result is a partition summing to `n - m`; `Link(m, s)` puts the part `m` at the front, producing a partition summing to `n`. The slide's annotations make this contrast explicit: the overall value sums to `n`, while the thing iterated over sums to `n - m`.
+- `with_m + without_m` uses `+` on Python lists to concatenate the two collections of partitions.
 
-A full trace of `partitions(6, 4)`, using `(a b c)` for linked lists:
-
-- `partitions(2, 4)` reduces through `m = 4, 3` (both overshoot) to `partitions(2, 2) = [(2), (1 1)]`, so `with_m` for `(6, 4)` is `[(4 2), (4 1 1)]`.
-- `partitions(6, 3)` gives `[(3 3), (3 2 1), (3 1 1 1)]` from its `with_m`, plus `partitions(6, 2) = [(2 2 2), (2 2 1 1), (2 1 1 1 1), (1 1 1 1 1 1)]`.
-
-Concatenating in order:
+Because `Link(m, s)` places `m` at the front and every part of `s` is at most `m`, each partition is produced with its parts in non-increasing order, which is what prevents the same partition from being generated more than once in a different order. (The slide phrases this ordering constraint as "in increasing order"; the printed output lists the largest part first.)
 
 ```python
 def print_partitions(n: int, m: int) -> None:
-    """>>> print_partitions(6, 4)
+    """Print the partitions of n using parts up to size m.
+
+    >>> print_partitions(6, 4)
     4 + 2
     4 + 1 + 1
     3 + 3
@@ -535,152 +543,128 @@ def print_partitions(n: int, m: int) -> None:
         print(join_link(p, " + "))
 ```
 
-Two orderings are visible here and they are worth separating. *Within* each partition the parts come out non-increasing (`4 + 1 + 1`), because `m` is prepended to partitions that only use parts of size at most `m`. *Across* partitions, the largest-first branch (`with_m`) is concatenated before the `without_m` branch, so the output is ordered by decreasing largest part. (The slide's phrase "in increasing order" refers to the standard constraint that keeps each partition from being generated in multiple orders, not to the direction in which the parts are printed.)
+Note how `print_partitions` iterates with a `for` loop over the Python list, but uses `join_link` to render each linked list. The output order follows directly from `with_m + without_m`: every partition containing a 4 comes first, then those with largest part 3, then 2, then 1.
 
-Note also that `print_partitions` is purely a driver: it has no recursion of its own, it just iterates over the Python list and formats each linked list with `join_link`.
+Quick check of the `with_m` branch for `partitions(6, 4)`: `partitions(2, 4)` returns `[(2), (1 1)]`, so `with_m` is `[(4 2), (4 1 1)]`, giving the first two printed lines.
 
 ---
 
 ## Common Pitfalls
 
-1. **Accessing `.first` or `.rest` without checking.** `()` is a tuple and has no such attributes, so `s.rest.first` on a one-item linked list raises `AttributeError: 'tuple' object has no attribute 'first'`. Always guard with `isinstance(s, Link)`.
-2. **Passing a non-linked-list as `rest`.** `Link(4, 5)` constructs happily (annotations are not enforced) but is not a valid `LinkedList`. The error surfaces later, for instance as the `assert remaining == ()` failure inside `format_link` when you try to print it. Remember: the second argument must be `()`, a `Link`, a name bound to a linked list, or a call returning a linked list.
-3. **Writing `Link(3, 4, 5)` or expecting `Link([3, 4, 5])`.** `Link` takes at most two arguments. A three-item linked list is `Link(3, Link(4, Link(5)))`. And `Link([3, 4, 5])` is a one-item linked list whose single item happens to be a Python list.
-4. **Confusing `Link(s)` with `s`.** `Link(s)` nests: it prints `((3 4 5))`, not `(3 4 5)`. A one-item linked list containing a linked list is not the same as that linked list.
-5. **Using `len`, `in`, slicing, or `s[i]` on a linked list.** None of these work. Use `len_link`, a traversal, and `getitem_link`. Indexing is linear time, not constant.
-6. **Forgetting that indexing walks the chain.** Writing a loop that calls `getitem_link(s, i)` for each `i` turns a linear traversal into a quadratic one.
-7. **Mixing up the two "empty" results.** In `longest`, `None` (no solution) versus `[]` (the empty solution). In `partitions`, `[]` (no partitions) versus `[()]` (one partition, the empty one). Swapping these is a classic off-by-a-whole-answer bug.
-8. **Using truthiness instead of `isinstance`.** `[]`, `()`, and `0` are all falsy, so `if minus_first:` would wrongly reject the valid empty answer. The slides call out `isinstance` for exactly this reason.
-9. **Thinking `s = Link(4, s)` mutates `s`.** It creates a new `Link` and rebinds the name. The old chain is unchanged and becomes the `rest` of the new box. Likewise, reassigning the parameter `s` inside a loop does not affect the caller.
-10. **Dropping the tail in `filter_link`.** If you return `()` when `f(s.first)` is false, you throw away every later item. The rejected item must be skipped, not the rest of the list.
-11. **A single base case in `join_link`.** With only the `not isinstance(s, Link)` case you get a trailing separator (`'1 + 2 + 3 + 4 + '`). The "last link" case is required.
-12. **In `partitions`, recursing with the wrong `m`.** `with_m` must use `partitions(n-m, m)`, keeping `m` available for reuse, because a partition may contain `m` more than once (for example `2 + 2 + 2`). Using `m-1` there would only find partitions with distinct parts.
-13. **Forgetting that the items of `with_m` sum to `n-m`, not `n`.** The slide annotates this explicitly; it is why `Link(m, p)` is needed rather than just returning the inner result.
-14. **Assuming `print(s)` and `s` show the same thing.** In the REPL, `s` uses the data class `repr` (`Link(first=3, ...)`) while `print(s)` uses `__str__` (`(3 4 5)`). Exam questions distinguish these.
-15. **Tie-breaking in `max(..., key=len)`.** On equal lengths, the first argument wins, so `longest` prefers the sublist that includes `s[0]`. Do not assume a different tie-break.
-16. **Treating "sublist" as "contiguous".** `longest` searches subsequences; `[4, 1, -1, 2, -1]` skips the 3 in the middle.
-17. **Mutation through shared structure.** (extra context) Because `@dataclass` makes `Link` mutable, two linked lists that share a tail see each other's changes: after `a = Link(1, s)` and `b = Link(2, s)`, assigning `s.first = 99` changes what both `a` and `b` print. All the lecture's functions build fresh boxes instead of mutating, which is why sharing is safe there.
+1. **Accessing `.first` or `.rest` on an empty linked list.** `().first` raises `AttributeError: 'tuple' object has no attribute 'first'`. Always guard with `isinstance(s, Link)` (or `assert`) first.
+2. **Forgetting that rebinding invalidates your check.** After `s = s.rest`, you no longer know that `s` is a `Link`. `getitem_link` needs a second `assert` for exactly this reason.
+3. **Checking `s.rest.first` without checking `s.rest`.** Two attribute accesses need two levels of guarantee. `join_link` checks `isinstance(s, Link)` before it dares to look at `s.rest`.
+4. **Passing a non-linked-list as `rest`.** `Link(4, 5)` constructs an object without error (a dataclass does not enforce type hints at runtime), but it is not a valid linked list; `format_link`'s assertion is what finally catches it. The second argument must be `()`, a `Link`, a name bound to a linked list, or an expression that evaluates to one.
+5. **Confusing `Link(s)` with `s`.** `Link(s)` is a one-element list whose element is the list `s`: it prints as `((3 4 5))`, not `(3 4 5)`.
+6. **Confusing the printed form with a tuple or a list.** `(3 4 5)` has no commas and is not Python syntax you can type back in; `Link(first=3, rest=...)` is the actual `repr`.
+7. **Treating a linked list like a built-in sequence.** `len(s)`, `s[1]`, `s[1:]`, and `for x in s` all fail. You must use `len_link`, `getitem_link`, `.rest`, and a `while isinstance(...)` loop or recursion.
+8. **Trying to build a linked list front to back with a loop.** You cannot create `Link(3, ...)` until the rest exists, so an iterative build must start from the last element and work backward with `s = Link(k, s)`.
+9. **In `filter_link`, using `s.rest` instead of the filtered rest.** `Link(s.first, s.rest)` would keep the unfiltered tail, silently reintroducing items that should have been dropped.
+10. **In `partitions`, mixing up the two list layers.** `[()]` (one empty partition) versus `[]` (no partitions) is the classic trap; so is writing `partitions(n-m, m-1)` instead of `partitions(n-m, m)`, which would forbid reusing the same part size.
+11. **Using truthiness instead of `isinstance` when `None` or `[]` is meaningful.** In `longest`, `if minus_first:` is wrong because `[]` is a legitimate falsy answer. (extra context: `if s:` happens to work for emptiness on linked lists, since `Link` instances are truthy and `()` is falsy, but `isinstance(s, Link)` is the pattern this course expects and the one that type checkers understand.)
+12. **Forgetting the comma in a one-element tuple.** `(5)` is `5`; you need `(5,)`.
+13. **Expecting `max(a, b)` to compare by length.** Without `key=len`, `max` compares lists element by element, which is not what `longest` wants.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Evaluating attribute chains and recognizing the structure
+### 1. Hand-evaluate attribute chains and `print` output
 
-**Practice.** Given `s = Link(1, Link(Link(2, Link(3)), Link(4)))`, what are `s.rest.first.rest.first` and `print(s)`?
+**Q.** Given `s = Link(1, Link(Link(2, Link(3)), Link(4)))`, what are `print(s)`, `s.rest.first.rest.first`, and `len_link(s)`?
 
-**Answer.** `s.rest` is `Link(Link(2, Link(3)), Link(4))`. Its `first` is the nested linked list `Link(2, Link(3))`. That object's `rest` is `Link(3)`, whose `first` is `3`. So the expression is `3`. `print(s)` outputs `(1 (2 3) 4)`.
+**A.** `print(s)` displays `(1 (2 3) 4)`. `s.rest.first` is the linked list `(2 3)`, so `.rest.first` of that is `3`. `len_link(s)` is `3`, since the top-level list has three elements: `1`, the nested list `(2 3)`, and `4`.
 
-### 2. `str` versus `repr`
+### 2. Fill in the blanks in a recursive linked-list function
 
-**Practice.** For `t = Link(1, Link(2))`, give the output of `t` in the REPL and of `print(t)`.
-
-**Answer.** `t` displays `Link(first=1, rest=Link(first=2, rest=()))` (the data class `repr`). `print(t)` displays `(1 2)` (via `__str__`, which calls `format_link`).
-
-### 3. Filling in a recursive linked list function
-
-**Practice.** Complete a function returning a linked list containing only the items of `s` that are greater than `x`:
+**Q.** Complete `count_link(s, x)`, returning how many items of `s` equal `x`.
 
 ```python
-def greater(s: LinkedList[int], x: int) -> LinkedList[int]:
+def count_link(s: LinkedList, x) -> int:
     if not isinstance(s, Link):
-        return ______
-    elif s.first > x:
-        return ______
-    else:
-        return ______
+        return ____
+    return ____ + count_link(s.rest, x)
 ```
 
-**Answer.** `()` (or `s`); `Link(s.first, greater(s.rest, x))`; `greater(s.rest, x)`. This is `filter_link` specialized, and the third branch is the critical one: skip this item but keep processing the rest.
+**A.** First blank: `0`. Second blank: `(1 if s.first == x else 0)`. The base case is the empty list, which contains no matches; the recursive case adds 1 when the first item matches and recurses on the rest. (`s.first` is safe because the base case already returned for the empty case.)
 
-### 4. Converting between iteration and recursion
+### 3. Convert between iteration and recursion
 
-**Practice.** Rewrite `sum_link_recursive` as an iterative function without using recursion, and say what each piece corresponds to.
+**Q.** Rewrite `sum_link` recursively without an accumulator, then explain in what order the additions occur in each version.
 
-**Answer.**
+**A.** `if not isinstance(s, Link): return 0` else `return s.first + sum_link_recursive(s.rest)`. The iterative version adds front to back (`0+3`, `+4`, `+5`), while the recursive version must finish the recursive call before adding, so additions happen back to front (`5+0`, `4+5`, `3+9`).
 
-```python
-def sum_link(s):
-    total = 0
-    while isinstance(s, Link):
-        total += s.first
-        s = s.rest
-    return total
-```
+### 4. Accumulator / tail-recursive rewrite of a loop
 
-The base case `return 0` becomes the initial value `total = 0`; the combination `s.first + ...` becomes `total += s.first`; the recursive argument `s.rest` becomes the reassignment `s = s.rest`; the guard `not isinstance(s, Link)` becomes the negated loop condition.
-
-### 5. The accumulator / tail-recursive pattern
-
-**Practice.** Fill in the blanks so `f` builds the list by counting down (this is the slide's question):
+**Q.** Fill in the blanks so that `f` mirrors the `while` loop version of `range_link`.
 
 ```python
-def range_link(start: int, end: int) -> LinkedList[int]:
+def range_link(start, end):
     def f(s, k):
-        if __________:
+        if ________:
             return s
         else:
-            return ___________________
-    return _____________
+            return ________________
+    return ____________
 ```
 
-**Answer.** `k < start`; `f(Link(k, s), k-1)`; `f((), end-1)`. The accumulator `s` starts empty and grows at the front as `k` decreases, so the final list is in increasing order. (The lecture code writes the arguments in the order `f(k, s)` with the call `f(end-1, ())`, which is equivalent.)
+**A.** `k < start`; `f(Link(k, s), k-1)`; `f((), end-1)`. The condition is the negation of `start <= k`, `s` is the accumulator updated by prepending `k`, and the outer call supplies the loop's initial values.
 
-### 6. Building a linked list by repeated prepending
+### 5. Build a linked list, respecting "rest must be a linked list"
 
-**Practice.** What does the following print, and how many `Link` objects are created?
+**Q.** Which of these are valid linked lists? `Link(1, 2)`, `Link(1, Link(2))`, `Link(1)`, `Link(1, [2, 3])`, `Link(1, range_link(2, 4))`.
 
-```python
-s = ()
-for k in [1, 2, 3]:
-    s = Link(k, s)
-print(s)
-```
+**A.** Valid: `Link(1, Link(2))`, `Link(1)` (rest defaults to `()`), and `Link(1, range_link(2, 4))` (a function call returning a linked list). Invalid: `Link(1, 2)` and `Link(1, [2, 3])`, since the rest must be a `Link` or `()`. Both construct without an immediate error but break any function that walks the chain.
 
-**Answer.** `(3 2 1)`. Three `Link` objects are created. Prepending reverses the order in which items are added, which is why `range_link` counts *down* from `end - 1` in order to produce an increasing list.
+### 6. Where the emptiness checks must go
 
-### 7. `partitions` base cases and the list comprehension
+**Q.** Why does `getitem_link` need two `assert` statements rather than one?
 
-**Practice.** Why does `partitions` return `[()]` when `n == 0` rather than `[]`? And what would go wrong if `with_m` were written `[Link(m, s) for s in partitions(n-m, m-1)]`?
+**A.** The first assert protects the `s = s.rest` inside the loop. Once `s` is rebound, the earlier guarantee no longer applies: a non-empty `s` may have an empty `rest`. The second assert protects the final `s.first`. Every `.first`/`.rest` access needs a check that is still valid for the current binding of `s`.
 
-**Answer.** `[()]` is a list containing one partition (the empty one), recording that there is exactly one way to sum to 0. Returning `[]` would say there is no way to finish, and since every successful recursive path ends at `n == 0`, `partitions` would return `[]` for every input. Using `m-1` in `with_m` would forbid reusing `m`, so partitions with repeated largest parts (for example `(2 2 2)` for `n = 6`) would be missing; the function would only generate partitions into distinct parts.
+### 7. Linked list versions of `map` and `filter`
 
-### 8. Tracing `partitions` output
+**Q.** Write `map_link` and state what the base case returns and why.
 
-**Practice.** List the values of `partitions(4, 2)` in order, written in printed form.
+**A.** As in Example 8. The base case returns `s`, which at that point is `()`: mapping over an empty list gives an empty list. The recursive case is `Link(f(s.first), map_link(f, s.rest))`, which is legal because the recursive call returns a linked list.
 
-**Answer.** `(2 2)`, `(2 1 1)`, `(1 1 1 1)`. The `with_m` branch (`m = 2`) prepends 2 to each of `partitions(2, 2) = [(2), (1 1)]`, giving `(2 2)` and `(2 1 1)`; then `without_m = partitions(4, 1) = [(1 1 1 1)]` is appended.
+### 8. Tree recursion with include/exclude over a Python list
 
-### 9. Include/exclude tree recursion with a sentinel return value
+**Q.** In `longest`, why is the test `isinstance(minus_first, list)` rather than `minus_first is not None` or `if minus_first:`?
 
-**Practice.** In `longest`, why is the test `isinstance(minus_first, list)` rather than `minus_first is not None`, and what does the function return for `longest([], 0)` versus `longest([], 3)`?
+**A.** `isinstance(..., list)` and `is not None` are both correct here, since the only possible returns are a list or `None`. `if minus_first:` is wrong, because `[]` is a valid successful answer (the empty sublist sums to 0) and is falsy, so it would be misread as failure.
 
-**Answer.** Both tests work here since the only two possible result types are `list` and `None`; `isinstance(..., list)` is preferred because it says positively "this is an answer" and is immune to the trap that `[]` is falsy. `longest([], 0)` returns `[]` (the empty sublist sums to 0). `longest([], 3)` returns `None` (no sublist of the empty list sums to 3).
+### 9. `partitions` and the two levels of list
 
-### 10. Why `extend_link` behaves asymmetrically
+**Q.** Why does `partitions` return `[()]` when `n == 0` instead of `()` or `[]`?
 
-**Practice.** After `a = Link(1, Link(2))`, `b = Link(3)`, and `c = extend_link(a, b)`, is `c.rest.rest` the same object as `b`? How many new `Link` objects were created?
+**A.** The return type is a Python list of partitions. When `n == 0` there is exactly one partition (the empty one), so the answer is a one-element Python list whose single element is the empty linked list `()`. Returning `[]` would claim there are no ways to sum to 0, which would make `with_m` empty and lose every partition. Returning `()` would be the wrong type entirely.
 
-**Answer.** Yes, `c.rest.rest is b` is `True`: the base case returns `t` unchanged, so the result's tail is literally `b`. Two new `Link` objects were created, one copy for each link of `a`. Neither `a` nor `b` was modified.
+### 10. Trace `partitions` output order
 
-### 11. Distinguishing linked lists from Python lists in one problem
+**Q.** What are the first two lines of `print_partitions(6, 4)` and why do they come first?
 
-**Practice.** What is the type of `partitions(5, 3)`, and how do you get the number of parts in its first partition?
+**A.** `4 + 2` then `4 + 1 + 1`. `with_m` is computed and concatenated before `without_m`, so all partitions that include a 4 are listed before any that do not, and within those, `partitions(2, 4)` produces `(2)` before `(1 1)` for the same reason.
 
-**Answer.** It is a Python `list` whose elements are `LinkedList[int]` values, so `len(partitions(5, 3))` is valid but `len(partitions(5, 3)[0])` is not. The number of parts in the first partition is `len_link(partitions(5, 3)[0])`.
+### 11. Type hints for containers and recursive types
+
+**Q.** Why can't "a nested list of integers" be described by `list[int | list[int]]`, and what is the fix?
+
+**A.** That hint allows a list of ints and a list of lists of ints, but not deeper nesting such as a list of lists of lists of ints. Adding another layer manually is always both too restrictive at some depth and too permissive at others. The fix is a recursive type alias that refers to its own name, the same technique used for `type LinkedList[T] = Link[T] | tuple[()]`.
 
 ---
 
 ## Summary
 
-- A list can always be viewed as a first item `s[0]` and the rest `s[1:]`; searching for a sublist means trying both including and excluding `s[0]`, which is tree recursion.
-- `longest` returns `list[int] | None`, so `[]` (the empty answer) and `None` (no answer) must be distinguished with `isinstance(x, list)`, and `max(a, b, key=len)` picks the longer result (ties go to the first argument).
-- **A linked list is either empty or a first value and the rest of the linked list.** Empty is `()`; non-empty is a `Link` with `first` and `rest`, where `rest` defaults to `()`.
-- `type LinkedList[T] = Link[T] | tuple[()]` names the union; `@dataclass class Link[T]` supplies `__init__`, `__repr__`, and `__eq__`; the lecture adds `__str__` via `format_link` so `print` gives `(3 4 5)` while the REPL repr gives `Link(first=3, rest=...)`.
-- Always test `isinstance(s, Link)` before reading `.first` or `.rest`, and always pass a genuine linked list as the second argument to `Link`.
-- Linked lists are built back to front: `s = Link(5, ())`, then `s = Link(4, s)`, then `s = Link(3, s)` gives `(3 4 5)`. Each step allocates one box and shares the existing chain as its tail; nothing is mutated.
-- Every traversal has an iterative form (`while isinstance(s, Link): ... s = s.rest`) and a recursive form (base case on the empty list, recurse on `s.rest`): `len_link`, `getitem_link`, `sum_link`, `range_link` all appear both ways.
-- A `while` loop that counts backward translates into recursion with an **accumulator** parameter: `range_link_tail` uses `f(k-1, Link(k, s))` with base case `k < start` returning `s`.
-- `extend_link` copies the first argument and shares the second; `map_link` makes one new box per item; `filter_link` computes the recursive result first and either prepends or returns it unchanged; `join_link` needs a second base case for the last link so the separator only appears between items.
-- Indexing, length, and concatenation on linked lists are all linear time; there is no slicing, no `len`, and no `s[i]`.
-- `partitions(n, m)` returns a Python list of linked lists: `[Link(m, p) for p in partitions(n-m, m)] + partitions(n, m-1)`, with base cases `[()]` for `n == 0` (one way) and `[]` for `n < 0 or m == 0` (no ways). Each partition prints with its parts in non-increasing order via `join_link`.
+- A **tuple** is an immutable sequence; it supports indexing, slicing, `+`, `*`, can serve as a dict key, needs a trailing comma when it has one element, and underlies multiple assignment and multiple return values.
+- Container **type hints** carry element types but not lengths; tuple hints are positional and fixed-length; `tuple[()]` matches only the empty tuple. Types that nest to arbitrary depth require **recursive type aliases**.
+- Viewing a Python list as **`s[0]` plus `s[1:]`** turns sublist search problems into tree recursion with include/exclude branches; `longest` does this and uses `isinstance(..., list)` to distinguish "no answer" (`None`) from "the empty answer" (`[]`), plus `max(..., key=len)` to pick the longer result.
+- A **linked list is either empty or a first value and the rest of the linked list**. `Link` is a dataclass representing a *non-empty* linked list, with `first` and `rest` (defaulting to `()`); `()` represents emptiness; `type LinkedList[T] = Link[T] | tuple[()]`.
+- Every `Link` in the chain represents an entire sequence: `s.rest` is not one element, it is the whole remaining linked list.
+- Printed form is Lisp-style `(3 4 5)`: parentheses, no commas; `repr` is `Link(first=3, rest=...)`; nested lists print as `(3 (4 5) 6)`.
+- **Rule 1:** check `isinstance(s, Link)` (or `assert` it) before every `.first` or `.rest` access, and re-check after rebinding `s`.
+- **Rule 2:** the second argument to `Link` must evaluate to a linked list: `()`, another `Link`, a name, or a call such as a recursive call.
+- **Iteration** walks with `s = s.rest` and builds backward with `s = Link(k, s)`; **recursion** uses `not isinstance(s, Link)` as the base case and builds the rest before the front via `Link(x, recursive_call(...))`. Same results, opposite order of operations.
+- Core operations re-implemented from scratch: `len_link`, `getitem_link`, `sum_link` (each iterative and recursive), `range_link` (loop, recursive, and accumulator/tail-recursive), `extend_link`, `map_link`, `filter_link`, `join_link`, and `format_link`.
+- Linked lists have no comprehension syntax, so `map_link`/`filter_link`/`range_link` are composed as functions to replace `[square(x) for x in range(1, 6) if odd(x)]`.
+- `partitions(n, m)` returns a **Python list of linked lists**: base cases `[()]` (one empty partition) and `[]` (none), recursive cases `[Link(m, p) for p in partitions(n-m, m)] + partitions(n, m-1)`, with each partition built largest part first so no partition is generated twice.
