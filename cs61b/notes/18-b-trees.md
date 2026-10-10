@@ -1,696 +1,656 @@
-<!-- Wed, Oct 07, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Wed, Oct 07, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 18: B-Trees
 
-This lecture closes out the "BSTs are only fast if they are bushy" story and gives the first real fix. We start by making the height/depth vocabulary precise, separate the idea of *Big O* (an upper bound on a function) from *worst case* (a choice of input), and observe empirically and mathematically that BSTs built from *random* inserts have Θ(log N) height (~2 ln N average depth, ~4.311 ln N height). But real programs cannot always insert in random order (timestamped event data arrives in sorted order), and sorted inserts give a spindly Θ(N) tree. The fix developed in lecture is deliberately strange at first: never add new leaves at the bottom, instead "overstuff" existing leaves. Overstuffing keeps height perfectly balanced but makes nodes arbitrarily juicy, so we cap each node at L items and, when a node overflows, push one item up into the parent while *splitting* the overflowing node into two children. Splits can chain-react up to the root, and splitting the root is the only event that changes the height, pushing every leaf down by exactly one level. The result is a perfectly balanced "splitting tree", whose real name is a **B-tree** (L=2 gives a 2-3 tree, L=3 gives a 2-3-4 tree), with two invariants (all leaves at the same depth; a non-leaf with k items has exactly k+1 children) that guarantee bushiness and therefore O(log N) `contains` and `add` for *any* insertion order.
+## Overview
+
+This lecture closes out the binary search tree story and opens the balanced-tree story. The first half formalizes **depth**, **height**, and **average depth**, uses them to pin down BST runtimes (height + 1 comparisons in the worst case, average depth + 1 on average), and then asks what real BSTs look like: worst case height is Θ(N), best case is Θ(log N), and randomly built trees have Θ(log N) height and average depth (expected average depth ~2 ln N, expected height ~4.311 ln N per Reed, 2003). Along the way Josh hammers on the distinction between **Big O** (an upper bound on *all* cases) and **worst case Big Theta** (an exact description of *one* case), since both "BST height is O(N)" and "BST height is O(N²)" are true statements while "best case BST height is Θ(N)" is false. The catch is that we cannot rely on random insertion order, because real data arrives **over time** (log timestamps, usernames signing up one by one, or an adversary adding Z1, Z2, Z3, ...), which produces spindly Θ(N) trees. The second half invents the fix from scratch: freeze the tree so no new leaves are ever created, "overstuff" leaf nodes instead, cap each node at **L** items, and when a node exceeds L, **split** it by pushing its left-middle item up into the parent, turning the parent into a node with one more item and one more child. Splits can chain-react upward, and splitting the **root** is the only event that increases height, and it increases it for every leaf at once. The resulting structure keeps two invariants (all leaves equidistant from the root; a non-leaf node with k items has exactly k+1 children), is therefore perfectly balanced, and gives O(L log N) = O(log N) `contains` and `add` for **any** insertion order. These are really called **B-trees**: L = 2 is a 2-3 tree, L = 3 is a 2-3-4 tree (also called a 2-4 tree).
+
+The textbook section for this lecture (Chapter 17) only frames the topic: "we build off our knowledge of binary search trees to understand a new self-balancing search tree structure: B-Trees." All substantive content below comes from the slides and the lecture.
 
 ---
 
 ## Key Concepts
 
-### 1. Depth, height, average depth, and why we care
+### 1. Depth, height, average depth (and why we care)
 
-For the BST drawn on the slides (root `k`; depth 1: `e`, `v`; depth 2: `b`, `g`, `p`, `y`; depth 3: `a`, `d`, `f`, `j`, `r`, `z`; depth 4: `s`):
+- **Depth of a node**: how far it is from the root, counted in links. The root is at depth 0.
+- **Height of a tree**: the maximum depth over all nodes, that is, the depth of the deepest leaf.
+- **Average depth of a tree**: the average of all node depths.
+
+These are not trivia, they are *runtime proxies*:
+
+- **Height determines the worst case** cost of `contains`: you walk at most height + 1 nodes, so you do at most height + 1 comparisons.
+- **Average depth determines the average case** cost of `contains`: average depth + 1 comparisons for a random key that is in the tree.
+
+The slide's example tree:
 
 ```
-depth 0                 k
-depth 1          e             v
-depth 2       b     g      p      y
-depth 3      a d   f j    r      z
-depth 4                  s
+depth 0                       k
+depth 1              e                 v
+depth 2         b         g        p       y
+depth 3       a   d     f   j        r       z
+depth 4                               s
 ```
 
-- **depth(node)**: number of links from the root down to that node. `depth(g) = 2`.
-- **height(tree)**: depth of the deepest leaf. `height(T) = 4`.
-- **average depth**: average over all nodes of their depth. The slide computes it as a weighted average of (depth × number of nodes at that depth) divided by the total node count, reporting ≈ 2.35 for this tree.
+Here `depth(g) = 2` and `height(T) = 4`. The worst case lookup is `contains(s)`: compare against k, v, p, r, s, which is 5 = height + 1 comparisons. The slide computes average depth as
 
-The reason these two numbers matter is a direct mapping to runtime:
+```
+(0x1 + 1x2 + 2x4 + 3x6 + 4x1) / (1 + 2 + 4 + 6 + 1) = 2.35
+```
 
-| property | what it determines | slide example |
+and therefore an average case of 3.35 comparisons. *(extra context: the fraction as literally written on the slide evaluates to 32/14 ≈ 2.29, so do not memorize the decimal; memorize the method of weighting each depth by how many nodes sit at it.)*
+
+### 2. Big O is not "worst case"
+
+This is the lecture's most-repeated conceptual point, delivered via an in-class poll. Reconstructing the four statements from the transcript (the poll slide text was not captured):
+
+| Statement | Class answer | Truth |
 |---|---|---|
-| height | **worst case** number of comparisons to find a key: height + 1 | `contains(s)` takes 5 comparisons |
-| average depth | **average case** number of comparisons: average depth + 1 | ≈ 3.35 comparisons |
+| Worst case BST height is Θ(N) | ~80% true | **True** (insert in sorted or reverse-sorted order) |
+| Best case BST height is Θ(N) | 16% true | **False**, best case is Θ(log N) |
+| BST height is O(N) | 64% true | **True** |
+| BST height is O(N²) | 50% true | **True** |
 
-The "+1" is because a search that walks from the root to a node at depth d touches d+1 nodes.
+The mental model Josh gives: Θ is "grows exactly like", O is "grows at most like". A *case* (best, worst, average) picks out a family of inputs; Big O with no case attached is a statement about *all* BSTs. "BST height is O(N²)" is true but useless, like saying "I am less than 38 feet tall": factually correct, informationally empty. He explicitly promises this style of question appears again on homework and on Midterm 2, and frames the discomfort of getting it wrong as the point of the exercise.
 
-> Note: the exact per-level node counts come from a slide diagram, and the arithmetic as transcribed from the PDF does not quite land on 2.35, but the method (weighted average of depths) and the reported values 2.35 / 3.35 are what the lecture used. (extra context: the discrepancy is almost certainly an artifact of the PDF text extraction, not something you need to reconcile.)
+### 3. Random BSTs are bushy, but we cannot count on randomness
 
-### 2. Big O is not the same thing as "worst case"
+Simulation (`https://joshh.ug/61b/bst.html`) with random inserts:
 
-This is one of the few genuinely conceptual points of the lecture, and it is tested.
+- 50 random items: average depth about 7, theoretical best about 3.86, worst possible height 49. Not great, not terrible.
+- About 550 random items: average depth 10.49, theoretical best 7.16. Far closer to the ideal than to 549.
 
-- A BST on N keys has **best case height Θ(log N)** (perfectly bushy) and **worst case height Θ(N)** (a spindly chain).
-- Because the height depends on the *shape*, there is no single Θ bound on "the height of a BST with N keys". There is an upper bound: the height is O(N) always.
-- So: *Big O* is a statement about bounding a function from above. *Worst case* is a statement about which input you chose. You can combine them ("worst case height is Θ(N)"), but they are different axes. Saying "Big O means worst case" is wrong.
+The provable facts quoted (proofs out of scope):
 
-Warmup 1 (from slides): insert 4, 3, 2, 1, 6, 5, 7 into a BST.
+- **Average depth** of a BST built from N random distinct inserts is ~2 ln N = Θ(log N), so average case `contains` is Θ(log N).
+- **Height** is ~4.311 ln N (Reed, 2003, a 27-page proof), so even *worst case* `contains` on a randomly built tree is Θ(log N).
+- With deletion included, random insert/delete keeps Θ(log N) height **if** you randomly choose between predecessor and successor in Hibbard deletion. Aside from lecture: always choosing the successor degrades height to about √N, for reasons Josh says he does not know.
+
+Here `~` means "Big Theta but keep the multiplicative constant and drop lower-order terms" (so 3N + 5N² is ~5N²).
+
+**Why we still have a problem.** The class guessed several wrong answers (ordered data, cost of shuffling, adversarial luck) before the real one: **you do not have the data up front**. Data arrives temporally. Examples from the slides and lecture:
+
+```
+add("01-Jan-2019, 10:31:00")
+add("01-Jan-2019, 18:51:00")
+add("02-Jan-2019, 00:05:00")
+add("02-Jan-2019, 23:10:00")
+```
+
+or users signing up on your site in sequence, or a jerk registering Z1, Z2, Z3, Z4, ... and flattening your `TreeMap` into a linked list. If you had everything at once you could Knuth-shuffle it in linear time and be fine. You do not. So we need a structure robust to *any* arrival order.
+
+### 4. Step 1 of the invention: freeze the tree, overstuff the leaves
+
+The root cause of imbalance is **adding new leaves at the bottom**. So: *never add new leaves*. Build whatever tree you have, then "freeze" it: no new nodes allowed, only new items, which get packed into the existing leaf they would have landed under.
+
+Starting from the (lucky, balanced) tree built by inserting 4, 2, 6, 1, 5, 3, 7:
 
 ```
         4
-      /   \
-     3     6
-    /     / \
-   2     5   7
-  /
- 1
-```
-Height 3.
-
-Warmup 2: with the key set {1, ..., 7},
-- **maximum height ("spindly")**: insert in sorted order 1, 2, 3, 4, 5, 6, 7, giving a right-leaning chain of height 6, i.e. Θ(N) height;
-- **minimum height ("bushy")**: insert 4, 2, 6, 1, 3, 5, 7, giving a complete tree of height 2, i.e. Θ(log N) height.
-
-### 3. Real-world BSTs: the randomized case is good news
-
-The lecture uses a simulation (https://joshh.ug/61b/bst.html) plus known results:
-
-- **Average depth** of a BST built by inserting N distinct keys in random order is ~2 ln N = Θ(log N), so average-case `contains` on such a tree is Θ(log N).
-- **Height** of a BST built from N random inserts is ~4.311 ln N (Reed, 2003), so even the worst-case search in such a tree is Θ(log N). The proof is 27 pages and far out of scope.
-- `~` here means "Big Theta, but keeping the multiplicative constant".
-- Random trees including *deletions* are still Θ(log N) height, provided you randomly choose between predecessor and successor in Hibbard deletion. (Covered only in the extra slides.)
-
-Bottom line: random inserts give Θ(log N) per operation.
-
-### 4. The bad news that motivates B-trees
-
-We usually cannot choose a random insertion order, because data arrives over time and is often already sorted. The lecture's example is storing event timestamps:
-
-```java
-add("01-Jan-2019, 10:31:00");
-add("01-Jan-2019, 18:51:00");
-add("02-Jan-2019, 00:05:00");
-add("02-Jan-2019, 23:10:00");
+    2       6
+  1   3   5   7
 ```
 
-Each new key is larger than all previous ones, so the tree degenerates into a right-leaning chain: Θ(N) height, Θ(N) `contains`. Something structurally different is needed.
-
-### 5. Crazy idea: never add leaves at the bottom (overstuffing)
-
-The *only* way a BST gets taller is by hanging a new leaf below an existing leaf. So: forbid that. When a key arrives, cram it into the existing leaf where it belongs.
+Freeze, then add 8 (goes right of 4, right of 6, joins leaf 7), then 0 (joins leaf 1), then 9:
 
 ```
-            13                             13
-      5          15        add 17,18   5        15
-    2   7     14   16      ------->  2   7   14   16 17 18
+        4
+    2          6
+  0 1  3   5   7 8 9
 ```
 
-Because no leaf ever moves to a new depth, and height is just max(depth), the height of an **overstuffed tree** literally cannot change. It is perfectly balanced by construction.
+This is logically consistent: `contains(18)` on the slides' version walks 18 > 13 (right), 18 > 15 (right), then linearly scans the leaf [16 17 18 19]. Height never changes because leaf depths never change. **But** the leaves grow without bound, so lookups into them cost Θ(N) in the worst case. You have a tree whose first few keys are fast and whose everything-else is a giant array scan.
 
-It is still a logically consistent search structure. `contains(18)` on the tree with leaf `16 17 18 19`:
-- 18 > 13, go right
-- 18 > 15, go right
-- is 16 == 18? no
-- is 17 == 18? no
-- is 18 == 18? yes, found it
+### 5. Step 2: cap node size at L, and push an item up
 
-The problem: a leaf can hold unboundedly many items, e.g. `16 17 18 19 20 21 22 23 24`. Scanning that one node is Θ(N). We traded a tall tree for a fat node, which is no better.
+Set a limit **L** = max items per node. If a node ever exceeds L, hand one of its items to its parent.
 
-### 6. First repair attempt (broken): push an item up without splitting
-
-Fix: set a limit **L** on items per node (say L=3). If a node exceeds L items, hand one item (say, arbitrarily, the left-middle one) to the parent.
+First attempt, naive "move up": from
 
 ```
-            13                                   13
-      5           15                      5            15 17
-   2     7     14   16 17 18 19   --->  2    7     14    16 18 19
+        13
+    5           15
+  2   7     14    16 17 18 19       (L = 3, this leaf has 4 items)
 ```
 
-This is **wrong**, and the lecture asks you to spot why: the parent `15 17` now has only three children, so the leaf `16 18 19` sits in the "greater than 17" slot, yet it contains 16. The key 16 is now to the *right* of 17, so `contains(16)` would never find it. Search-tree ordering is violated.
+move 17 up into the parent to get `15 17` with children `14` and `16 18 19`. **This is broken**: 16 now sits in a subtree to the *right* of 17. Search order is violated.
 
-### 7. The actual repair: node splitting
-
-Pulling an item out of a full node **splits** that node into a left half and a right half, so the parent gains both an item and a child:
+The fix, which is the whole idea of the lecture: **pulling an item out of a full node splits that node into a left half and a right half.** Josh's physical analogy: when you eat too much you do not explode into pieces, you rupture into two halves at the point where the item leaves. The parent gains one item *and* one child:
 
 ```
-            13                                   13
-      5           15                      5            15 17
-   2     7     14   16 17 18 19   --->  2    7     14   16   18 19
+        13
+    5          15 17
+  2   7     14    16    18 19
 ```
 
-Now the parent has items `15 17` and three children `14`, `16`, `18 19`, which are exactly the "< 15", "between 15 and 17", "> 17" ranges. `contains(18)`: 18 > 13 go right; compare against 15 then 17; 18 > 17 so go to the rightmost child; scan `18 19` and find it.
+Now `contains(18)`: 18 > 13 go right; 18 > 15 so compare with 17; 18 > 17 go right; find 18. Examining one node costs O(L) comparisons, which is fine because L is a constant we chose.
 
-Examining one node costs O(L) comparisons, but L is a constant chosen by us, so that is fine.
+**Which item goes up?** Arbitrary but fixed convention. The lecture uses the **left-middle** item. With L = 3 an overfull node has 4 items (left, left-middle, right-middle, right) and the left-middle goes up; right-middle would be equally valid, the outermost two would not make sense. With L = 2 an overfull node has 3 items and the single middle item goes up.
 
-Promotion rule used in lecture:
-- **L=2 (2-3 tree)**: a node with 3 items splits and passes the **middle** item up. `[1 2 3]` becomes `[1]` and `[3]` with `2` promoted.
-- **L=3 (2-3-4 tree)**: a node with 4 items splits and passes the **left-middle** item up. `[16 17 18 19]` becomes `[16]` and `[18 19]` with `17` promoted.
-- The lecture explicitly does **not** cover how splitting works for L > 3.
+### 6. Chain reaction splitting, and the only way height grows
 
-### 8. Chain reaction splitting
-
-A promotion can overflow the parent, which then splits and promotes into *its* parent, and so on. The lecture's example, adding 25 then 26 to
+When an item is pushed into a parent, the parent may itself exceed L and split, pushing into *its* parent, and so on up to the root. Slide trace (L = 3), starting from
 
 ```
-                 13
-       5                    15 17 19
-    2     7         14    16    18    20 21
-```
-- 25 and 26 land in the leaf `20 21`, making it `20 21 25 26`, which has 4 > L=3 items.
-- Split it, promoting the left-middle item 21:
-```
-                 13
-       5                 15 17 19 21
-    2     7        14   16   18   20   25 26
-```
-- Now the node `15 17 19 21` has 4 items. Split it, promoting left-middle item 17:
-```
-                      13 17
-          5          15          19 21
-       2    7     14    16    18   20   25 26
+            13 17
+     5        15        19 21
 ```
 
-### 9. What happens when the root is too full
-
-The root is split the same way, except the promoted item has nowhere to go, so it becomes a brand new root with two children. From the slides:
+Add 22, 23 so the right leaf becomes `19 21 22 23` (4 items). Split out left-middle 21 into the root:
 
 ```
-            13 17 21                                13 17 21 23
-    5    15    19    22 23 24 25   -- split(23) -->  5  15  19  22  24 25
-```
-and then the root itself overflows:
-
-```
-                       17
-            13                  21 23
-        5       15         19     22    24 25
+            13 17 21
+     5        15      19     22 23
 ```
 
-### 10. Perfect balance, and the invariants
-
-**Observation (perfect balance).**
-- Splitting a leaf or an internal node does not change the height at all; it only widens a level.
-- Splitting the **root** pushes *every* node down by exactly one level, so all leaves stay at the same depth.
-
-Therefore all leaves are always at the same depth, and all operations are O(log N).
-
-**The two B-tree invariants.**
-1. All leaves are the same distance from the root.
-2. A non-leaf node with k items has exactly k+1 children.
-
-The lecture's example of an *impossible* tree:
+Add 24, 25 so `22 23 24 25` overflows. Split out 23:
 
 ```
-            4
-      2 3       5 6 7
-    1
-```
-It violates both: leaf `1` and leaf `5 6 7` are at different depths, and the non-leaf `2 3` has 2 items but only 1 child when it should have 3.
-
-These invariants are stated as intuitively plausible consequences of how splitting works, not proved rigorously in lecture.
-
-**Consequence:** no matter the insertion order, the resulting B-tree is bushy. Heights may differ slightly between orders, but bushiness is guaranteed. Insert 1, 2, 3, 4, 5, 6, 7 in order into a 2-3 tree and you get height 2 with all leaves at depth 2; insert 2, 3, 4, 5, 6, 1, 7 and you get height 1:
-
-```
-        3 5
-    1 2  4  6 7        (all leaves at depth 1)
+            13 17 21 23
+     5        15     19     22     24 25
 ```
 
-Interactive demo used in lecture: https://tinyurl.com/balanceYD (there, "max-degree" means maximum number of *children*, so max-degree 3 is a 2-3 tree).
+Now the **root** has 4 items. Split out its left-middle, 17:
 
-### 11. Terminology
+```
+                  17
+         13               21 23
+      5     15        19    22    24 25
+```
 
-"Splitting tree" is the honest name, but the real name is **B-tree**.
+**Key observation (perfect balance).** Splitting a leaf or an internal node does not change the height at all. Splitting the **root** pushes *every* node down by exactly one level simultaneously. So no leaf can ever get deeper than another, and the tree is perfectly balanced at all times. Every operation is therefore guaranteed O(log N), with no "hope the data is random" caveat.
 
-- B-tree of order **L=2**: max 2 items, max 3 non-null children per node, also called a **2-3 tree**.
-- B-tree of order **L=3**: max 3 items, max 4 non-null children per node, also called a **2-3-4 tree** or **2-4 tree**. The "2-3-4" names the legal numbers of children.
-- Two popular regimes: small L (L=2 or L=3) as a conceptually simple balanced search tree, which is what this lecture does; and very large L (thousands) for databases and filesystems with very large records.
-- Nobody knows what the B stands for. Quoting Comer (*The Ubiquitous B-Tree*): "balanced", "broad", or "bushy" might apply, some suggest Boeing, and it seems appropriate to think of them as "Bayer"-trees.
+### 7. The invariants
 
-(extra context) Be aware that outside 61B, "order" of a B-tree usually means the maximum number of *children*, not items. This lecture's L is the max number of **items** per node. Use the course's convention on exams.
+Two properties fall out of the construction:
 
-### 12. Height and runtime
+1. **All leaves are the same distance from the root.**
+2. **A non-leaf node with k items has exactly k+1 children.**
 
-Let L be the max items per node, N the number of items, H the height.
+The slides' impossible tree:
 
-- **Tallest possible** B-tree: every non-leaf node holds just 1 item (so 2 children), giving H ≈ log₂(N).
-- **Shortest possible**: every node holds L items (so L+1 children), giving H ≈ log_{L+1}(N).
-- So H is between ~log_{L+1}(N) and ~log₂(N), and since both are Θ(log N), **H = Θ(log N)**.
+```
+        4
+    2 3      5 6 7
+  1
+```
 
-Slide sanity checks: N = 26 items with L = 2 can reach H = 2 (best case, height grows like log₃ N); N = 8 items with L = 2 is near worst case and still has H = 2 (height grows like log₂ N).
+This violates both: leaves `[1]` and `[5 6 7]` are at different depths, and the non-leaf `[2 3]` has 2 items but only 1 child when it must have 3. The lecture is explicit that these invariants are **not proven** in class (induction would be the tool), only argued to be intuitively plausible: the only way depth is ever added is to add it to everybody.
 
-**`contains`**
-- nodes inspected: H + 1
-- items inspected per node: up to L
-- total: O(HL) = O(L log N) = **O(log N)** since L is a constant.
+### 8. Terminology hill
 
-**`add`**
-- nodes inspected: H + 1
-- items per node: up to L
-- split operations: up to H + 1 (full chain reaction all the way to the root)
-- total: O(HL) = O(L log N) = **O(log N)**.
+- The real name for "splitting trees" is **B-trees**. Josh thinks "splitting tree" is the better name but he did not invent them.
+- **L = 2** is a **2-3 tree**: max 2 items per node, max 3 non-null children.
+- **L = 3** is a **2-3-4 tree**, also written **2-4 tree**: max 3 items per node, max 4 non-null children.
+- The 2-3-4 / 2-3 names count **children**, not items. (Some tools, including the `tinyurl.com/balanceYD` demo, use "max-degree" to mean max number of children, so max-degree 3 is a 2-3 tree.)
+- The "B" has never been explained by the authors. Comer's *The Ubiquitous B-Tree*: "balanced", "broad", or "bushy" might apply; some suggest Boeing; given his contributions it may as well be "Bayer"-trees.
+- Two practical regimes: **small L** (L = 2 or 3) as a conceptually simple balanced search tree, which is today's use, and **very large L** (thousands) for databases and filesystems with very large records.
 
-Not covered (and in the "extra slides" / out of scope): deletion, and splitting for L > 3.
+### 9. Height and runtime
+
+With L the max items per node and N total items:
+
+- Tallest possible B-tree: every non-leaf node holds only 1 item, so it degenerates to a binary shape, height ~log₂(N).
+- Shortest possible: every node holds L items and has L+1 children, height ~log_{L+1}(N).
+- Either way, **height is Θ(log N)**.
+
+Slide examples: N = 26, L = 2, H = 2 is the best case (height grows like log₃ N). N = 8, L = 2, H = 2 is near worst case (height grows like log₂ N).
+
+`contains`: at most H + 1 nodes inspected, at most L items inspected per node, so **O(HL) = O(L log N) = O(log N)** since L is a constant.
+
+`add`: same traversal, plus at most H + 1 split operations, so again **O(HL) = O(log N)**.
+
+### 10. Not covered
+
+Deletion (extra slides only, explicitly out of scope) and how splitting works for L > 3 ("see some other class"). The lecture ends by teasing the next one: B-trees are *ugly to implement*, so we will see what we do instead (*extra context: red-black trees / left-leaning red-black trees, which are the standard CS 61B follow-up*).
 
 ---
 
 ## Definitions
 
-- **depth (of a node)**: the number of edges on the path from the root to that node; the root has depth 0.
-- **height (of a tree)**: the depth of its deepest leaf, i.e. max over all nodes of depth.
-- **average depth (of a tree)**: the arithmetic mean of the depths of all nodes in the tree.
-- **spindly tree**: a tree whose height is Θ(N), the maximum possible for N nodes.
-- **bushy tree**: a tree whose height is Θ(log N), the minimum order of growth possible for N nodes.
-- **Big O**: an upper bound on a function. It is *not* a synonym for "worst case"; worst case refers to a choice of input, Big O refers to bounding a function from above.
-- **random BST**: a BST produced by inserting N distinct keys in a uniformly random order. Expected average depth ~2 ln N; expected height ~4.311 ln N.
-- **overstuffed tree**: a search tree in which new keys are inserted into existing leaf nodes rather than hanging new leaves, so leaf depths (and thus the height) never change. Logically correct but allows unbounded node size.
-- **L (order, in this course)**: the maximum number of items permitted in a single node of a B-tree.
-- **juicy / too full node**: a node holding more than L items; it must be split.
-- **split**: the operation that removes one item (the middle for L=2, the left-middle for L=3) from an over-full node, promotes it into the parent, and divides the remaining items into a left node and a right node, which become two adjacent children of the parent.
-- **chain reaction splitting**: the cascade in which promoting an item overflows the parent, which splits and promotes into its parent, possibly repeating up to the root.
-- **root split**: splitting the root; the promoted item becomes a new root with exactly two children, and the height of the tree increases by exactly 1 for every leaf simultaneously.
-- **B-tree**: the real name for a splitting tree; a search tree whose nodes hold between 1 and L items, in which all leaves are equidistant from the root and every non-leaf node with k items has exactly k+1 children.
-- **2-3 tree**: a B-tree with L = 2 (max 2 items, max 3 children per node).
-- **2-3-4 tree (= 2-4 tree)**: a B-tree with L = 3 (max 3 items, max 4 children per node).
+- **Depth (of a node)**: the number of links from the root to that node. The root has depth 0.
+- **Height (of a tree)**: the maximum depth of any node, equivalently the depth of the deepest leaf. A single-node tree has height 0.
+- **Average depth (of a tree)**: the sum of all node depths divided by the number of nodes.
+- **Spindly tree**: a tree with height Θ(N), the maximum possible shape, produced for a BST by inserting in sorted or reverse-sorted order.
+- **Bushy tree**: a tree with height Θ(log N), the minimum possible shape, produced for a BST by inserting medians first (for example 4, 2, 6, ... for {1..7}).
+- **Big O**: an upper bound that applies to all cases, not a synonym for worst case. "Height is O(N²)" is a true but weak claim about every BST.
+- **Worst case Big Theta**: an exact asymptotic description of the worst-case input family. For BST height this is Θ(N).
+- **`~` (tilde) notation**: like Big Theta, except you keep the leading multiplicative constant and only drop lower-order terms. 3N + 5N² is ~5N².
+- **Overstuffed tree**: the intermediate invention where no new nodes may be created and extra items are packed into existing leaves. Balanced in height but with unbounded node size, hence Θ(N) worst case lookup.
+- **L**: the maximum number of items permitted in a single node of a B-tree.
+- **Split (split up)**: when a node exceeds L items, the chosen middle item is moved up into the parent and the node ruptures into a left node and a right node, which become two adjacent children of the parent.
+- **Left-middle item**: in an overfull node of L+1 items, the item just left of center (index 1 when L = 3 or L = 2); the lecture's arbitrary but fixed choice for what gets pushed up.
+- **Chain reaction splitting**: a split whose promoted item overfills the parent, causing the parent to split, and so on up toward the root.
+- **B-tree of order L**: the splitting tree described above, with between 1 and L items per node (the root may transiently hold L+1 during an `add` before splitting).
+- **2-3 tree**: a B-tree with L = 2; nodes have 2 or 3 children.
+- **2-3-4 tree (2-4 tree)**: a B-tree with L = 3; nodes have 2, 3, or 4 children.
 - **B-tree invariant 1**: all leaves are the same distance from the root.
 - **B-tree invariant 2**: a non-leaf node with k items has exactly k+1 children.
-- **perfect balance**: the property, implied by invariant 1, that all leaves share a single depth, hence height = Θ(log N) unconditionally.
+- **Perfect balance**: the property, enjoyed by B-trees, that all leaves are at identical depth, so height is Θ(log N) for every insertion order.
 
 ---
 
 ## Worked Examples
 
-This lecture was presented with handwritten diagrams and an interactive demo, so there is no lecture Java code for B-trees. The traces below follow the lecture's own examples exactly. The Java is provided as a faithful rendering of the algorithms described verbally and is marked where it goes beyond what lecture showed.
+### Example 1: Warmup, insert 4, 3, 2, 1, 6, 5, 7 into a BST
 
-### Example 1: Why sorted inserts kill a BST (box-and-pointer reasoning)
+Reasoning the way the lecture did it, link by link:
 
-The baseline BST search, so the "height + 1 comparisons" claim has something concrete attached to it:
+- 4 becomes the root.
+- 3 < 4, so 3 becomes the root's left child.
+- 2 < 4, then 2 < 3, so 2 becomes 3's left child.
+- 1 < 4, < 3, < 2, so 1 becomes 2's left child.
+- 6 > 4, so 6 becomes the root's right child.
+- 5 > 4, then 5 < 6, so 5 becomes 6's left child.
+- 7 > 4, > 6, so 7 becomes 6's right child.
+
+```
+        4
+    3       6
+  2       5   7
+1
+```
+
+Box-and-pointer view in words: there is one `Node` box for each key, each with a `left` and `right` reference field. The left spine 4 → 3 → 2 → 1 is a chain of boxes each pointing left to the next, with the other reference `null`. Nothing about the right subtree compensates for that chain, which is exactly why height is driven by the longest such chain.
+
+### Example 2: Warmup 2, extremes for {1, 2, 3, 4, 5, 6, 7}
+
+- **Maximum height ("spindly")**: insert 1, 2, 3, 4, 5, 6, 7 or 7, 6, 5, 4, 3, 2, 1. Every new key is larger (or smaller) than everything present, so it hangs off the bottom of a single chain. Height for N items is N - 1, that is **Θ(N)**.
+- **Minimum height ("bushy")**: insert the median first, then the medians of each half: 4, then 2, then 6, then the rest in any order (4, 6, 2, ... works equally well). Height for N items is Θ(log N).
+
+```
+        4
+    2       6
+  1   3   5   7
+```
+
+### Example 3: searching an overstuffed tree, and why it is bad
+
+```
+        13
+    5           15
+  2   7     14    16 17 18 19
+```
+
+`contains(18)`:
+
+1. Is 18 > 13? Yes, go right.
+2. Is 18 > 15? Yes, go right.
+3. Now scan the leaf array: 16 = 18? No. 17 = 18? No. 18 = 18? Yes, found.
+
+Correct, but if the leaf is `[16 17 18 19 20 21 22 23 24]` the scan is linear in the number of items. The three top keys are fast and everything else is an array scan: **Θ(N) worst case**.
+
+### Example 4: the broken fix versus the real fix
+
+Overfull leaf (L = 3): `16 17 18 19` under parent `15`.
+
+**Broken (move the item up without splitting):**
+
+```
+        13
+    5           15 17
+  2   7     14    16 18 19        <-- 16 is to the RIGHT of 17. Search order violated.
+```
+
+**Correct (split):** pull 17 up, rupture the leaf into `16` and `18 19`, and attach both as children of the now-3-child parent.
+
+```
+        13
+    5           15 17
+  2   7     14   16   18 19
+```
+
+Note the parent went from 1 item / 2 children to 2 items / 3 children, preserving invariant 2.
+
+### Example 5: `add` understanding check, insert 20 then 21 (L = 3)
+
+Start:
+
+```
+        13
+    5           15 17
+  2   7     14   16   18 19
+```
+
+Add 20: 20 > 13 right, 20 > 17 right, leaf becomes `18 19 20`. Legal (3 items ≤ L).
+Add 21: same path, leaf becomes `18 19 20 21`, which is 4 > L. Split out the left-middle, 19:
+
+```
+              13
+    5                  15 17 19
+  2   7        14    16    18    20 21
+```
+
+The parent now has 3 items and 4 children. Still legal, no chain reaction needed.
+
+### Example 6: chain reaction, insert 25 then 26 (L = 3)
+
+Continuing from Example 5, add 25 and 26 so the rightmost leaf is `20 21 25 26`. Split out 21:
+
+```
+              13
+    5                  15 17 19 21
+  2   7        14    16    18    20    25 26
+```
+
+That node now has 4 items, which is over the cap. Split out its left-middle, 17, pushing it into the root:
+
+```
+                     13 17
+       5                15                19 21
+   2      7          14    16         18     20     25 26
+```
+
+Height did not change, because the split happened below the root. The 4 items that used to be in one node are now spread over a parent item plus two nodes, and the 5 children redistributed 2-to-the-left / 3-to-the-right, exactly matching the k items / k+1 children rule on both halves.
+
+### Example 7: the root splits, height grows for everyone (L = 3)
+
+```
+            13 17 21 23
+     5        15     19     22     24 25
+```
+
+Split out the root's left-middle, 17. The left half keeps `13` with children `5` and `15`; the right half keeps `21 23` with children `19`, `22`, and `24 25`; 17 becomes a brand new root:
+
+```
+                  17
+         13               21 23
+      5     15        19    22    24 25
+```
+
+Every leaf moved from depth 1 to depth 2 **simultaneously**. This is the only operation in the entire data structure that changes height, and it changes it uniformly. That single fact is the proof sketch for perfect balance.
+
+A student asked during this step why the grandchildren "happened to land in the right place." The answer given: they were already attached in the correct order before the split, and the rupture only cuts the parent, so the child pointers to the left of the promoted item stay with the left half and those to the right stay with the right half. For instance 15 must hold keys greater than 13 and less than 17, which is precisely where it ends up.
+
+### Example 8: insert 1, 2, 3, 4, 5, 6, 7 into a 2-3 tree (L = 2), full trace
+
+For L = 2, an overfull node has 3 items and the **middle** one goes up.
+
+```
+add 1:   [1]
+add 2:   [1 2]
+add 3:   [1 2 3]  -> overfull, split up 2
+
+              2
+           1     3
+
+add 4:        2
+           1     3 4
+
+add 5:        2
+           1    3 4 5    -> overfull, split up 4
+
+             2 4
+          1   3   5
+
+add 6:       2 4
+          1   3   5 6
+
+add 7:       2 4
+          1   3   5 6 7  -> overfull, split up 6
+
+            2 4 6
+         1   3   5   7   -> root overfull, split up 4
+
+               4
+           2       6
+         1   3   5   7
+```
+
+This is the punchline of the lecture: the *same* sorted insertion order that produced a 7-deep spindly BST in Example 1's cousin produces a **perfectly balanced** tree here, with all leaves at depth 2.
+
+### Example 9: forcing height 1 (recorded-viewers exercise)
+
+Find an order for 1..7 whose resulting 2-3 tree has height 1. One answer from the slides: **2, 3, 4, 5, 6, 1, 7**, giving
+
+```
+        3 5
+    1 2   4   6 7
+```
+
+with all leaves at depth 1. The takeaway stated on the slide: no matter the insertion order, the resulting B-tree is always bushy. Height can vary a little, bushiness cannot.
+
+### Example 10: Java, measuring height and average depth *(extra context: the lecture wrote no code; this makes the Section 1 definitions concrete)*
 
 ```java
-private static class BSTNode<K extends Comparable<K>> {
-    K key;
-    BSTNode<K> left, right;
-    BSTNode(K key) { this.key = key; }
-}
-
-static <K extends Comparable<K>> boolean contains(BSTNode<K> n, K key) {
-    if (n == null) {
-        return false;                        // fell off the bottom
-    }
-    int cmp = key.compareTo(n.key);
-    if (cmp == 0) {
-        return true;
-    } else if (cmp < 0) {
-        return contains(n.left, key);        // one step deeper
-    } else {
-        return contains(n.right, key);
-    }
-}
-```
-
-Reasoning about `add("01-Jan-2019, 10:31:00")`, then `18:51:00`, then `02-Jan-2019, 00:05:00`, ...: the first call creates a node on the heap and the static field `root` points at it. The second key compares greater, so insertion walks to `root.right`, finds `null`, and allocates a node there. The third key is greater than both, so it walks `root -> root.right -> root.right.right`. Every box's `left` pointer stays `null` forever. After N timestamped inserts there is a single chain of N boxes, each pointing right to the next. The recursion in `contains` therefore makes up to N frames, i.e. Θ(N) comparisons. No matter how the comparison logic is written, the *shape* is the problem, which is why the lecture changes the shape rules instead.
-
-### Example 2: Inserting 1, 2, 3, 4, 5, 6, 7 into a 2-3 tree (L = 2, promote the middle)
-
-This is the lecture's exercise, step by step. Compare with the spindly BST from the same input.
-
-```
-add 1:      [1]
-
-add 2:      [1 2]
-
-add 3:      [1 2 3]  <- 3 items > L = 2, split, promote the middle item 2
-
-                [2]
-             [1]   [3]
-
-add 4:          [2]
-             [1]   [3 4]
-
-add 5:          [2]
-             [1]   [3 4 5]   <- split, promote middle item 4 into the parent
-
-              [2 4]
-           [1] [3] [5]
-
-add 6:        [2 4]
-           [1] [3] [5 6]
-
-add 7:        [2 4]
-           [1] [3] [5 6 7]   <- split leaf, promote 6
-
-              [2 4 6]
-           [1] [3] [5] [7]   <- root now has 3 items > L = 2, split root, promote 4
-
-                   [4]
-              [2]       [6]
-           [1]  [3]   [5]  [7]
-```
-
-Two things to notice, both emphasized in lecture:
-- Every intermediate tree satisfies both invariants. For instance `[2 4]` has 2 items and exactly 3 children.
-- The only step that increased the height was the final root split, and it pushed *all* leaves from depth 1 to depth 2 at once. All leaves end at depth 2. Compare with the BST on the same input, which has height 6.
-
-Lecture also asks for an order on {1, ..., 7} producing a 2-3 tree of height 1. One answer: **2, 3, 4, 5, 6, 1, 7**, yielding
-
-```
-        [3 5]
-   [1 2] [4] [6 7]
-```
-
-### Example 3: Chain reaction in a 2-3-4 tree (L = 3, promote the left-middle)
-
-Starting tree, then `add(25)` and `add(26)`:
-
-```
-                  [13]
-       [5]                 [15 17 19]
-   [2]   [7]      [14]  [16]   [18]   [20 21]
-
-add 25, 26 into the rightmost leaf:
-                  [13]
-       [5]                 [15 17 19]
-   [2]   [7]      [14]  [16]   [18]   [20 21 25 26]      <- 4 items > L = 3
-
-split, promote left-middle item 21:
-                  [13]
-       [5]                [15 17 19 21]                  <- now 4 items, also too full
-   [2]   [7]     [14]  [16]  [18]  [20]  [25 26]
-
-split, promote left-middle item 17:
-                       [13 17]
-          [5]           [15]            [19 21]
-      [2]   [7]      [14]   [16]    [18]  [20]  [25 26]
-```
-
-And the root-split version, straight from the slides:
-
-```
-            [13 17 21]
-   [5]  [15]  [19]  [22 23 24 25]      <- leaf too full, promote 23
-
-            [13 17 21 23]
-   [5]  [15]  [19]  [22]  [24 25]      <- root too full, promote 17
-
-                     [17]
-         [13]                [21 23]
-      [5]    [15]        [19]  [22]  [24 25]
-```
-
-Height went from 1 to 2 for every leaf at the same instant.
-
-### Example 4: A B-tree node in Java, and `contains` (extra context: code is beyond the slides, the algorithm is not)
-
-```java
-public class BTree<K extends Comparable<K>> {
-
-    /** Max items per node. L = 3 gives a 2-3-4 tree; L = 2 gives a 2-3 tree. */
-    private static final int L = 3;
-
-    private static class Node<K> {
-        int numItems;          // how many slots of items[] are live
-        K[] items;             // sorted: items[0] < items[1] < ... < items[numItems - 1]
-        Node<K>[] children;    // children[i] holds keys between items[i-1] and items[i]
-
-        @SuppressWarnings("unchecked")
-        Node() {
-            // L + 1 item slots so a node can be *temporarily* over-full before we split it.
-            items = (K[]) new Comparable[L + 1];
-            children = (Node<K>[]) new Node[L + 2];
-        }
-
-        boolean isLeaf() {
-            return children[0] == null;
-        }
+public class TreeStats {
+    private static class Node {
+        int key;
+        Node left, right;
     }
 
-    private Node<K> root;
-
-    public boolean contains(K key) {
-        return contains(root, key);
+    /** Height with the lecture's convention: a single node has height 0. */
+    public static int height(Node x) {
+        if (x == null) {
+            return -1;                                   // empty tree, so a leaf gets 0
+        }
+        return 1 + Math.max(height(x.left), height(x.right));
     }
 
-    private boolean contains(Node<K> node, K key) {
-        if (node == null) {
-            return false;
-        }
-        int i = 0;
-        while (i < node.numItems) {              // the O(L) scan within one node
-            int cmp = key.compareTo(node.items[i]);
-            if (cmp == 0) {
-                return true;
-            }
-            if (cmp < 0) {
-                break;                           // key belongs in children[i]
-            }
-            i += 1;
-        }
-        // If node is a leaf, children[i] is null and we correctly report "not found".
-        return contains(node.children[i], key);
-    }
-}
-```
-
-Step by step on `contains(18)` against the tree `[13] -> { [5], [15 17] }` with leaves `[2] [7] [14] [16] [18 19]`:
-
-1. At the root, the `while` loop compares 18 to 13. Not equal, not less, so `i` becomes 1 and the loop ends (`numItems == 1`). We recurse into `children[1]`, the "> 13" subtree.
-2. At `[15 17]`: compare 18 to 15 (greater, `i = 1`), compare 18 to 17 (greater, `i = 2`), loop ends. Recurse into `children[2]`, the "> 17" subtree.
-3. At leaf `[18 19]`: compare 18 to 18, equal, return `true`.
-
-This is exactly the trace the slides walk through by hand. Note the cost accounting the lecture makes: 3 nodes visited (H + 1 = 3), at most L = 3 comparisons each, so O(HL).
-
-Why `i` doubles as both "which item matched" and "which child to descend into": for a node with k items there are k+1 gaps between/around the items, and the loop stops at the index of the gap the key falls into. That is precisely invariant 2 (k items, k+1 children) showing up in the code.
-
-### Example 5: `add` with splitting, in Java (extra context: implementation detail not shown in lecture)
-
-The recursion inserts into a leaf, then, on the way back up, each level handles a child that split by absorbing the promoted item plus a new right child, and splits itself if that pushed it past L.
-
-```java
-    /** Returned by a child that split: the item to promote and the new right node. */
-    private static class Split<K> {
-        K promoted;
-        Node<K> right;
+    private static int size(Node x) {
+        return (x == null) ? 0 : 1 + size(x.left) + size(x.right);
     }
 
-    public void add(K key) {
-        if (root == null) {
-            root = new Node<>();
-            root.items[0] = key;
-            root.numItems = 1;
-            return;
-        }
-        Split<K> s = add(root, key);
-        if (s != null) {                      // the root itself split: tree gets taller by 1
-            Node<K> newRoot = new Node<>();
-            newRoot.items[0] = s.promoted;
-            newRoot.numItems = 1;
-            newRoot.children[0] = root;       // old root is the left half
-            newRoot.children[1] = s.right;    // new node is the right half
-            root = newRoot;
-        }
-    }
-
-    private Split<K> add(Node<K> node, K key) {
-        int i = 0;
-        while (i < node.numItems && key.compareTo(node.items[i]) > 0) {
-            i += 1;
-        }
-        if (i < node.numItems && key.compareTo(node.items[i]) == 0) {
-            return null;                      // already present, nothing to do
-        }
-        if (node.isLeaf()) {
-            insertItem(node, i, key, null);   // ALWAYS inserted into an existing leaf
-        } else {
-            Split<K> s = add(node.children[i], key);
-            if (s == null) {
-                return null;                  // child absorbed it, no chain reaction
-            }
-            insertItem(node, i, s.promoted, s.right);
-        }
-        if (node.numItems <= L) {
-            return null;
-        }
-        return splitNode(node);               // over-full: split and promote upward
-    }
-
-    /** Insert key at item index i, with rightChild becoming children[i + 1]. */
-    private void insertItem(Node<K> node, int i, K key, Node<K> rightChild) {
-        for (int j = node.numItems; j > i; j -= 1) {
-            node.items[j] = node.items[j - 1];
-            node.children[j + 1] = node.children[j];
-        }
-        node.items[i] = key;
-        node.children[i + 1] = rightChild;    // null when node is a leaf
-        node.numItems += 1;
-    }
-
-    /** Node has L + 1 items. Promote the middle (L=2) / left-middle (L=3) item. */
-    private Split<K> splitNode(Node<K> node) {
-        int mid = (node.numItems - 1) / 2;    // 3 items -> 1 (middle); 4 items -> 1 (left-middle)
-        int rightCount = node.numItems - mid - 1;
-
-        Node<K> right = new Node<>();
-        for (int j = 0; j < rightCount; j += 1) {
-            right.items[j] = node.items[mid + 1 + j];
-            right.children[j] = node.children[mid + 1 + j];
-        }
-        right.children[rightCount] = node.children[node.numItems];
-        right.numItems = rightCount;
-
-        node.numItems = mid;                  // left half keeps items 0..mid-1, children 0..mid
-
-        Split<K> s = new Split<>();
-        s.promoted = node.items[mid];
-        s.right = right;
-        return s;
-    }
-```
-
-Walking the pointers for the lecture's chain reaction (`add(26)` into the 2-3-4 tree above):
-
-1. The recursion descends root `[13]` -> `[15 17 19]` -> leaf `[20 21 25]`.
-2. `insertItem` shifts nothing (26 is largest) and the leaf box becomes `[20 21 25 26]` with `numItems == 4 > L`.
-3. `splitNode` computes `mid = (4 - 1) / 2 = 1`, allocates a fresh `right` box holding `[25 26]`, and sets the original box's `numItems` back to 1 so it reads `[20]`. It returns `promoted = 21`.
-4. One frame up, `[15 17 19]` calls `insertItem(node, 3, 21, right)`, so it becomes `[15 17 19 21]` with 5 children `[14] [16] [18] [20] [25 26]`. That is 4 items > L, so it splits with `mid = 1`: left keeps `[15]` with children `[14] [16]`, the new right box is `[19 21]` with children `[18] [20] [25 26]`, and 17 is promoted.
-5. Back at the root, `insertItem` makes the root `[13 17]` with children `[5] [15] [19 21]`. `numItems == 2 <= L`, so it returns `null` and `add` finishes without creating a new root. Height unchanged.
-
-Notice that `mid = (numItems - 1) / 2` is exactly the lecture's rule: with 3 items it picks index 1 (the middle, the L=2 rule), with 4 items it picks index 1 (the left-middle, the L=3 rule).
-
-### Example 6: Checking the invariants in code (extra context)
-
-Useful because exams ask you to *recognize* invariant violations; this is the same check mechanized.
-
-```java
-    /** Returns the height if the subtree is a legal B-tree, or -1 if an invariant fails. */
-    private int checkInvariants(Node<K> node) {
-        if (node.numItems < 1 || node.numItems > L) {
-            return -1;                        // nodes hold between 1 and L items
-        }
-        if (node.isLeaf()) {
+    /** Sum of the depths of every node in the subtree rooted at x, where x sits at depth d. */
+    private static int depthSum(Node x, int d) {
+        if (x == null) {
             return 0;
         }
-        int childHeight = -1;
-        for (int i = 0; i <= node.numItems; i += 1) {
-            if (node.children[i] == null) {
-                return -1;                    // invariant 2: k items need exactly k + 1 children
-            }
-            int h = checkInvariants(node.children[i]);
-            if (h == -1) {
-                return -1;
-            }
-            if (childHeight == -1) {
-                childHeight = h;
-            } else if (childHeight != h) {
-                return -1;                    // invariant 1: all leaves at the same depth
-            }
+        return d + depthSum(x.left, d + 1) + depthSum(x.right, d + 1);
+    }
+
+    public static double averageDepth(Node root) {
+        return (double) depthSum(root, 0) / size(root);
+    }
+}
+```
+
+What this does and why: `height` recurses to the deepest `null` and unwinds adding 1 per link, which is literally "max depth over all nodes." `depthSum` threads the current depth *downward* as a parameter (each recursive call passes `d + 1`, so each stack frame's `d` is that node's depth) and sums upward, which is exactly the numerator `0x1 + 1x2 + 2x4 + ...` on the slide: instead of grouping nodes by depth and multiplying, it visits each node once and adds its own depth. `height(root) + 1` is the worst case comparison count for `contains`; `averageDepth(root) + 1` is the average case count.
+
+### Example 11: Java, a B-tree node, `contains`, and splitting *(extra context: reconstructed implementation; CS 61B does not ask you to implement B-trees, and the next lecture explains why they are painful. Study it to make the invariants concrete, not to memorize.)*
+
+```java
+public class BTree {
+    private final int L;          // max items allowed to live in a node
+    private Node root;
+
+    private class Node {
+        int[] items = new int[L + 1];    // one spare slot: we overstuff, then split
+        Node[] kids = new Node[L + 2];   // kids[i] holds keys between items[i-1] and items[i]
+        int n;                           // how many items are actually present
+
+        boolean isLeaf() {
+            return kids[0] == null;      // invariant 2: a non-leaf with n items has n+1 kids
         }
-        if (node.children[node.numItems + 1] != null) {
-            return -1;                        // too many children
-        }
-        return childHeight + 1;
+    }
+
+    public BTree(int maxItemsPerNode) {
+        L = maxItemsPerNode;
+        root = new Node();
     }
 ```
 
-Run this on the lecture's impossible tree (root `[4]`, children `[2 3]` and `[5 6 7]`, with `[2 3]` having the single child `[1]`): the node `[2 3]` has `numItems == 2`, so the loop demands `children[0]`, `children[1]`, `children[2]` all be non-null, but only one child exists, so it returns -1. Even if that were patched, the subtree heights under the root would be 1 and 0, tripping the equal-depth check.
+**`contains`, which is "almost exactly like a normal BST":**
+
+```java
+    public boolean contains(int key) {
+        Node p = root;
+        while (p != null) {
+            int i = 0;
+            while (i < p.n && key > p.items[i]) {
+                i += 1;                      // scan this node's items: at most L compares
+            }
+            if (i < p.n && key == p.items[i]) {
+                return true;
+            }
+            p = p.kids[i];                   // null when p is a leaf, so the key is absent
+        }
+        return false;
+    }
+```
+
+Step by step on the Example 4 tree with `contains(18)`: `p` points at the root box `[13]`. The inner scan stops at `i = 1` because 18 > 13, so `p = kids[1]`, the box `[15 17]`. There the scan passes 15 and 17, stopping at `i = 2`, so `p = kids[2]`, the box `[18 19]`. Now the scan stops immediately at `i = 0` because 18 is not greater than 18, and `items[0] == 18`, so we return `true`. Three node visits, each costing at most L comparisons: that is the O(HL) bound from the slides, in code.
+
+**`add`, with bottom-up splitting:**
+
+```java
+    public void add(int key) {
+        insert(root, key);
+        if (root.n > L) {                    // the root overflowed
+            Node newRoot = new Node();
+            newRoot.kids[0] = root;
+            root = newRoot;
+            splitChild(newRoot, 0);          // old root ruptures; tree gets exactly one taller
+        }
+    }
+
+    /** Inserts key below p. May leave p holding L + 1 items, one too many. */
+    private void insert(Node p, int key) {
+        int i = 0;
+        while (i < p.n && key > p.items[i]) {
+            i += 1;
+        }
+        if (i < p.n && key == p.items[i]) {
+            return;                          // no duplicates: our trees use strict < only
+        }
+        if (p.isLeaf()) {
+            for (int j = p.n; j > i; j -= 1) {
+                p.items[j] = p.items[j - 1]; // make room, keeping the node sorted
+            }
+            p.items[i] = key;
+            p.n += 1;
+            return;                          // adds ALWAYS happen in an existing leaf
+        }
+        insert(p.kids[i], key);
+        if (p.kids[i].n > L) {
+            splitChild(p, i);                // p gains one item and one child
+        }
+    }
+
+    /** Splits the overstuffed child p.kids[i], pushing its left-middle item up into p. */
+    private void splitChild(Node p, int i) {
+        Node c = p.kids[i];                  // c.n == L + 1
+        int mid = L / 2;                     // "left-middle": index 1 for both L = 2 and L = 3
+        Node right = new Node();
+
+        for (int j = mid + 1; j < c.n; j += 1) {
+            right.items[j - mid - 1] = c.items[j];      // items right of the rupture
+        }
+        for (int j = mid + 1; j <= c.n; j += 1) {
+            right.kids[j - mid - 1] = c.kids[j];        // and their children, one more than items
+            c.kids[j] = null;
+        }
+        right.n = c.n - mid - 1;
+
+        int promoted = c.items[mid];
+        c.n = mid;                           // c keeps items[0..mid-1] and kids[0..mid]
+
+        for (int j = p.n; j > i; j -= 1) {
+            p.items[j] = p.items[j - 1];     // open a slot in the parent
+        }
+        for (int j = p.n + 1; j > i + 1; j -= 1) {
+            p.kids[j] = p.kids[j - 1];
+        }
+        p.items[i] = promoted;
+        p.kids[i + 1] = right;
+        p.n += 1;                            // p may now hold L + 1 items; the caller splits it
+    }
+}
+```
+
+Why this mirrors the lecture exactly:
+
+- `insert` only ever creates items inside an **existing leaf**. No new leaf is ever appended at the bottom, which was the whole point of "freezing" the tree.
+- Each node's array has one spare slot, which is the "overstuffing" step. The overstuffing is transient: the caller immediately checks `kids[i].n > L` and splits.
+- `splitChild` moves `promoted` up and partitions both the items and the children at the rupture point. The `right.kids` loop runs one step further than the `right.items` loop, which is invariant 2 (k items need k+1 children) expressed as array arithmetic. For a leaf, every copied child is `null`, so `right.isLeaf()` stays true and the structure of leaves is preserved.
+- Because `insert` recurses first and splits afterward, overflow propagates **upward**, which is the chain reaction.
+- Height changes in exactly one place: the `if (root.n > L)` block in `add`. A fresh root is allocated above the old one, so every existing node's depth increases by one at the same instant. That is perfect balance, enforced structurally rather than by any rebalancing logic.
+
+Environment/box-and-pointer reasoning for a root split: before the split there is one root box with L+1 items and L+2 child pointers. After it, there are three boxes in play: the new root (1 item, 2 pointers), the old box trimmed to `mid` items (so it only looks at `kids[0..mid]`), and a fresh `right` box holding the suffix of items and the suffix of child pointers. No child box is ever copied or re-created; only the pointers to them are redistributed between two parents.
 
 ---
 
 ## Common Pitfalls
 
-1. **Equating Big O with worst case.** They answer different questions. The worst-case BST height is Θ(N); the height is always O(N); the best case is Θ(log N). "Big O" alone says nothing about which input you are discussing.
-2. **Saying "a BST has Θ(log N) height".** Not true in general. Only for bushy trees, including trees built by random insertion. Sorted insertion gives Θ(N).
-3. **Confusing L with the number of children.** In this course L is the max number of **items**. For L=3 (a 2-3-4 tree) the max number of children is 4. Also remember external sources often define "order" as the child count instead.
-4. **Thinking a node must be full.** A B-tree node holds between **1 and L** items. `[5]` is a perfectly legal node in a 2-3-4 tree.
-5. **Pushing an item up without splitting.** This is the lecture's explicitly broken idea; it leaves keys on the wrong side of their separator (16 ending up right of 17). The promotion and the split are one atomic operation.
-6. **Forgetting the invariant only constrains non-leaf nodes.** Leaves have 0 children regardless of how many items they hold. "k items means k+1 children" applies to internal nodes.
-7. **Thinking any split increases the height.** Only a **root** split does, and it increases the depth of every leaf by exactly 1 at once. Leaf and internal splits widen a level and leave the height alone.
-8. **Adding new keys as new leaves.** In a B-tree, insertion *always* places the key in an existing leaf. New nodes appear only as the product of a split.
-9. **Using the wrong promoted item for the given L.** L=2: middle. L=3: left-middle (the lecture's arbitrary but fixed convention). Splitting for L > 3 was explicitly out of scope, so do not invent a rule for it on an exam without being told one.
-10. **Stopping the cascade too early.** After a promotion, you must re-check the parent, and possibly its parent, all the way to the root. Up to H+1 splits can happen in a single `add`.
-11. **Off-by-one on comparison counts.** A search touches height + 1 nodes, not height nodes. The slides stress `contains(s)` on a height-4 tree needing 5 comparisons.
-12. **Dropping L from the runtime and then forgetting why that is legal.** `contains` is O(HL) = O(L log N); it collapses to O(log N) only because L is a constant fixed in advance, not a function of N.
-13. **Thinking deletion was covered.** It was not. Deletion and L > 3 splitting are out of scope for this class.
-14. **Claiming a particular B-tree shape for a given key set.** Different insertion orders can give different heights (height 1 vs height 2 for {1..7} in a 2-3 tree). What is guaranteed is bushiness, not a unique shape.
+1. **Saying "Big O" when you mean "worst case."** They are different axes. A case restricts the inputs; O/Θ describe growth. "Best case height is O(N)" is true (and weak); "best case height is Θ(N)" is false.
+2. **Thinking a loose Big O bound is wrong.** `O(N²)` for BST height is a correct statement. On an exam, mark it true even though it is uninformative.
+3. **Assuming random insert order saves you.** It does, mathematically, but you rarely get to choose the order because data arrives over time. Being able to *state why* (temporal arrival, adversarial usernames, logged timestamps) is part of the lecture.
+4. **Moving an item up without splitting the node.** This is the single most common B-tree error. If you promote the left-middle item and leave the rest of the node intact, keys end up on the wrong side of their separator (16 to the right of 17).
+5. **Forgetting to re-check the parent after a promotion.** Splits chain. In Example 6 the first split fixed the leaf but broke the parent; the answer is not done until nothing exceeds L.
+6. **Creating a new leaf.** B-tree `add` never grows the tree downward. If your drawing has a new node dangling below an old leaf, you have drawn a BST, not a B-tree.
+7. **Violating the k items / k+1 children rule.** After drawing a split, count: a node with 2 items must show 3 children, a node with 3 items must show 4.
+8. **Drawing leaves at different depths.** Impossible in a B-tree. If your picture has one, you made an arithmetic slip earlier in the trace.
+9. **Confusing the "2-3-4" naming with item counts.** 2-3-4 means 2, 3, or 4 **children**, so L = 3 **items**. A 2-3 tree is L = 2. Similarly, demos that say "max-degree 3" mean a 2-3 tree.
+10. **Dropping L from the runtime analysis mid-proof.** The honest chain is O(HL) → O(L log N) → O(log N) *because L is a constant we chose*. If L were allowed to grow with N (as in database B-trees with L in the thousands) you could not drop it so casually.
+11. **Picking the wrong item to promote for L = 2.** With 3 items there is a single true middle; "left-middle" collapses to it. Do not promote an outer item.
+12. **Height off-by-one.** A single node has height 0, and `contains` costs height + 1 comparisons in the worst case. Do not report the comparison count as the height.
+13. **Expecting deletion.** Not covered, explicitly out of scope, extra slides only.
 
 ---
 
 ## Likely Exam Points
 
-**1. Big O versus worst case (conceptual true/false).**
+**1. Big O versus worst case Big Theta.**
+*Q:* True or false, with justification: (a) the worst case height of a BST on N nodes is Θ(N); (b) the best case height is Θ(N); (c) BST height is O(N); (d) BST height is O(N log N).
+*A:* (a) True, insert in sorted order. (b) False, the best case is Θ(log N). (c) True, no BST on N nodes is taller than N - 1. (d) True, N log N is a valid (loose) upper bound on something that is at most N. The trap is (b): a *case* pins the input, so Θ must then be exact.
 
-*Q:* True or false: "The height of a BST containing N nodes is Θ(log N)." And: "The height of a BST containing N nodes is O(N)."
+**2. Draw the B-tree after a given insertion sequence.**
+*Q:* Insert 1, 2, 3, 4, 5 into a 2-3 tree (L = 2), promoting the middle item. Draw the final tree and give its height.
+*A:* `[1]` → `[1 2]` → `[1 2 3]` splits to root `[2]` with children `[1]`, `[3]` → `[3 4]` → `[3 4 5]` splits to root `[2 4]` with children `[1]`, `[3]`, `[5]`. Height 1.
 
-*A:* The first is **false**: it depends on shape, with worst case Θ(N) (spindly) and best case Θ(log N) (bushy), so no single Θ bound applies. The second is **true**: O(N) is a valid upper bound on the height of any BST, and it is tight in the worst case.
-
-**2. Insert a sequence into a 2-3 tree and draw the result.**
-
-*Q:* Insert 1, 2, 3, 4, 5 in that order into a 2-3 tree (L=2, promote the middle). Draw the final tree and state the height.
-
-*A:*
-```
-        [2 4]
-     [1] [3] [5]
-```
-Height 1. Trace: `[1]`, `[1 2]`, `[1 2 3]` splits into root `[2]` with children `[1] [3]`; then `[3 4]`; then `[3 4 5]` splits, promoting 4 into the root to give `[2 4]` with children `[1] [3] [5]`.
-
-**3. Chain reaction and root splits.**
-
-*Q:* In the 2-3-4 tree below, perform `add(26)`. How many splits occur, and does the height change?
-```
-                  [13]
-       [5]                 [15 17 19]
-   [2]   [7]      [14]  [16]   [18]   [20 21 25]
-```
-*A:* Two splits. The leaf becomes `[20 21 25 26]` and splits (promoting 21), which makes `[15 17 19 21]` over-full, so it splits (promoting 17). The root absorbs 17 and becomes `[13 17]` with 3 children, which is legal, so no root split and the **height does not change**. Final tree:
-```
-                       [13 17]
-          [5]           [15]            [19 21]
-      [2]   [7]      [14]   [16]    [18]  [20]  [25 26]
-```
+**3. Chain reaction up through the root.**
+*Q:* In a 2-3-4 tree (L = 3), the root is `[13 17 21 23]` with children `[5] [15] [19] [22] [24 25]`. Show the result of splitting the root using the left-middle convention, and state what happens to the height.
+*A:* Root becomes `[17]`; left child `[13]` with children `[5]`, `[15]`; right child `[21 23]` with children `[19]`, `[22]`, `[24 25]`. Height increases by exactly 1, and it increases for every leaf at once, which is why balance is preserved.
 
 **4. Spot the invariant violation.**
+*Q:* Why is the following not a valid B-tree? Root `[4]`, children `[2 3]` and `[5 6 7]`, where `[2 3]` has a single child `[1]`.
+*A:* Two violations. The leaves `[1]` and `[5 6 7]` are at different distances from the root, breaking invariant 1. The non-leaf `[2 3]` has k = 2 items but only 1 child, when it must have exactly k+1 = 3, breaking invariant 2.
 
-*Q:* Why is this not a valid B-tree?
-```
-            [4]
-      [2 3]       [5 6 7]
-    [1]
-```
-*A:* Both invariants fail. (i) Leaves `[1]` and `[5 6 7]` are at different distances from the root (depths 2 and 1), violating "all leaves the same distance from the root". (ii) The non-leaf `[2 3]` has k=2 items but only 1 child; it must have exactly k+1 = 3 children.
+**5. Terminology translation.**
+*Q:* A 2-3-4 tree is a B-tree with what value of L? How many items and how many non-null children can one of its nodes have? What about a 2-3 tree?
+*A:* 2-3-4 (also called 2-4) is L = 3: at most 3 items and at most 4 non-null children per node. 2-3 is L = 2: at most 2 items and at most 3 non-null children. The names count children, not items.
 
-**5. Height bounds given N and L.**
+**6. Height bounds as a function of L and N.**
+*Q:* Give the asymptotic range of a B-tree's height with limit L, and say which extreme corresponds to which node occupancy.
+*A:* Between ~log_{L+1}(N) (every node holds L items and L+1 children, maximally bushy) and ~log₂(N) (every non-leaf holds just 1 item, so the tree is effectively binary). Both are Θ(log N), so B-tree operations are Θ(log N) height regardless.
 
-*Q:* A B-tree with L=2 holds N=8 items. What are the smallest and largest possible heights? Which end of the slide's range does this illustrate?
+**7. Runtime derivation, not just the answer.**
+*Q:* Derive the worst case runtime of `contains` and of `add` on a B-tree with limit L.
+*A:* `contains` inspects at most H + 1 nodes and at most L items per node, giving O(HL). `add` does the same traversal plus at most H + 1 splits, also O(HL). Since H = Θ(log N), both are O(L log N), and since L is a constant, both are O(log N).
 
-*A:* The tallest case has every node holding 1 item and 2 children, giving height ≈ log₂(N) = 3 as an upper bound on the order of growth; concretely, with every node holding a single item a height of 2 already fits only 7 items, so 8 items forces height ≥ 2, and 8 items is near the **worst case** for L=2 (this is exactly the slide's "N: 8, L: 2, H: 2, height grows with log₂ N" example). The shortest case has every node holding L=2 items and 3 children, giving height ≈ log₃(N), which is why the slide's best-case example packs N=26 items into height 2. Overall, height is between ~log_{L+1}(N) and ~log₂(N), i.e. Θ(log N).
+**8. Counting items for a given height (extension of the slide's N = 26 and N = 8 examples).**
+*Q:* What are the minimum and maximum number of items in a 2-3 tree (L = 2) of height 2?
+*A:* Minimum: every node holds 1 item with 2 children, a perfect binary tree of 3 levels, so 2³ - 1 = 7 items (the slide's "near worst case" example has 8 items at H = 2). Maximum: every node holds 2 items with 3 children, so 1 + 3 + 9 = 13 nodes times 2 items = 26 items, matching the slide's best case. *(extra context: in general, min = 2^(h+1) - 1 and max = (L+1)^(h+1) - 1 items.)*
 
-**6. Runtime derivation, with and without the constant.**
+**9. Why BSTs are not good enough.**
+*Q:* Random inserts give Θ(log N) BST height. Give a concrete reason we still need balanced trees.
+*A:* We usually cannot control insertion order because data arrives over time: event timestamps inserted as they occur, or users registering sequentially. A monotone arrival order (or an adversary adding Z1, Z2, Z3, ...) builds a spindly Θ(N) tree. B-trees handle *any* order in O(log N).
 
-*Q:* State the worst-case runtime of `contains` and `add` on a B-tree with limit L, first in terms of both L and N, then with L treated as a constant. Justify each factor.
+**10. Height, depth, average depth, comparison counts.**
+*Q:* For the tree with root k, children e and v, with e's children b and g, v's children p (left empty, right child r) and y (right child z), r's right child s, b's children a and d, g's children f and j: what is `height(T)`, `depth(g)`, and the worst case number of comparisons for `contains`?
+*A:* `height(T) = 4` (the path k, v, p, r, s), `depth(g) = 2`, and the worst case comparison count is height + 1 = 5, realized by `contains(s)`.
 
-*A:* `contains`: H+1 nodes inspected, up to L items compared per node, so O(HL) = **O(L log N)**, which is **O(log N)** for constant L. `add`: the same O(HL) search cost, plus up to H+1 splits, each costing O(L) work, which is still O(HL) = **O(L log N)** = **O(log N)**. The key step in both is H = Θ(log N), which follows from perfect balance.
+**11. Insertion order to hit a target shape.**
+*Q:* Give an order for inserting 1 through 7 so the resulting 2-3 tree has height 1.
+*A:* 2, 3, 4, 5, 6, 1, 7 yields root `[3 5]` with children `[1 2]`, `[4]`, `[6 7]`, all leaves at depth 1.
 
-**7. Insertion order and bushiness.**
-
-*Q:* Give an insertion order of {1, ..., 7} that produces a 2-3 tree of height 1, and explain why *no* insertion order can produce a spindly 2-3 tree.
-
-*A:* One answer: 2, 3, 4, 5, 6, 1, 7, giving root `[3 5]` with leaves `[1 2] [4] [6 7]`, all at depth 1. No order can be spindly because B-tree insertion never adds a leaf below an existing leaf: height changes only via root splits, which push every leaf down together, so all leaves are always at equal depth and the tree is perfectly balanced. (Height can vary between orders, 1 vs 2 here, but it is always Θ(log N).)
-
-**8. Maximum and minimum item counts (extra context: a standard follow-on exercise the slides' height bounds set up).**
-
-*Q:* What is the maximum number of items a B-tree with limit L and height h can hold? The minimum?
-
-*A:* Maximum when every node is full: L items at each of (L+1)^d nodes on level d, summed over d = 0..h, which telescopes to (L+1)^{h+1} - 1. For L=2, h=2 this gives 3³ - 1 = 26, matching the slide's best-case example. Minimum when every node holds 1 item (2 children): 2^{h+1} - 1. For L=2, h=2 that is 7, which is why 8 items can be squeezed into height 2 only in a near-worst-case shape.
-
-**9. Terminology translation.**
-
-*Q:* A "2-3-4 tree" corresponds to what value of L, and how many items and children can one node hold?
-
-*A:* L = 3. A node holds 1 to 3 items and, if it is not a leaf, 2, 3, or 4 children (the name lists the legal child counts). It is also called a 2-4 tree. Similarly, a 2-3 tree is L = 2: 1 to 2 items, 2 or 3 children.
+**12. What makes B-trees balanced.**
+*Q:* In one sentence, why is a B-tree always perfectly balanced?
+*A:* Splitting a leaf or an internal node does not change any leaf's depth, and splitting the root increases every leaf's depth by exactly one, so all leaves remain at identical depth forever.
 
 ---
 
 ## Summary
 
-- **depth** = distance from root; **height** = max depth; **average depth** = mean depth. Height + 1 gives worst-case search comparisons; average depth + 1 gives average-case.
-- BSTs have **best case height Θ(log N)** and **worst case height Θ(N)**. **Big O is not the same thing as worst case.**
-- Random inserts are kind to BSTs: expected average depth ~2 ln N, expected height ~4.311 ln N, both Θ(log N). Random trees are bushy, not spindly. Deletions mixed in keep Θ(log N) if you randomize predecessor/successor.
-- But we cannot force random order: data arriving over time (timestamps) is sorted, which produces the Θ(N) spindly worst case.
-- **Key idea:** never add leaves at the bottom. Insert into existing leaves ("overstuffing"), so leaf depths, and hence the height, can never drift.
-- Pure overstuffing makes nodes unboundedly juicy, so cap nodes at **L items**. Over-full nodes **split**: one item is promoted to the parent and the node divides into a left and a right child. Promoting without splitting is wrong (it misorders keys).
-- Promotion rule in lecture: **L=2 promote the middle**, **L=3 promote the left-middle**. L > 3 is out of scope.
-- Splits can **chain-react** upward. A leaf or internal split does not change the height; a **root split** adds a new 2-child root and increases every leaf's depth by exactly 1.
-- **Invariants:** (1) all leaves are the same distance from the root; (2) a non-leaf with k items has exactly k+1 children. Together these force **perfect balance** and bushiness, for any insertion order.
-- Real name: **B-tree**. L=2 is a **2-3 tree**; L=3 is a **2-3-4 tree** (2-4 tree), where the name lists legal child counts. Small L is used as a simple balanced BST; very large L (thousands) is used by databases and filesystems.
-- **Height** is between ~log_{L+1}(N) and ~log₂(N), so H = Θ(log N). **`contains`** and **`add`** are both O(HL) = O(L log N) = **O(log N)** for constant L; `add` performs at most H+1 splits.
-- `contains` works almost exactly like a normal BST search, with an extra O(L) scan inside each node.
-- **Not covered:** deletion, and splitting for L > 3. B-trees are more complex than BSTs but handle *any* insertion order efficiently.
-- Demos used in lecture: random BST simulation https://joshh.ug/61b/bst.html and the B-tree visualizer https://tinyurl.com/balanceYD (where "max-degree" means max *children*).
+- **Depth** of a node is its distance from the root (root = 0); **height** is the max depth; **average depth** is the mean over nodes. Worst case `contains` costs height + 1 comparisons, average case costs average depth + 1.
+- **BSTs** have best case height Θ(log N) (bushy) and worst case Θ(N) (spindly, from sorted or reverse-sorted insertion).
+- **Big O is not worst case.** "Height is O(N)" and "height is O(N²)" are both true; "best case height is Θ(N)" is false. Expect this on Midterm 2.
+- **Random** inserts give Θ(log N) height: expected average depth ~2 ln N, expected height ~4.311 ln N (Reed 2003). With deletion, randomly alternating predecessor/successor keeps Θ(log N); always using the successor degrades toward ~√N.
+- We still cannot rely on this, because **data arrives over time** (timestamps, sign-ups, adversarial Z1/Z2/Z3), and we do not get to shuffle it.
+- **The invention, in three steps:** (1) never add new leaves, overstuff existing ones instead, which freezes height but makes lookups Θ(N); (2) cap nodes at **L** items; (3) when a node exceeds L, **split** it, promoting its left-middle item into the parent and rupturing the node into two children.
+- Simply moving an item up **without** splitting breaks search order. Splitting is the fix, and it makes the parent a node with one more item and one more child.
+- Splits **chain-react** upward. Splitting a leaf or internal node leaves height unchanged; **splitting the root is the only way height grows**, and it grows for every leaf simultaneously.
+- **Invariants** (asserted, not proven in lecture): all leaves are the same distance from the root, and a non-leaf node with k items has exactly k+1 children. Together they force perfect balance and bushiness.
+- **Names:** these are **B-trees**. L = 2 is a **2-3 tree**; L = 3 is a **2-3-4** or **2-4 tree**; the digits count children. Small L is a teaching-friendly balanced tree; L in the thousands is used in real databases and filesystems. The "B" is unexplained (balanced, broad, bushy, Boeing, or Bayer).
+- **Height** lies between ~log_{L+1}(N) and ~log₂(N), so Θ(log N). `contains` and `add` are both O(HL) = O(L log N) = **O(log N)** for constant L.
+- **Not covered:** deletion (extra slides, out of scope) and splitting for L > 3. **Next up:** B-trees are ugly to implement, so we will see the alternative *(extra context: red-black trees)*.
