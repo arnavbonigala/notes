@@ -1,175 +1,23 @@
-<!-- Fri, Oct 09, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Fri, Oct 09, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 19: Red-Black Trees
 
 ## Overview
 
-This lecture closes the loop on the balanced-search-tree story. 2-3 trees (B-trees with small `L`) give us guaranteed logarithmic height, but they are genuinely painful to implement: multiple node types, conversions between 2-nodes and 3-nodes, and splits that propagate back up the tree. So we go back to the plain binary search tree and ask: can we keep a *BST* balanced? The key new tool is **tree rotation**, an O(1) pointer surgery that changes a BST's shape while preserving its ordering (and therefore its semantics). Rotations alone can rebalance any BST, but figuring out *which* rotations to perform is the hard part. The wild idea of the lecture is to maintain a **one-to-one correspondence (isometry) between a BST and a 2-3 tree**: we represent each 3-node as two BST nodes joined by a "glue" link that we *pretend* is colored red and that we always make lean left. The result is a **Left-Leaning Red-Black BST (LLRB)**, which is just a normal BST, but because it is in bijection with a 2-3 tree it inherits logarithmic height (at most about 2x the 2-3 tree's height). Insertion is then "insert as a normal BST with a red link, then apply zero or more rotations and color flips on the way back up" to restore the correspondence, giving O(log N) `contains` and O(log N) `insert` with code that fits in a handful of lines.
+This lecture closes a three-lecture arc on search trees. Last lecture gave us B-trees (and in particular 2-3 trees, the B-tree with `L = 2`), which are perfectly balanced but miserable to implement: multiple node types, interconversion between 2-nodes and 3-nodes, and splitting while walking back up the tree. So we put B-trees on a shelf and go back to an ordinary binary search tree, armed with one new operation: **tree rotation**, which rearranges a BST without changing which keys it contains or the search tree property. Rotation alone lets you reshape any BST into any other BST on the same keys, but it does not tell you *which* rotations to do. The beautiful idea of the lecture is to let 2-3 trees be our guide: we color some BST links "red" so that a red link glues two BST nodes together into one conceptual 3-node, giving an exact one-to-one correspondence (an **isometry**) between a BST and a 2-3 tree. A BST that maintains this correspondence, with the extra convention that red glue links always lean left, is a **Left-Leaning Red-Black tree (LLRB)**. Because 2-3 trees have logarithmic height and an LLRB is never more than about twice as tall as its corresponding 2-3 tree, LLRBs are balanced, with `O(log N)` `contains` and `insert`. Insertion is implemented as "insert into a BST as usual with a red link, then apply zero or more rotations and color flips to restore the correspondence," and the lecture derives those three fixup rules by repeatedly asking "What Would 2-3 Tree Do?"
 
 ---
 
 ## Key Concepts
 
-### 1. Why we abandon direct 2-3 / 2-3-4 tree implementations
+### 1. Why not just implement 2-3 trees?
 
-2-3 trees and 2-3-4 trees are beautiful on the whiteboard and awful in code. The lecture lists the specific pain points:
+2-3 trees and 2-3-4 trees are conceptually gorgeous and perfectly balanced, but for small `L` they are a real pain in code and suffer performance problems. The lecture lists three specific sources of pain:
 
-- **Maintaining different node types** (a 2-node holds 1 item and 2 children; a 3-node holds 2 items and 3 children).
-- **Interconversion of nodes** between 2-nodes and 3-nodes (and temporary 4-nodes).
-- **Walking back up the tree to split nodes** after an overflow.
+- **Maintaining different node types** (a 2-node and a 3-node hold different numbers of items and children).
+- **Interconversion of nodes** between 2-nodes and 3-nodes (you need code that says "you are a 3-node now").
+- **Walking up the tree to split nodes** after an overfull node appears.
 
-The slides show "fantasy 2-3 code" (credited to Kevin Wayne) to illustrate how much machinery you would need, and quote Knuth: *"Beautiful algorithms are, unfortunately, not always the most useful."*
-
-### 2. The BST shape depends on insertion order, and rotations let you change it
-
-For keys 1, 2, 3 there are five distinct BSTs, and which one you get depends on insertion order. In general, for N items there are **Catalan(N)** different BST shapes. Crucially, **any BST shape can be converted into any other BST shape over the same keys using rotations**, and the lecture cites a bound of **2n - 6 rotations** in general (reference: *Rotation Distance, Triangulations, and Hyperbolic Geometry*, or Amy Liu). So "rotation" is expressive enough to be the only structural tool we need.
-
-### 3. Tree rotation: definition and intuition
-
-> `rotateLeft(G)`: Let `x` be the right child of `G`. Make `G` the new left child of `x`.
->
-> `rotateRight(P)`: Let `x` be the left child of `P`. Make `P` the new right child of `x`.
-
-Three intuitions the lecture gives for the same operation:
-
-**(a) "I'm going left."** `rotateLeft(G)` sends `G` down and to the left; `G`'s new parent is `G`'s old **right** child. That child becomes the new root of the subtree ("I'll be G's new boss"). Mirror image for `rotateRight`.
-
-**(b) The orphan rule.** When `G` moves down-left under `x`, `x`'s old left subtree `k` "doesn't make sense" where it is: it holds keys greater than `G` but less than `x`. The only legal home for it is **the right child of `G`**. The slides literally narrate this: `k` says "I got transferred from P to G."
-
-**(c) Merge-then-demote.** Think of `rotateLeft(G)` as temporarily merging `G` and its right child `P` into one node `GP` (which then has 4 children), then sending `G` down and left out of that merged node. This is the interpretation that will matter later, because *merging a parent with a child and re-splitting it differently* is exactly what a 3-node in an LLRB is.
-
-**Rotation preserves the search tree property.** There is "no change to the semantics of the tree": the set of keys is the same and the in-order traversal is the same. Only the shape changes. (extra context: that in-order traversal is unchanged is the cleanest one-line proof that rotation preserves BST-ness.)
-
-**Rotations can increase or decrease height.** In the lecture's example, `rotateLeft(G)` *increased* the height, while the inverse `rotateRight(P)` *decreased* it. Rotation is not inherently a balancing operation; it is a shape-changing operation that you aim at balance.
-
-**Some rotations are undefined.** If the node has no appropriate child to take its place, the operation is invalid. Example from the slides: `rotateRight(1)` where node `1` has only a right child `4` is an **INVALID OPERATION**, because there is no left child to become the new subtree root.
-
-### 4. Rotation for balance, and why "rebalance occasionally" is not good enough
-
-Since rotation can shorten a tree and preserves ordering, you can use rotations to balance any BST, and this takes **O(N) moves**. But paying O(N) occasionally to rebalance is not ideal. We want balance maintained *incrementally*, with O(log N) work per insert. The rest of the lecture builds that.
-
-### 5. The big idea: maintain a 1-1 correspondence with a 2-3 tree
-
-If a BST is imbalanced, rotations can always fix it; the tricky part is knowing *which* rotations. The lecture's answer:
-
-> **Wild idea:** perform rotations such that we maintain a 1-to-1 correspondence with a 2-3 tree. Since 2-3 trees are always balanced, our BST will also be balanced.
-
-So the algorithm never has to "think about balance" at all. It only has to think: *is my BST still a faithful picture of some legal 2-3 tree?* If yes, balance is free.
-
-### 6. How do you draw a 2-3 tree as a BST?
-
-- A 2-3 tree containing **only 2-nodes** is trivial to represent: the BST is literally identical.
-- **3-nodes are the problem.** A 3-node holds two items and three children; a BST node holds one item and two children.
-
-Two possibilities were considered:
-
-**Possibility 1: dummy "glue" nodes.** Represent 3-node `d f` as a glue node labeled `df` with `d` as left child and `f` as right child. The lecture rejects this: "Result is inelegant. Wasted link. Code will be ugly."
-
-**Possibility 2: glue *links*, smaller item off to the left.** Represent 3-node `d f` as BST node `f` with `d` as its **left child**, and mark the link `f -> d` as **red**. No extra nodes, no wasted links. This is what is "commonly used in practice (e.g. `java.util.TreeSet`)."
-
-The red color is **a convenient fiction**. Red links do not "do" anything special at runtime; they are bookkeeping that tells us which BST nodes are secretly part of the same 2-3 node.
-
-### 7. LLRBs are just BSTs
-
-> A BST with left glue links that represents a 2-3 tree is called a **Left Leaning Red Black Binary Search Tree (LLRB)**.
->
-> - LLRBs are normal BSTs.
-> - There is a 1-1 correspondence between an LLRB and an equivalent 2-3 tree.
-> - The red is just a convenient fiction.
-
-Consequence: **searching an LLRB is exactly BST search.** No color logic at all in `contains`. Colors are consulted only during insertion, to restore the correspondence.
-
-### 8. LLRB invariants
-
-The lecture's "handy LLRB properties":
-
-1. **No node has two red links.** (That would be analogous to a 4-node, which is disallowed in 2-3 trees.) In the left-leaning discipline, this also means no two consecutive left red links and no simultaneous red-left plus red-right, except *temporarily* during insertion.
-2. **Every path from the root to a null has the same number of black links** (because every leaf in a 2-3 tree is at the same depth). This is **perfect black balance**, and it is why LLRBs are balanced.
-3. Red links lean **left** (in a settled tree).
-
-**Subtle point the lecture explicitly calls out:** the invariant is about root-to-**null** paths, not root-to-**leaf** paths. An older version of the lecture said "the number of black links to any leaf must be the same," which is wrong. Counterexample from the slides: root `G` with children `B` and `X`, where `B` has a single child `A`. This can satisfy the leaf-based version while having no corresponding 2-3 tree, because the 2-3 node `B G` would be missing a child. Counting to nulls catches it.
-
-### 9. LLRB height, hence balance
-
-Each 3-node of the 2-3 tree becomes **two** nodes in the LLRB, joined by a red link. So a root-to-leaf path in the 2-3 tree with `H` links turns into a path with `H` black links plus up to one extra red link per node on the path.
-
-- Lecture's concrete case: a 2-3 tree with "tallness" (number of links on the longest root-to-leaf path) of **3** produced an LLRB of height **3 black + 2 red = 5**.
-- General bound from the slides: for a 2-3 tree of height `H`, the corresponding LLRB has height at most `H` (black) `+ H + 1` (red) `= 2H + 1`, i.e. **never more than about 2x the 2-3 tree's height**.
-- Since 2-3 trees have logarithmic height, **LLRBs have logarithmic height**. That is the entire balance argument.
-
-(extra context: the `H + 1` red count comes from there being `H + 1` nodes on a root-to-leaf path, each of which could be a 3-node contributing one red link.)
-
-### 10. Where do LLRBs come from? Insertion by local repair
-
-We do **not** build a 2-3 tree and convert it; 2-3 trees are hard to build, which was the whole problem. Instead:
-
-> - Insert as usual into a BST.
-> - Use zero or more rotations (and color flips) to maintain the 1-1 mapping.
-
-The guiding slogan when deciding what to do: **"What Would 2-3 Tree Do?" (WW23TD?)** Simulate the 2-3 tree operation in your head, then make the LLRB look like the correct picture of the resulting 2-3 tree.
-
-The four design tasks of the lecture derive the whole algorithm:
-
-**Design Task #1: what color is a new link?** **Red.** In a 2-3 tree, a new value is always added into an existing leaf node first (making a 2-node into a 3-node, or a 3-node into a temporary 4-node). A new red link is exactly "this item joined an existing node."
-
-**Design Task #2: insertion on the right.** Insert `S` as the red right child of leaf `E`. The 2-3 world says `E` and `S` now form one 3-node `ES`, which must be drawn as `S` on top with red-left child `E`. The LLRB currently has a red *right* link, which is illegal. Fix: **`rotateLeft(E)`**. This is the **Left Leaning Violation** rule.
-
-**Design Task #3: double insertion on the left.** Starting from the 3-node `S Z` (drawn as `Z` with red-left `S`) and inserting `E`, you get `Z -> S -> E`, two consecutive left red links. In the 2-3 world this is the temporary 4-node `E S Z`, which should be drawn as the middle item `S` on top with **two** red children, `E` on the left and `Z` on the right. Fix: **`rotateRight(Z)`**. This is the **Incorrect 4 Node Violation** rule. New representation rule introduced here: **temporary 4-nodes are BST nodes with two red links**, and that temporary violation of "left leaning" is OK because it is about to be resolved.
-
-**Design Task #4: splitting a temporary 4-node.** Given `G` with left child `B`, where `B` has two red children `A` and `C`, the 2-3 world calls `split(A/B/C)`: `B` moves up to join `G`, forming the 3-node `B G` with children `A`, `C`, `X`. The correct LLRB picture of that is: `G` with a **red** left link to `B`, and `B` with **black** links to `A` and `C`. Compare to what we have: `B` black from `G`, red to `A` and `C`. The transformation is **flip the colors of all three edges touching `B`** (`colorFlip(B)` / `flipColors`). No rotation needed, and **the BST structure/shape does not change at all**. The slide's punchline: "BST, the magic was inside of you all along."
-
-### 11. The complete LLRB insertion rule set
-
-> Congratulations, you just invented the red-black BST.
-> - When inserting: use a **red** link.
-> - If there is a right-leaning "3-node" (**Left Leaning Violation**): **rotate left** the appropriate node.
-> - If there are two consecutive left red links (**Incorrect 4 Node Violation**): **rotate right** the appropriate node.
-> - If a node has two red children (**Temporary 4 Node**): **color flip** that node to emulate `split`.
-
-**Cascading operations.** A rotation or flip can create a *new* violation one level up, which then needs fixing, exactly as a split in a 2-3 tree can cascade upward. The lecture's example: from `B` with children `A` and the 3-node `ES` (drawn `S` with red-left `E`), `add(Z)` makes `S` have two red children, so `flip(S)`. Now the link `B -> S` is red and right-leaning: a Left Leaning Violation one level up. Fix with **`rotateLeft(B)`**, giving root `S` with red-left `B` (children `A`, `E`) and right child `Z`, which corresponds to the 2-3 tree `B S` over `A`, `E`, `Z`.
-
-### 12. Runtime
-
-- LLRB height is O(log N).
-- `contains` is trivially **O(log N)** (plain BST search).
-- `insert` is **O(log N)**: O(log N) to walk down and add the node, plus O(log N) rotations and color flips on the way back up (constant work per level).
-- **Delete is not covered** in CS 61B. ("Not too terrible really, but it's just not interesting enough to cover.")
-
-### 13. Search tree summary (the last three lectures in one place)
-
-- **BSTs**: simple, but subject to imbalance (worst case Θ(N) height).
-- **2-3 / B-trees**: balanced, but painful to implement and relatively slow.
-- **LLRBs**: insertion is simple to implement (delete is hard), and it works by maintaining a mathematical bijection with a 2-3 tree.
-- **Java's `TreeMap`** is a red-black tree but **not left-leaning**: it maintains a correspondence with a **2-3-4** tree, which is **not** a 1-1 correspondence (glue links are allowed on either side). More complex implementation, but significantly faster.
-- Beyond: AVL trees, WAVL trees (described in the slides as fastest), splay trees, treaps, and hundreds of others. Also non-tree approaches: **skip lists** ("linked lists with express lanes") and **hashing**, the most common alternative, coming in a later lecture.
-
----
-
-## Definitions
-
-- **Tree rotation**: a local, O(1) restructuring of a BST that changes the shape while preserving the search tree property (and the in-order key order).
-- **`rotateLeft(G)`**: let `x` be the right child of `G`; make `G` the new left child of `x`. `x` takes `G`'s former position; `x`'s old left subtree becomes `G`'s new right subtree. Undefined if `G` has no right child.
-- **`rotateRight(P)`**: let `x` be the left child of `P`; make `P` the new right child of `x`. `x` takes `P`'s former position; `x`'s old right subtree becomes `P`'s new left subtree. Undefined if `P` has no left child.
-- **Rotation distance**: the minimum number of rotations to turn one BST shape into another over the same keys; the lecture cites a general bound of `2n - 6`.
-- **Catalan(N)**: the number of distinct BST shapes on N items.
-- **Glue node (Possibility 1, rejected)**: a dummy BST node used to hold together the two items of a 3-node, with the smaller item as its left child and the larger as its right child.
-- **Glue link / red link (Possibility 2, adopted)**: a BST link, drawn red, connecting the two items of a single 2-3 tree 3-node. The smaller item hangs off to the **left**. Red links do not change BST behavior; they are a bookkeeping fiction.
-- **Left Leaning Red Black BST (LLRB)**: a BST with left-leaning red glue links that is in 1-1 correspondence with a 2-3 tree.
-- **Isometry / 1-1 correspondence / bijection**: the exact structural mapping between an LLRB and a 2-3 tree, under which every legal LLRB corresponds to exactly one legal 2-3 tree and vice versa. Maintaining this correspondence is the entire implementation strategy.
-- **Perfect black balance**: every path from the root to a **null** link passes through the same number of black links. (Root-to-null, not root-to-leaf.)
-- **Height / "tallness"**: the number of **links** on the longest path from root to leaf.
-- **Temporary 4-node**: a BST node with **two** red child links, representing a 2-3 tree node that momentarily holds three items; must be resolved by a color flip.
-- **Left Leaning Violation**: a red link that leans right. Fixed by rotating that node left.
-- **Incorrect 4 Node Violation**: two consecutive left-leaning red links (a red node whose left child is also red). Fixed by rotating the top node right.
-- **Color flip (`colorFlip` / `flipColors`)**: recoloring all three links touching a node (the link to its parent becomes red; the links to its two children become black). Emulates a 2-3 tree `split`. Does **not** change tree shape.
-- **Cascading**: a rotation or color flip creating a new violation at an ancestor, which must then be repaired, analogous to a split propagating up a 2-3 tree.
-
----
-
-## Worked Examples
-
-### Example 0: the "fantasy" 2-3 code (why we are doing any of this)
-
-This is the code from the slides, shown precisely because it is *not* code you want to write:
+The slides show "fantasy 2-3 code" (via Kevin Wayne) to make the point about how awkward this gets:
 
 ```java
 public void put(Key key, Value val) {
@@ -183,68 +31,588 @@ public void put(Key key, Value val) {
 }
 ```
 
-Every single method here (`is2Node`, `is3Node`, `is4Node`, `split`, `make3Node`, `make4Node`) hides a pile of case analysis over variable-arity nodes, plus the parent pointers or recursion needed to walk back up and split. Compare with the ~15 lines of LLRB insert at the end of this section. That contrast is the argument of the lecture.
+Quoting Knuth on the slide: "Beautiful algorithms are, unfortunately, not always the most useful." The lecture also notes the alternative we are about to build is faster in practice, not merely easier.
 
-### Example 1: `rotateLeft` in code, with box-and-pointer reasoning
+### 2. How many BSTs are there, and can we move between them?
+
+For the keys 1, 2, 3 there are exactly **five** valid BSTs, and which one you get depends only on insertion order:
+
+```
+1        1          2        3          3
+ \        \        / \      /          /
+  2        3      1   3    1          2
+   \      /                 \        /
+    3    2                   2      1
+```
+
+More generally, `N` keys admit `Catalan(N)` different BSTs, a number that grows very quickly. The key structural fact: **given any BST, you can reach any other configuration on the same keys using rotations**. This is unlike a Rubik's cube or a chess position, where some states are unreachable. The slides cite "Rotation Distance, Triangulations, and Hyperbolic Geometry" for the bound of `2n - 6` rotations to move between any two configurations (the lecture attributes the paper to Tarjan and co-authors).
+
+### 3. Tree rotation: definition and intuition
+
+> `rotateLeft(G)`: Let `x` be the right child of `G`. Make `G` the new left child of `x`.
+>
+> `rotateRight(P)`: Let `x` be the left child of `P`. Make `P` the new right child of `x`.
+
+Both preserve the search tree property; there is **no change to the semantics of the tree** (same key set, same ordering invariant).
+
+Three complementary ways the lecture builds intuition:
+
+- **"Who is the new boss?"** If you `rotateLeft(x)`, then `x` goes down and to the left, and `x`'s **right child** becomes its new parent. Symmetrically, `rotateRight(x)` sends `x` down and to the right, and `x`'s **left child** becomes its new parent. Josh's alternate name for `rotateLeft(G)` is "promote the right child of `G`."
+- **The orphaned subtree.** Walking through `rotateLeft(G)` where `G` has left child `C` and right child `P`, and `P` has children `k` and `r`: after you hoist `P` above `G`, node `P` momentarily has *two* left children (`G` and `k`), which "doesn't make sense." The fix is forced: `k` becomes `G`'s new right child. This is legal precisely because `k`'s subtree contains exactly the keys greater than `G` and less than `P` (you reached it by going right from `G`, then left from `P`), so it belongs to the right of `G`.
+- **Merge then split.** Think of `rotateLeft(G)` as temporarily merging `G` and `P` into one node `GP`, then sending `G` down and to the left. `rotateRight(P)` merges `GP` and sends `P` down and to the right.
+
+Before and after `rotateLeft(G)`:
+
+```
+        G                              P
+      /   \                          /   \
+     C     P        ===>            G     r
+    / \   / \                      / \
+   A   k j   l                    C   k
+                                      / \
+                                     j   l
+```
+
+In this particular example `rotateLeft(G)` **increased** the height of the tree, and the mirror-image `rotateRight(P)` **decreased** it. Rotation can shorten or lengthen a tree; it is a reshaping tool, not automatically a balancing tool.
+
+**Some rotations are undefined.** If there is no appropriate child to take your place, the operation is invalid. Example from the slides: with `1` as the root whose only child is a right child `4`, `rotateRight(1)` is an **INVALID OPERATION** because there is no left child to take over.
+
+### 4. Rotation as a (clumsy) balancing tool
+
+The lecture's balancing demo on seven keys:
+
+```
+Start:                After rotateLeft(9):      After rotateLeft(6):
+      6                      6                         8
+    /   \                  /   \                      / \
+   1     8                1     8                    6   13
+    \     \                \     \                  /   /  \
+     4     9                4     13                1   9   17
+            \                    /  \                \
+             13                 9    17               4
+               \
+                17
+
+After rotateLeft(1):      After rotateRight(6):
+      8                        8
+    /   \                    /   \
+   6     13                 4     13
+  /     /  \               / \   /  \
+ 4     9   17             1   6 9   17
+/
+1
+```
+
+So `rotateLeft(9)`, `rotateLeft(6)`, `rotateLeft(1)`, `rotateRight(6)` takes a spindly 7-node BST to a perfectly balanced one. Consistent with the `2n - 6` bound, four rotations sufficed here.
+
+The takeaway from this section: **rotation allows balancing of a BST in `O(N)` moves, but paying `O(N)` to occasionally rebalance is not ideal.** We want balance maintained incrementally, as part of insertion. For that we need a rule that tells us which rotations to perform, and that rule comes from 2-3 trees.
+
+### 5. The big idea: maintain a one-to-one correspondence with a 2-3 tree
+
+Wild idea: perform rotations such that our BST always maintains a **1-to-1 correspondence** with some 2-3 tree. Since 2-3 trees are always balanced, our BST will also be balanced. The lecture calls this correspondence an **isometry** (the relevant "distance" being root-to-leaf path lengths).
+
+The obstacle: 2-3 trees are not binary. A 3-node has two items and three children. How can a binary node represent that?
+
+**Possibility 1: dummy "glue" nodes.** Represent the 3-node `df` as an empty glue node whose left child is `d` and right child is `f`, forming a "supernode." The three children of the 3-node hang off `d.left`, `f.left`, and `f.right`. The result is **inelegant**: there is a wasted link (one of `d`'s links is never used), nodes that contain no key, and ugly code.
+
+**Possibility 2: glue *links*.** Drop the glue node. Represent a 3-node `df` as two ordinary BST nodes with `f` on top and `d` as `f`'s **left** child, connected by a link we agree to call **red**:
+
+```
+2-3 node:   df        becomes:      f
+                                   /
+                                  d       (link f -> d is red)
+```
+
+The three children of the 3-node then attach as `d.left`, `d.right`, and `f.right`. This is the idea used in practice, for example in `java.util.TreeSet`. Marking glue links red is purely "for convenience."
+
+A full example from the slides:
+
+```
+2-3 tree:               m                  LLRB:            m
+                      /   \                                /   \
+                    df     o                              f     o
+                   / | \  / \                            / \   / \
+                  b  e  g n   p                         d   g n   p
+                                                       /
+                                                      b   (and b's parent link... see below)
+```
+Reconstructing the slide's LLRB exactly: root `m`; `m.left = f` (black) with `f.left = d` (**red**), `d.left = b`, `d.right = e`, `f.right = g`; `m.right = o` with children `n` and `p`.
+
+### 6. Left-Leaning Red-Black BSTs (LLRBs)
+
+A BST with left glue links that represents a 2-3 tree is called a **Left-Leaning Red Black Binary Search Tree (LLRB)**. Three points the lecture hammers on:
+
+- **LLRBs are normal BSTs.** Nothing about the data structure changes.
+- There is a **1-1 correspondence** between an LLRB and an equivalent 2-3 tree.
+- **The red is a convenient fiction.** Red links don't "do" anything special; searching an LLRB is *exactly* BST search, ignoring colors. Colors exist only as bookkeeping that tells us which rotations to perform when inserting.
+
+The "left-leaning" restriction (red links only ever go left) comes from Sedgewick and is stricter than what Java does. Josh's stated reason: it makes the lecture shorter and you get most of the conceptual benefit without considering so many cases.
+
+**Worked conversion from the lecture.** Convert this 2-3 tree to its LLRB:
+
+```
+2-3 tree:        uw
+               /  |  \
+            as    v    xy
+```
+
+The 3-node `uw` becomes `w` with red left child `u`. Node `uw`'s three children attach as `u.left = ` (the node for `as`), `u.right = v`, `w.right = ` (the node for `xy`). Node `as` becomes `s` with red left child `a`; node `xy` becomes `y` with red left child `x`:
+
+```
+LLRB:            w
+               /   \
+              u     y
+             / \   /
+            s   v x
+           /
+          a
+
+red links: w->u, s->a, y->x        black links: u->s, u->v, w->y
+```
+
+### 7. LLRB properties (the invariants)
+
+Two handy properties, each a direct translation of a 2-3 tree rule:
+
+1. **No node has two red links** touching it, because that would be analogous to a 4-node, which is disallowed in a 2-3 tree (`L = 2`). (During insertion we allow this *temporarily*; see rules below.)
+2. **Every path from the root to a null link has the same number of black links**, because every leaf of a 2-3 tree is at the same depth. LLRBs are therefore balanced. This is sometimes called **perfect black balance**.
+
+**Subtle but important (from the slides' "Extra Slide: Root-to-Leaf vs. Root-to-Null").** An older version of this lecture incorrectly stated the invariant as "the number of black links to any **leaf** must be the same." The correct invariant counts black links to any **null link**. Counterexample given: root `G` with a red left child `B`, `B.left = A` (black), `G.right = X` (black), and `B.right = null`.
+
+```
+      G
+     / \
+  (red) \
+    B    X
+   /
+  A        <-- Invalid LLRB, but passes the erroneous "root-to-leaf" test
+```
+Root-to-leaf black counts: `G->B` (red, 0) then `B->A` (1) gives 1; `G->X` gives 1. Equal, so the bad invariant is satisfied. But root-to-**null**: the path through `B.right` has only 1 black link, while the path through `A` has 2 and the path through `X` has 2. The corresponding "2-3 tree" would be a 3-node `BG` with a **missing child**, which is not a legal 2-3 tree.
+
+### 8. LLRB height, and why it is logarithmic
+
+Each 3-node of the 2-3 tree becomes two nodes (one extra red link) in the LLRB. In the lecture's height-3 example tree, the longest LLRB path runs `L -> P -> U -> S -> R -> Q`: three black links plus two red links, so **height 5**.
+
+```
+2-3 tree of height 3:
+                       L
+            /                    \
+          DE                      P
+       /   |   \               /     \
+      B    G    J             N       SU
+     /\   /\   /\            / \     / | \
+    A  C F  H I  K          M   O  QR  T  VW
+
+Longest LLRB path (3 black + 2 red = 5):  L -> P -> U -(red)- S -> R -(red)- Q
+```
+
+In general, if the 2-3 tree has height `H`, the corresponding LLRB has height at most `H` (black) `+ H + 1` (red) `= 2H + 1`. The `H + 1` comes from a root-to-leaf path touching `H + 1` nodes, each of which might be a 3-node contributing one red link.
+
+**Conclusion:** 2-3 trees have `Θ(log N)` height, and `2 log N + 1 = Θ(log N)`, so **LLRBs have logarithmic height too**. A factor of two off perfection is "pretty good." This answers the natural student question raised in lecture ("why do we care about the 2-3 tree height if the LLRB is taller?"): the order of growth is the same.
+
+### 9. Where do LLRBs come from? Maintaining the isometry with rotations
+
+It would make no sense to build a 2-3 tree and then convert, since 2-3 trees are the thing we were trying to avoid building. Instead:
+
+> **LLRB insert = insert as usual into a BST, then use zero or more rotations (and color flips) to maintain the 1-1 mapping.**
+
+"Zero or more" because sometimes nothing is broken. The design method is: pretend you are a 2-3 tree, ask what the 2-3 tree would do (WW23TD), then find the LLRB operation that produces the LLRB representation of that 2-3 tree.
+
+**Design Task #1: insertion color.** Red or black for a new link? **Red.** In a 2-3 tree, new values are *always* added into an existing leaf node first; you never create a new node from thin air. Adding a red link is the LLRB equivalent of "stuffing" another item into an existing node.
+
+```
+2-3:   S     --add(E)-->   ES
+LLRB:  S     --add(E)-->   S
+                          /
+                         E      (red)
+```
+
+**Design Task #2: insertion on the right (right-leaning violation).** Start with `B` as root, `A` left, `E` right (no red links, so LLRB = 2-3 tree). Insert `S`. BST insertion puts `S` as `E`'s right child with a red link, but **right-leaning red links aren't allowed**. In 2-3 world we created node `ES`, whose LLRB representation must be `S` on top with red left child `E`. The rotation that gets there is **`rotateLeft(E)`**:
+
+```
+     B               B                      B
+    / \             / \                    / \
+   A   E   add(S)  A   E     rotateLeft(E) A   S
+                        \                     /
+                         S (red)             E (red)
+
+2-3 world:   B(A, E)  --add(S)-->  B(A, ES)
+```
+
+**New rule: representing temporary 4-nodes.** 2-3 trees do not allow 4-nodes, but during insertion we transiently have them before splitting. In LLRB world we represent a temporary 4-node as a BST node with **two red links, one left and one right**:
+
+```
+2-3:  B(A, ES)  --add(Z)-->  B(A, ESZ)       (temporarily violates "no 4 nodes")
+
+LLRB:      B                       B
+          / \                     / \
+         A   S         add(Z)    A   S
+            /                       / \
+           E (red)                 E   Z      (both red; temporarily violates "no red right links")
+```
+
+**Design Task #3: double insertion on the left (incorrect 4-node shape).** Start with `B` root, `A` left, `Z` right, `Z.left = S` (red), i.e. 2-3 tree `B(A, SZ)`. Insert `E`: BST insertion makes `E` a red left child of `S`, giving **two consecutive left red links**. The 2-3 tree is now the temporary 4-node `ESZ`, whose required LLRB shape is `S` with red children `E` and `Z`. The fix is **`rotateRight(Z)`**:
+
+```
+     B                 B                           B
+    / \               / \                         / \
+   A   Z   add(E)    A   Z      rotateRight(Z)    A   S
+      /                 /                            / \
+     S (red)           S (red)                      E   Z   (both red)
+                      /
+                     E (red)
+```
+
+**Design Task #4: splitting temporary 4-nodes (color flip).** Now we have `G` root, `B` as `G`'s left child with **two red children** `A` and `C`, and `G.right = X`. In 2-3 world the root node is the 4-node `ABC` with sibling `X`, and 2-3 trees respond by **splitting**: `B` moves up into the parent, leaving `A` and `C` as separate children, giving root `BG` with children `A`, `C`, `X`. What LLRB operation produces that? **Not a rotation.** The LLRB shape is already correct: all we need is for `B` to be glued to `G` (red) and for `A` and `C` to be real children (black). So we **flip the colors of all three edges touching `B`**:
+
+```
+        G                         G
+       / \        flip(B)        / \
+      B   X       ======>       B   X        B->G link now RED,
+     / \                       / \           B->A and B->C now BLACK
+    A   C   (both red)        A   C
+
+2-3 world:   G(ABC, X)  --split(A/B/C)-->  BG(A, C, X)
+```
+
+"BST, the magic was inside you all along": a color flip does **not** change the BST structure or shape at all.
+
+### 10. The three rules, and cascading
+
+> Congratulations, you just invented the red-black BST.
+>
+> - When inserting: **use a red link**.
+> - If there is a **right leaning "3-node"** (red right link), you have a **Left Leaning Violation**: `rotateLeft` the appropriate node.
+> - If there are **two consecutive left red links**, you have an **Incorrect 4 Node Violation**: `rotateRight` the appropriate node.
+> - If a node has **two red children**, you have a **Temporary 4 Node**: **color flip** that node to emulate the split operation.
+
+**One last detail: cascading operations.** A rotation or flip can create a *new* violation higher up that must also be fixed. The lecture's example: start from `B` root, `A` left, `S` right, `S.left = E` (red), i.e. 2-3 tree `B(A, ES)`. Insert `Z`:
+
+```
+     B                    B                          B                          S
+    / \      add(Z)      / \        flip(S)         / \      rotateLeft(B)     / \
+   A   S     =====>     A   S       =====>         A   S      =====>          B   Z
+      /                   / \                        / \                     / \
+     E (red)             E   Z (both red)           E   Z (now black)       A   E
+                                                   B->S link now RED              (B->S red, so S is
+                                                   (right leaning!)                 the top of 3-node BS)
+
+2-3 world:  B(A, ES) --add(Z)--> B(A, ESZ) --split(E/S/Z)--> BS(A, E, Z)
+```
+
+The flip fixed the 4-node but created a **right-leaning red link** `B -> S`, so we cascade into `rotateLeft(B)`. Note that in the final tree the red link is `S -> B`, matching the 3-node `BS`.
+
+### 11. Runtime (marked Extra in the slides)
+
+The analysis is simple if you trust the 2-3 tree result:
+
+- LLRB height is `O(log N)`.
+- `contains` is trivially `O(log N)` (plain BST search).
+- `insert` is `O(log N)`: `O(log N)` to walk down and add the node, plus `O(log N)` rotation and color flip operations on the way back up.
+
+**LLRB delete is not covered** in CS 61B. "Not too terrible really, but it's just not interesting enough to cover."
+
+### 12. Search tree summary
+
+| Structure | Balanced? | Implementation |
+|---|---|---|
+| Binary search tree | No, subject to imbalance (`Θ(N)` worst case) | Simple |
+| 2-3 / B-trees | Yes, perfectly | Painful and relatively slow |
+| LLRB | Yes (within ~2x of a 2-3 tree) | Insert is simple, delete is hard |
+
+- LLRBs work by maintaining a mathematical bijection with a 2-3 tree.
+- **Java's `TreeMap` is a red-black tree, but not left leaning.** It maintains a correspondence with a **2-3-4** tree, which is *not* a 1-1 correspondence, and it allows glue links on either side. More complex to implement, but significantly faster.
+- Beyond this course: AVL trees, WAVL trees (described on the slide as fastest), splay trees, treaps, and hundreds of others; skip lists ("linked lists with express lanes"); and hashing, the most common alternative entirely, coming in a later lecture.
+
+---
+
+## Definitions
+
+- **B-tree:** a search tree with a hard limit `L` on the number of items per node; perfectly balanced by construction.
+- **2-3 tree:** a B-tree with `L = 2`. Every internal node is a 2-node or a 3-node; all leaves are at the same depth.
+- **2-node:** a node with 1 item and 2 children. **3-node:** a node with 2 items and 3 children. **4-node:** a node with 3 items and 4 children (illegal in a 2-3 tree except transiently during insertion).
+- **Catalan(N):** the number of distinct binary search trees on `N` keys. For `N = 3` it is 5.
+- **Rotation distance fact:** any BST configuration can be transformed into any other in at most `2n - 6` rotations (cited: "Rotation Distance, Triangulations, and Hyperbolic Geometry").
+- **`rotateLeft(G)`:** let `x` be the right child of `G`; make `G` the new left child of `x`. `x`'s old left subtree becomes `G`'s new right subtree. Preserves the search tree property. Invalid if `G` has no right child.
+- **`rotateRight(P)`:** let `x` be the left child of `P`; make `P` the new right child of `x`. `x`'s old right subtree becomes `P`'s new left subtree. Preserves the search tree property. Invalid if `P` has no left child.
+- **Glue node:** a dummy, item-free BST node used to represent a 3-node (Possibility 1, rejected as inelegant because it wastes a link).
+- **Glue link / red link:** a BST link designating that its two endpoint nodes are really one 3-node of the corresponding 2-3 tree (Possibility 2, adopted).
+- **Red-Black BST:** a BST whose links are colored, with red links serving as glue links representing 3-nodes.
+- **Left-Leaning Red Black BST (LLRB):** a red-black BST in which glue (red) links may only point left, in 1-1 correspondence with a 2-3 tree.
+- **Isometry / 1-1 correspondence:** the exact structural bijection between an LLRB and a 2-3 tree; every LLRB maps to exactly one 2-3 tree and vice versa.
+- **Height / "tallness":** the number of **links** on the longest path from root to leaf.
+- **Perfect black balance:** every path from the root to a **null** link contains the same number of black links.
+- **Left Leaning Violation:** a red link pointing right. Fix with `rotateLeft`.
+- **Incorrect 4 Node Violation:** two consecutive left red links. Fix with `rotateRight`.
+- **Temporary 4 Node:** a node with two red children (one left, one right). This is the sanctioned transient representation of a 4-node; fix with a **color flip**, which emulates a 2-3 tree `split`.
+- **Color flip:** flip the colors of all three links touching a node (the link into it and its two child links). Changes no pointers and no shape.
+- **Cascading:** a rotation or color flip can introduce a new violation at an ancestor, which must then be fixed in turn.
+
+---
+
+## Worked Examples
+
+### Example A: `rotateLeft` and `rotateRight` in Java, with box-and-pointer reasoning
+
+*(extra context: the lecture presents rotation with diagrams only, and marks implementation as "Extra." This is the standard Sedgewick-style implementation consistent with the lecture's definitions. The convention that a node stores the color of the link pointing **into** it is the standard one and is implicit in the slides' pictures.)*
 
 ```java
-private Node rotateLeft(Node h) {
-    Node x = h.right;     // x is the node that will take h's place
-    h.right = x.left;     // x's old left subtree is re-parented as h's right subtree
-    x.left = h;           // h becomes x's left child ("h goes left")
-    return x;             // caller must re-link: the subtree root changed!
+public class LLRB<K extends Comparable<K>, V> {
+    private static final boolean RED   = true;
+    private static final boolean BLACK = false;
+
+    private class Node {
+        K key;
+        V val;
+        Node left, right;
+        boolean color;   // color of the link from this node's PARENT into this node
+
+        Node(K key, V val, boolean color) {
+            this.key = key;
+            this.val = val;
+            this.color = color;
+        }
+    }
+
+    private Node root;
+
+    /** A null link is black. This matters for the "root to null" invariant. */
+    private boolean isRed(Node x) {
+        if (x == null) { return false; }
+        return x.color == RED;
+    }
+
+    /** rotateLeft(h): h's right child becomes h's new parent; h goes down-left. */
+    private Node rotateLeft(Node h) {
+        Node x = h.right;        // x is the "new boss"
+        h.right = x.left;        // x's left subtree holds keys between h and x: belongs right of h
+        x.left = h;              // h becomes x's left child
+        x.color = h.color;       // x inherits the link color that pointed into h
+        h.color = RED;           // the link x -> h becomes the glue link
+        return x;                // caller must re-attach: the subtree root changed
+    }
+
+    /** rotateRight(h): h's left child becomes h's new parent; h goes down-right. */
+    private Node rotateRight(Node h) {
+        Node x = h.left;
+        h.left = x.right;        // keys between x and h: belongs left of h
+        x.right = h;
+        x.color = h.color;
+        h.color = RED;
+        return x;
+    }
+
+    /** Emulates a 2-3 tree split: no pointers change, only colors. */
+    private void flipColors(Node h) {
+        h.color       = RED;
+        h.left.color  = BLACK;
+        h.right.color = BLACK;
+    }
 }
 ```
 
-Step by step, using the lecture's tree. Before `rotateLeft(G)`:
+**Box-and-pointer reasoning for `rotateLeft(h)`.** Think of three boxes `h`, `x = h.right`, and the subtree `k = x.left`, each just an address. No `new` objects are created, and no keys move between boxes; only three arrows are rewritten:
+
+1. The arrow `h.right` is redirected from `x` to `k`. `h` now has `k` hanging on its right.
+2. The arrow `x.left` is redirected from `k` to `h`. `h` is now below `x`.
+3. The caller reattaches whatever pointed at `h` (a parent's `left`/`right` field, or `root`) to point at `x` instead. This is why both methods **return the new subtree root** and why the recursive `put` below writes `h.left = put(h.left, ...)`: the subtree root may change under you.
+
+Correctness of step 1 is the ordering argument from lecture: every key in `k` was reached by going *right* from `h` and then *left* from `x`, so every key in `k` satisfies `h.key < key < x.key`. Hanging `k` on `h.right` keeps that true.
+
+Note that `rotateLeft(h)` dereferences `h.right` and `rotateRight(h)` dereferences `h.left`. If that child is `null`, the rotation is the **invalid operation** from the slides (`rotateRight(1)` when `1` has no left child), and this code would throw a `NullPointerException`.
+
+### Example B: Balancing by hand, the lecture's 3-node example
+
+Give a sequence of rotations that balances the tree on the left:
 
 ```
-        G
-      /   \
-     C     P
-    /     / \
-   A     k   r
-    \   / \
-     B j   l
+   1                                      2
+    \                      goal:         / \
+     3                                  1   3
+    /
+   2
 ```
 
-1. `Node x = h.right;` creates a new local reference `x` pointing at the same box as `G.right`, i.e. node `P`. No boxes change yet, only a new arrow from the stack frame.
-2. `h.right = x.left;` overwrites `G`'s right pointer so it now points at `k`'s box. `G` has temporarily "lost" `P`, but we saved it in `x`. This is legal by the BST property: everything in `k` is `> G` and `< P`.
-3. `x.left = h;` overwrites `P`'s left pointer to point at `G`'s box. Now `P` is above `G`, and `G`'s subtree is `C` on the left and `k` on the right.
-4. `return x;` is essential. The box holding `G`'s *parent* still has a pointer to `G`. The caller is responsible for reassigning that pointer to `P`. This is the standard CS 61B recursive-BST idiom: a helper returns the (possibly new) root of the subtree it was given, and the caller writes `h.left = rotateLeft(h.left)` or `root = rotateLeft(root)`.
-
-After:
+Step 1, `rotateRight(3)`: `3`'s left child is `2`, so `2` is promoted and `3` becomes `2`'s right child. `2`'s old right child is `null`, which becomes `3`'s left child.
 
 ```
-        P
-      /   \
-     G     r
+   1
+    \
+     2
+      \
+       3
+```
+
+Step 2, `rotateLeft(1)`: `1`'s right child is `2`, so `2` is promoted and `1` becomes `2`'s left child. `2`'s old left child (`null`) becomes `1`'s right child.
+
+```
+     2
     / \
-   C   k
-  /   / \
- A   j   l
-  \
-   B
+   1   3
 ```
 
-Note that in this example the rotation **increased** the tree's height, which the slides highlight. In-order traversal before and after is identical: `A B C G j k l P r`.
+Balanced. The slides note there are other correct answers as well.
 
-### Example 2: `rotateRight` is the inverse
+### Example C: Which of these four are valid LLRBs? (the lecture's attendance question)
+
+Dashed/red links are marked explicitly. All four have `G` and `X` with the same silhouette.
+
+```
+(1)  G          (2)  G          (3)  G          (4)  G
+    / \             / \             / \             / \
+   C   X           B   X           B   X        (red) \
+  /                / \             / \             B   X
+ B           (red)A   C           A   C           / \
+ |                                                A   C
+ (reds: G-C? no: G-C black, C-B red, B-A red)   (A, C black)
+/
+A
+```
+
+Translating each to its corresponding 2-3 tree:
+
+| Tree | Corresponding 2-3 tree | Verdict |
+|---|---|---|
+| (1) `C`, `B`, `A` chained left with `C-B` and `B-A` red | root `G` with children `ABC` and `X` | **Invalid: has a 4-node.** `B` has two red links touching it. |
+| (2) `B` black child of `G`, `A` red child of `B`, `C` black child of `B` | root `G` with children (3-node `AB` having only one child, `C`) and `X` | **Invalid: not balanced / not black balanced.** (Count black links to nulls: via `B.right`-ish path you get a different count than via `X`.) |
+| (3) No red links at all | identical in shape to the BST: `G` with children `B` and `X`; `B` with children `A`, `C` | **Invalid: not balanced.** `X` is one hop from the root, `A` and `C` are two. |
+| (4) `G-B` red, `A` and `C` black children of `B`, `X` black child of `G` | root is 3-node `BG` with children `A`, `C`, `X` | **Valid.** |
+
+**Answer: exactly 1 of the 4.** Note the trap flagged in lecture: tree (2) was the most popular wrong answer. You *can* draw a 2-3-ish picture for it, but you could never generate that tree by 2-3 insertion, because it is not balanced.
+
+Black-link check for (4): `G -> B` (red, 0) `-> A` (1) `-> null` (1) = 2; `G -> B` (0) `-> C` (1) `-> null` (1) = 2; `G -> X` (1) `-> null` (1) = 2. All equal.
+
+### Example D: LLRB insertion in Java, with the three fixup rules
+
+*(extra context: real Java code for the fixups; the lecture derived the rules but did not write this method.)*
 
 ```java
-private Node rotateRight(Node h) {
-    Node x = h.left;
-    h.left = x.right;     // x's old right subtree becomes h's left subtree
-    x.right = h;          // h becomes x's right child ("h goes right")
-    return x;
+public void put(K key, V val) {
+    root = put(root, key, val);
+    root.color = BLACK;          // the root is never a glue link
+}
+
+private Node put(Node h, K key, V val) {
+    if (h == null) {
+        return new Node(key, val, RED);          // Design Task #1: new links are RED
+    }
+
+    int cmp = key.compareTo(h.key);
+    if      (cmp < 0) { h.left  = put(h.left,  key, val); }
+    else if (cmp > 0) { h.right = put(h.right, key, val); }
+    else              { h.val = val; }
+
+    // ----- restore the 1-1 correspondence on the way back up -----
+
+    // Rule 1: Left Leaning Violation (red link pointing right)
+    if (isRed(h.right) && !isRed(h.left)) { h = rotateLeft(h); }
+
+    // Rule 2: Incorrect 4 Node Violation (two consecutive left reds)
+    if (isRed(h.left) && isRed(h.left.left)) { h = rotateRight(h); }
+
+    // Rule 3: Temporary 4 Node (two red children) -> emulate split
+    if (isRed(h.left) && isRed(h.right)) { flipColors(h); }
+
+    return h;
 }
 ```
 
-Applying `rotateRight(P)` to the tree we just produced takes us straight back to the original, and the slides point out the key re-parenting fact: **"`k` was `G`'s right child. Now it is `P`'s left child."** For this example, `rotateRight(P)` **decreased** the height of the tree. `rotateLeft` and `rotateRight` are exact inverses of each other at a given edge.
+Why this matches the lecture exactly:
 
-### Example 3: the lecture's full balancing demo (4 rotations)
+- The `put` recursion is plain BST insertion. The new node is created with a **red** link (Design Task #1).
+- The three `if`s run **after** the recursive call, so they execute from the insertion point back up to the root. That is precisely the **cascading** behavior: a `flipColors` at a deep node can leave a red right link at its parent, and the parent's own `if` block will `rotateLeft` it, exactly as in the `B/A/S/E + add(Z)` example.
+- The guard `!isRed(h.left)` in Rule 1 is what lets a *legitimate* temporary 4-node (red left **and** red right) fall through to Rule 3 instead of being rotated.
+- Rule 2's second condition is `h.left.left`, matching "two consecutive left links."
 
-Start with this badly right-leaning BST (height 4):
+### Example E: Inserting 7, 6, 5, 4, 3, 2, 1 into an empty LLRB (the optional exercise)
+
+The slides promise you end up with a perfectly balanced BST. Tracing it with the three rules:
+
+| Insert | Immediately after BST insert | Violation | Fix | Resulting LLRB (red links marked) |
+|---|---|---|---|---|
+| 7 | `7` | none (root recolored black) | | `7` |
+| 6 | `6` red left of `7` | none | | `7`, red left `6` |
+| 5 | `5` red left of `6` | two consecutive left reds (`7-6`, `6-5`) | `rotateRight(7)` then `flipColors(6)` | `6` black root, black children `5`, `7` |
+| 4 | `4` red left of `5` | none | | `6`; `5` with red left `4`; `7` |
+| 3 | `3` red left of `4` | two consecutive left reds (`5-4`, `4-3`) | `rotateRight(5)` then `flipColors(4)` | `6` root; red left `4` with black children `3`, `5`; `7` |
+| 2 | `2` red left of `3` | none (`4-3` is black, so no two reds in a row) | | `6`; red `4`(children `3`(red left `2`), `5`); `7` |
+| 1 | `1` red left of `2` | two left reds (`3-2`, `2-1`) | `rotateRight(3)`, `flipColors(2)`; this makes `4-2` red while `6-4` is already red, so two left reds again: `rotateRight(6)`, `flipColors(4)` | **`4` root; `2`(children `1`,`3`); `6`(children `5`,`7`)** |
+
+Final tree, exactly as the slide shows, with no red links at all (so the LLRB equals its own 2-3 tree, all 2-nodes):
+
+```
+        4
+      /   \
+     2     6
+    / \   / \
+   1   3 5   7
+```
+
+### Example F: The "Rule derivation" worksheet at the end of the slides
+
+**Rule 1 derivation.** In 2-3 world, starting from root `F` with children `B` and `EZ`, adding `C` gives root `F` with children `BC` and `EZ`. In LLRB world, starting from `F` with left child `B` and right child `Z` (with red left child `E`), inserting `C` with a red link makes `C` the **right** child of `B`. That is a right-leaning red link, so perform **`rotateLeft(B)`**:
+
+```
+before fix:            after rotateLeft(B):
+      F                      F
+     / \                    / \
+    B   Z                  C   Z
+     \   \                /     \
+      C   E              B       E     (B-C red, E-Z red; F-C and F-Z black)
+   (C red, E red)
+```
+
+**Rule 2 derivation.** Now insert `A` into that tree. `A` goes as a red left child of `B`, and `C-B` is already red, so we have two consecutive left reds under `F`. **`rotateRight(C)`** gives:
+
+```
+      F                          F
+     / \                        / \
+    C   Z      rotateRight(C)  B   Z
+   /     \       ======>       / \   \
+  B       E                   A   C   E     (B-A and B-C both red: correct temp 4-node shape)
+ /
+A
+```
+
+**Rule 3 derivation.** In 2-3 world this is the 4-node `ABC`, and we would call `split(B)`. In LLRB world we call **`colorFlip(B)`**: `B-A` and `B-C` become black, and `F-B` becomes red. Shape unchanged:
+
+```
+      F                                      Equivalent 2-3 tree:
+     / \
+ (red) \                                             BF
+    B   Z                                          / | \
+   / \   \                                        A  C  EZ
+  A   C   E   (E-Z still red)
+  (A, C now black)
+```
+All leaves of that 2-3 tree (`A`, `C`, `EZ`) sit one link below the root `BF`: balanced, with no node holding more than 2 items. The isometry is restored.
+
+---
+
+## Common Pitfalls
+
+1. **Getting the direction of rotation backwards.** `rotateLeft(x)` does **not** promote `x`; it demotes `x` down-and-left and promotes `x`'s **right** child. Always ask "who is the new boss?" The answer is the child on the *opposite* side from the direction named.
+2. **Forgetting that rotation can increase height.** The lecture's own first example (`rotateLeft(G)`) made the tree taller. Rotation is shape-neutral with respect to correctness, not with respect to balance.
+3. **Attempting an invalid rotation.** `rotateRight(x)` requires `x.left != null`; `rotateLeft(x)` requires `x.right != null`.
+4. **Forgetting to re-attach the rotated subtree.** The rotated subtree has a new root, so a parent pointer (or `root`) must be updated. In code, this is why `rotateLeft`/`rotateRight` return a `Node` and why callers write `h.left = put(h.left, ...)`.
+5. **Thinking the colors affect search.** They do not. `get`/`contains` on an LLRB is identical to BST search. "The red is just a convenient fiction."
+6. **Using root-to-leaf instead of root-to-null for black balance.** The slides explicitly flag this as a past error in the lecture itself. Count black links to **null** links, which is what catches a 3-node with a missing middle child.
+7. **Checking only one invariant.** A tree can have no 4-nodes and still be invalid because it is not black balanced (trees (2) and (3) in Example C), or be perfectly balanced in silhouette while harboring a 4-node (tree (1)). Check both.
+8. **Allowing a right-leaning red link to persist.** In *this* course's LLRBs, right-leaning red links are legal only as half of a temporary 4-node, and must be cleaned up before the insertion finishes. (Java's `TreeMap` does allow red links on either side, but that is a different structure.)
+9. **Thinking a color flip rearranges pointers.** It does not; the shape is untouched. Conversely, thinking a rotation changes which 2-3 tree you correspond to: a rotation during insertion is precisely what *restores* the correspondence.
+10. **Forgetting cascading.** One fix can cause another violation at the parent. Fixups must be applied all the way up to the root, and the root must be recolored black at the end.
+11. **Building a 2-3 tree and converting it.** Never the plan; the whole point is that 2-3 trees are hard to build. We insert into a BST and rotate.
+12. **Assuming LLRB height is exactly `2H`.** The bound is `2H + 1` in the worst case, and the LLRB may be exactly `H` tall if there are no 3-nodes.
+13. **Confusing "number of BSTs" with `2^N` or `N!`.** It is `Catalan(N)`; for `N = 3` it is 5, not 6 or 8.
+14. **Expecting delete.** LLRB deletion is not covered in this course.
+
+---
+
+## Likely Exam Points
+
+**1. Perform a specified rotation and draw the result.**
+
+*Q:* In the tree below, what is the result of `rotateLeft(9)`? Who becomes `9`'s new parent?
 
 ```
       6
@@ -258,7 +626,7 @@ Start with this badly right-leaning BST (height 4):
                 17
 ```
 
-**Step 1: `rotateLeft(9)`.** `9` goes left; `9`'s new parent is its right child, `13`. `13`'s old left child is null, which becomes `9`'s right child.
+*A:* `13`. `rotateLeft(9)` promotes `9`'s right child, and `13`'s old left child (`null`) becomes `9`'s new right child:
 
 ```
       6
@@ -270,554 +638,87 @@ Start with this badly right-leaning BST (height 4):
          9    17
 ```
 
-*(This was the clicker question "If `rotateLeft(9)`, who will be 9's new parent?" Answer: **C, 13**. Takeaway stated on the slide: "If you `rotateLeft(x)`, `x` goes left, and `x`'s new parent is its right child.")*
-
-**Step 2: `rotateLeft(6)`.** `6` goes **left**, and its new parent is its right child **8**. `8` becomes the new root.
+**2. Give a rotation sequence that balances a given BST.**
 
-```
-        8
-      /   \
-     6     13
-    /     /  \
-   1     9    17
-    \
-     4
-```
+*Q:* Balance the 7-node tree `6 (1 (-,4), 8 (-, 9 (-, 13 (-, 17))))` using rotations.
 
-*(Clicker question "If `rotateLeft(6)`, then 6 goes ____, and who will be 6's new parent?" Answer: **C, Left, 8**.)*
+*A:* `rotateLeft(9)`, `rotateLeft(6)`, `rotateLeft(1)`, `rotateRight(6)`, yielding root `8` with children `4` and `13`, and leaves `1`, `6`, `9`, `17`. Other sequences also work.
 
-**Step 3: `rotateLeft(1)`.** `1` goes left under its right child `4`.
+**3. Convert a 2-3 tree to its LLRB (or back).**
 
-```
-        8
-      /   \
-     6     13
-    /     /  \
-   4     9    17
-  /
- 1
-```
+*Q:* Draw the LLRB corresponding to the 2-3 tree with root `uw` and children `as`, `v`, `xy`.
 
-**Step 4: `rotateRight(6)`.** `6` goes right under its left child `4`; `4`'s old right child (null) becomes `6`'s left child.
+*A:* Root `w`; `w.left = u` (**red**); `w.right = y` with `y.left = x` (**red**); `u.left = s` with `s.left = a` (**red**); `u.right = v`. Three red links total (`w-u`, `y-x`, `s-a`), because there are three 3-nodes.
 
-```
-        8
-      /   \
-     4     13
-    / \   /  \
-   1   6 9    17
-```
+**4. Decide whether a given red-black tree is a valid LLRB.**
 
-Perfectly balanced, height 2, same keys, same in-order order `1 4 6 8 9 13 17`. Full recipe from the summary slide: `rotateLeft(9)`, `rotateLeft(6)`, `rotateLeft(1)`, `rotateRight(6)`.
+*Q:* Is this a valid LLRB? Root `G`; `G.left = B` via a **red** link; `B.left = A` (black); `B.right = null`; `G.right = X` (black).
 
-### Example 4: the small in-class exercise
+*A:* No. Although every root-to-**leaf** path has the same number of black links, the root-to-**null** path through `B.right` has only 1 black link while the others have 2. Equivalently, the corresponding 2-3 tree would be the 3-node `BG` with children `A`, (missing), `X`, and a 3-node must have three children.
 
-Balance this tree:
+**5. Height relationships between a 2-3 tree and its LLRB.**
 
-```
-   1
-    \
-     3
-    /
-   2
-```
+*Q:* A 2-3 tree has height `H`. What is the maximum possible height of the corresponding LLRB, and why?
 
-Answer given in the slides (other correct answers exist):
+*A:* `2H + 1`. A longest root-to-leaf path crosses `H` black links and touches `H + 1` nodes; in the worst case every one of those is a 3-node, contributing one extra red link each, for `H + 1` red links. Hence `H + (H + 1) = 2H + 1`, which is still `Θ(log N)`.
 
-1. **`rotateRight(3)`**: `3`'s left child is `2`, so `2` takes `3`'s place as `1`'s right child, and `3` becomes `2`'s right child.
+*Variant Q:* For the lecture's height-3 example 2-3 tree with 3-nodes `DE`, `SU`, `QR`, `VW`, `MO` (and others), how tall is the LLRB?
 
-```
-   1
-    \
-     2
-      \
-       3
-```
+*A:* 5. The longest path is `L -> P -> U -(red)- S -> R -(red)- Q`: 3 black links plus 2 red links.
 
-2. **`rotateLeft(1)`**: `1`'s right child is `2`, so `2` becomes the root and `1` becomes its left child.
+**6. Name the violation and the fix.**
 
-```
-     2
-    / \
-   1   3
-```
+*Q:* For each situation, state the violation and the operation that repairs it: (a) a node `h` whose right child is red and left child is black; (b) a node `h` with `h.left` red and `h.left.left` red; (c) a node `h` with both children red.
 
-The slides also point to an interactive game at `https://joshh.ug/61b/bst_rotation/` to build this intuition, and recommend playing it after class.
+*A:* (a) Left Leaning Violation, fix with `rotateLeft(h)`. (b) Incorrect 4 Node Violation, fix with `rotateRight(h)`. (c) Temporary 4 Node, fix with a **color flip** of `h` (emulating 2-3 `split`); no rotation needed.
 
-### Example 5: drawing the LLRB for a given 2-3 tree
+**7. Trace an insertion, including cascading.**
 
-2-3 tree (root is the 3-node `u w`):
+*Q:* Starting from LLRB `B` (black root) with `B.left = A` and `B.right = S`, where `S.left = E` is red, insert `Z`. Show every step.
 
-```
-          [u w]
-         /  |  \
-     [a s] [v] [x y]
-```
+*A:* `Z` enters as a red right child of `S`, creating the temporary 4-node `ESZ` (correct shape: `S` with red `E` and red `Z`). `flipColors(S)` makes `S-E` and `S-Z` black and `B-S` **red**, which is a right-leaning red link. Cascade with `rotateLeft(B)`: new root `S`, with red left child `B` (children `A` and `E`) and black right child `Z`. The corresponding 2-3 tree is root `BS` with children `A`, `E`, `Z`.
 
-Procedure: every 2-node stays as-is; every 3-node `p q` becomes `q` with a **red left** child `p`. Children attach in sorted order.
+**8. Runtimes.**
 
-Resulting LLRB (red links marked `*`):
+*Q:* Give the worst-case running time of `contains` and `insert` on an LLRB with `N` keys, and justify.
 
-```
-         w
-       */  \
-      u     y
-     / \  */
-    s   v x
-  */
-  a
-```
+*A:* Both `Θ(log N)`. The LLRB is in 1-1 correspondence with a 2-3 tree of height `Θ(log N)`, and the LLRB is at most about twice as tall, so height is `Θ(log N)`. `contains` is plain BST search down one path. `insert` is a search plus `O(log N)` rotations and color flips performed on the way back up, each `Θ(1)`.
 
-Reading it out: root `w`; `w`'s red-left child `u` (together they are the 3-node `u w`); `u`'s left child `s` with red-left child `a` (the 3-node `a s`); `u`'s right child `v` (a 2-node, so just itself); `w`'s right child `y` with red-left child `x` (the 3-node `x y`).
+**9. Why not implement 2-3 trees directly?**
 
-Check the invariants: no node has two red links; and every root-to-null path has the same number of black links (for example `w -> u` is red, `u -> s` black, `s -> a` red, `a -> null` black: 2 black; and `w -> y` black, `y -> null` black: 2 black).
+*Q:* Name three implementation difficulties of 2-3 trees that LLRBs avoid.
 
-**Searching this tree is plain BST search.** To find `v`: `v > w`? No, go left to `u`. `v > u`? Yes, go right. Found. Colors never consulted.
+*A:* Maintaining different node types; interconverting 2-nodes and 3-nodes; walking up the tree to split nodes. An LLRB is just a BST with one extra boolean per node.
 
-### Example 6: LLRB validity (LLRB Problem #1)
+**10. Conceptual trap about colors.**
 
-The lecture showed four candidate trees over the keys `A`, `B`, `C`, `G`, `X` that differ only in link colors and shape, and asked how many have a 1-1 correspondence with a *valid* 2-3 tree. **Exactly one is valid.** The three failure modes identified were:
+*Q:* True or false: searching an LLRB requires following red links differently from black links.
 
-1. **Has a 4-node.** A node reached by a chain `G -> C -> B -> A` where `C -> B` and `B -> A` are both red glues three items into one node, giving the 2-3 node `A B C` under root `G`. 2-3 trees do not allow three items in a node, so this is invalid.
-2. **Not balanced (variant 1).** If `G -> B` is black while `B -> A` is red, the 2-3 node is `A B` with child `C` on the right but nothing on the other two child slots. A 3-node with one child is not a legal 2-3 tree, and the corresponding LLRB fails perfect black balance.
-3. **Not balanced (variant 2).** If all of `G -> B`, `B -> A`, `B -> C` are black, the 2-3 tree is `G` with left child `B` (holding `A`, `C`) and right child `X`. Leaf `X` is at depth 1 while `A` and `C` are at depth 2, so the 2-3 tree is not balanced. Equivalently, root-to-null black counts differ.
-4. **Valid.** `G` with a **red** left link to `B`, where `B` has black children `A` and `C`, and `G` has black right child `X`. The 2-3 tree is the 3-node `B G` with children `A`, `C`, `X`: all leaves at depth 1. Black counts from root to every null are equal.
+*A:* False. Red is bookkeeping only. Search is identical to ordinary BST search; colors matter only to insertion's fixup rules.
 
-The same four shapes reappear on the "LLRB Properties" slide labeled with the two invariants being violated: "Invalid, `B` has two red links", "Invalid, not black balanced", "Invalid, not black balanced", "Valid". (The exact coloring of each diagram is not recoverable from the extracted slide text; what matters for the exam is the *checklist*, below.)
+**11. Counting BSTs / reachability.**
 
-**Validity checklist for an LLRB:**
-- No node has two red links (no red-left + red-right, no red-left whose child link is also red).
-- Red links lean left.
-- Every root-to-**null** path has the same number of black links.
-- Equivalently and most reliably: **convert it to a 2-3 tree and check that the 2-3 tree is legal** (every node has 1 or 2 items, every node is either a leaf or has exactly #items + 1 children, and all leaves are at the same depth).
+*Q:* How many distinct BSTs contain exactly the keys 1, 2, 3? Can you always get from one to another with rotations?
 
-### Example 7: LLRB height (LLRB Problem #2)
+*A:* Five, and yes: any BST configuration is reachable from any other, in at most `2n - 6` rotations.
 
-2-3 tree (3-nodes shown in brackets with two items):
+**12. Java library knowledge.**
 
-```
-                       [L]
-              /                  \
-           [D E]                  [P]
-         /   |   \              /     \
-      [B]   [G]  [J]         [N]      [S U]
-      / \   / \  / \         / \      /  |  \
-     A  C  F  H I  K        M   O  [Q R]  T  [V W]
-```
+*Q:* Is `java.util.TreeMap` an LLRB?
 
-The 2-3 tree has height ("tallness") **3**. The LLRB's height is **not** 3.
-
-Reasoning: each 3-node becomes two LLRB nodes joined by a red link, so the longest LLRB path picks up one extra link per 3-node along the way. Take the path `L -> P -> [S U] -> [Q R]`:
-
-- `L -> P`: black
-- `P -> U`: black (`U` is the top of the 3-node `S U`)
-- `U -> S`: **red** (the glue link of `S U`)
-- `S -> R`: black (`R` is the top of the 3-node `Q R`)
-- `R -> Q`: **red** (the glue link of `Q R`)
-
-Total: **3 black + 2 red = height 5**. The general statement from the slides: a 2-3 tree of height `H` yields an LLRB of height at most `H + (H + 1) = 2H + 1`, i.e. an LLRB is **never more than about 2x the height of its 2-3 tree**. Since 2-3 trees have logarithmic height, LLRBs do too, and `contains` is O(log N).
-
-### Example 8: the four design tasks, as pictures and rules
-
-Notation: `*` marks a red link to the node below it.
-
-**Task 1 (new links are red).** `add(E)` to a tree whose relevant leaf is `S`. In 2-3 world, `S` becomes the 3-node `E S`. If we inserted `E` with a *black* link we would be claiming the 2-3 tree grew a new level, which it did not. So:
-
-```
-LLRB:   S      add(E)        S
-                          */
-                          E
-
-2-3:   [S]     add(E)      [E S]
-```
-
-**Task 2 (Left Leaning Violation -> rotate left).**
-
-```
-Before:      B                 add(S)          B                 rotateLeft(E)        B
-           /   \                             /   \                                  /   \
-          A     E                           A     E                                A     S
-                                                   \*  (illegal red right)             */
-                                                    S                                 E
-
-2-3:     [B] over A, [E]       add(S)      [B] over A, [E S]
-```
-
-The 2-3 tree says `E` and `S` are one 3-node; the only legal LLRB drawing of `E S` is `S` on top with red-left `E`; `rotateLeft(E)` produces exactly that.
-
-**New representation rule (temporary 4-nodes).** From `B` with children `A` and the 3-node `E S` (drawn `S` with red-left `E`), `add(Z)` gives `S` a red right child too:
-
-```
-      B
-    /   \
-   A     S
-       */ \*
-       E   Z
-```
-
-This is the LLRB picture of the temporary 4-node `E S Z`. It temporarily violates "no red right links" and the 2-3 rule "no 4-nodes", and that is fine because it is about to be fixed.
-
-**Task 3 (Incorrect 4 Node Violation -> rotate right).**
-
-```
-Before:      B            add(E)        B                rotateRight(Z)       B
-           /   \                      /   \                                 /   \
-          A     Z                    A     Z                               A     S
-                */                       */                                    */ \*
-                S                        S                                     E   Z
-                                       */
-                                       E
-
-2-3:    [B] over A, [S Z]  add(E)   [B] over A, [E S Z]
-```
-
-Two consecutive left red links (`Z -> S -> E`) are the wrong drawing of the temporary 4-node; the right drawing puts the **middle** item `S` on top with red children on both sides. `rotateRight(Z)` does it.
-
-**Task 4 (Temporary 4 Node -> color flip).**
-
-```
-Before:         G             flip(B)          G
-              /   \                          */ \
-             B     X                        B     X
-           */ \*                           /  \
-           A    C                          A    C
-
-2-3:  [A B C] under G, sibling X    split(A/B/C)    [B G] over A, C, X
-```
-
-`split` in 2-3 world promotes the middle item `B` into its parent. In LLRB world, "promoting `B` into `G`'s node" means "the link `G -> B` becomes a glue (red) link," and `A` and `C` stop being glued to `B`, so their links become black. That is exactly `flip(B)`: recolor all three edges touching `B`. **The BST shape does not change.**
-
-### Example 9: cascading repair (the lecture's example)
-
-```
-Start:        B                      2-3:  [B] over A and [E S]
-            /   \
-           A     S
-               */
-               E
-```
-
-`add(Z)`: `Z > S`, so it becomes a red right child of `S`.
-
-```
-        B                            2-3:  [B] over A and [E S Z]   (temporary 4-node)
-      /   \
-     A     S
-         */ \*
-         E   Z
-```
-
-`S` has two red children, so **`flip(S)`**: the link `B -> S` becomes red, and `S -> E`, `S -> Z` become black.
-
-```
-        B                            2-3:  [B S] over A, E, Z       (split pushed S up)
-      /   \*
-     A     S
-          / \
-         E   Z
-```
-
-The 2-3 tree is now legal, but the LLRB drawing is wrong: the red link `B -> S` leans **right**. That is a Left Leaning Violation at `B`, one level **above** where we were working. This is the cascade. Fix with **`rotateLeft(B)`**:
-
-```
-          S
-       */   \
-      B      Z
-     / \
-    A   E
-```
-
-Now `S` is the root with red-left `B`, matching the 3-node `B S` with children `A`, `E`, `Z`. Done.
-
-### Example 10: the LLRB insertion code (extra context: the slides' "Runtime and Implementation (Extra)" section stated the runtime but the extracted text does not include the code; this is the standard CS 61B / Sedgewick implementation that the four design tasks derive)
-
-```java
-public class LLRB<Key extends Comparable<Key>, Value> {
-    private static final boolean RED = true;
-    private static final boolean BLACK = false;
-
-    private Node root;
-
-    private class Node {
-        Key key;
-        Value val;
-        Node left, right;
-        boolean color;   // color of the link from this node's PARENT to this node
-
-        Node(Key key, Value val, boolean color) {
-            this.key = key;
-            this.val = val;
-            this.color = color;
-        }
-    }
-
-    /** A null link is black, which is what makes perfect black balance
-     *  a statement about root-to-null paths. */
-    private boolean isRed(Node x) {
-        if (x == null) { return false; }
-        return x.color == RED;
-    }
-
-    private Node rotateLeft(Node h) {
-        Node x = h.right;
-        h.right = x.left;
-        x.left = h;
-        x.color = h.color;   // x inherits the color of the link into this subtree
-        h.color = RED;       // h is now glued to x, so the h link is red
-        return x;
-    }
-
-    private Node rotateRight(Node h) {
-        Node x = h.left;
-        h.left = x.right;
-        x.right = h;
-        x.color = h.color;
-        h.color = RED;
-        return x;
-    }
-
-    /** Emulates 2-3 tree split: promote h into its parent's node. */
-    private void flipColors(Node h) {
-        h.color = RED;
-        h.left.color = BLACK;
-        h.right.color = BLACK;
-    }
-
-    public void put(Key key, Value val) {
-        root = insert(root, key, val);
-        root.color = BLACK;   // the root is never a glue node
-    }
-
-    private Node insert(Node h, Key key, Value val) {
-        if (h == null) { return new Node(key, val, RED); }   // Task 1: insert red
-
-        int cmp = key.compareTo(h.key);
-        if (cmp < 0)      { h.left  = insert(h.left,  key, val); }
-        else if (cmp > 0) { h.right = insert(h.right, key, val); }
-        else              { h.val = val; }
-
-        // Repair on the way back up. Order matters.
-        if (isRed(h.right) && !isRed(h.left))    { h = rotateLeft(h);  } // Task 2
-        if (isRed(h.left) && isRed(h.left.left)) { h = rotateRight(h); } // Task 3
-        if (isRed(h.left) && isRed(h.right))     { flipColors(h);      } // Task 4
-
-        return h;
-    }
-}
-```
-
-Things worth noticing about this code:
-
-- **Color lives on the node but *means* the link from its parent.** `h.color == RED` means "the link into `h` is a glue link," i.e. `h` is the smaller (or, momentarily, the larger) item of a multi-item 2-3 node.
-- **`isRed(null) == false`** is what makes "root to null black counts are equal" expressible: null links are black.
-- **The repairs happen after recursion returns**, which is how the cascade of Example 9 is handled with no extra machinery: each level fixes its own local violation, possibly handing a new one to its parent. At most O(log N) levels, O(1) work each.
-- **The three `if`s are in the derived order** (left-lean, then double-left, then flip) and a single insert can trigger more than one of them at the same node, since each can create the precondition of the next.
-- **Returning the new subtree root and reassigning `h.left` / `h.right` / `root`** is the only reason we never need parent pointers.
-
-**Trace: insert 1, then 2, then 3 into an empty LLRB.**
-
-1. `put(1)`: `insert(null, ...)` returns a RED node `1`; `put` sets `root.color = BLACK`. Tree: single black node `1`. 2-3 tree: `[1]`.
-2. `put(2)`: at `h = 1`, `cmp > 0`, so `1.right` becomes a RED node `2`. Now `isRed(h.right) && !isRed(h.left)` is true, so `rotateLeft(1)`: `2` becomes the subtree root with color BLACK (inherited), `1` becomes `2`'s left child with color RED. Tree: `2` with red-left `1`. 2-3 tree: `[1 2]`.
-3. `put(3)`: at `h = 2`, `cmp > 0`, so `2.right` becomes RED node `3`. Check rule 1: `isRed(right)` yes, but `isRed(left)` is also yes (`1` is red), so rule 1 does **not** apply. Rule 2: `h.left.left` is null, not red, so no. Rule 3: `isRed(left) && isRed(right)` yes, so `flipColors(2)`: `2` becomes RED, `1` and `3` become BLACK. Back in `put`, `root.color = BLACK`. Tree: `2` with black children `1` and `3`. 2-3 tree: `[2]` over `[1]` and `[3]`, exactly the split we expect.
-
-### Example 11: the optional exercise (insert 7, 6, 5, 4, 3, 2, 1)
-
-Insert `7, 6, 5, 4, 3, 2, 1` into an initially empty LLRB. Each insert goes to the far left, so you repeatedly trigger the double-left rule and then color flips. The end result is a **perfectly balanced** BST:
-
-```
-        4
-      /   \
-     2     6
-    / \   / \
-   1   3 5   7
-```
-
-This is the striking part: the same key sequence would produce a single Θ(N)-tall right-leaning chain in a naive BST. The slides link a demo and a video walkthrough of the solution.
-
-### Example 12: the Rule Derivation worksheet at the end of the deck
-
-The final three slides ("RULE 1 / 2 / 3 DERIVATION") walk through the same three rules once more as a fill-in exercise, on a tree rooted at `F`:
-
-- **Rule 1**: add a key to a 2-node leaf in 2-3 world (so that leaf becomes a 3-node); in LLRB world the new node arrives as a red **right** child, so you **rotate left** at the node with the red right link, then redraw the whole tree with red edges dashed or labeled.
-- **Rule 2**: insert one more key so that three items end up glued in the wrong shape (two consecutive left red links); you **rotate right** the top of that chain so the temporary 3-item node has one red child on each side.
-- **Rule 3**: the shape is now a node with two red children, which a 2-3 tree would handle with `split`; here you call **`colorFlip`** on that node, then convert the resulting LLRB back into its equivalent 2-3 tree.
-
-(The extracted slide text for these three slides has inconsistent key labels, for example `add(A)` in the prose versus `add(S)` in the diagram, so the specific letters are not reliable; the three rules and the order they are derived in are.)
-
----
-
-## Common Pitfalls
-
-1. **Thinking red/black is a property of nodes rather than links.** The color belongs to the link from a node to its parent. The code stores it in the child node purely for convenience. A "red node" means "I am glued to my parent."
-2. **Thinking red links do something at runtime.** They are "a convenient fiction." `contains` on an LLRB is literally BST `contains` and never looks at a color.
-3. **Getting the rotation direction backwards.** `rotateLeft(x)` is named for the node that goes **down and left**; the node that comes **up** is `x`'s old **right** child. Students frequently name the rotation after the node that rises.
-4. **Forgetting to re-parent the orphaned subtree.** In `rotateLeft(G)`, `G.right` must be set to the rising node's old **left** subtree. Skipping this loses a subtree or breaks the ordering.
-5. **Forgetting that the caller must re-link.** `rotateLeft` returns a new subtree root. If you call it and throw away the return value, the grandparent still points at the old node and the tree is corrupted.
-6. **Attempting an undefined rotation.** `rotateRight(x)` requires `x` to have a left child; `rotateLeft(x)` requires a right child. `rotateRight(1)` on a node with only a right child is invalid.
-7. **Using root-to-leaf instead of root-to-null for black balance.** The lecture flags this as a real historical error in the course. The tree `G` with red-left `B`, `B` with a single child `A`, and `G.right = X` can pass a root-to-leaf check yet have no corresponding 2-3 tree.
-8. **Believing LLRBs are perfectly balanced.** They are only *height-balanced to within a constant factor*: height at most `2H + 1` where `H` is the 2-3 tree height, so O(log N), not necessarily perfect.
-9. **Reporting the LLRB height as equal to the 2-3 tree height.** Each 3-node on the path adds a red link.
-10. **Thinking you build a 2-3 tree and then convert it.** You never materialize the 2-3 tree. It exists only in your head as the correctness argument.
-11. **Applying the three insert rules in the wrong order, or only at the insertion point.** They are applied bottom-up at every node on the path back to the root, in the order left-lean, double-left, flip. Skipping the upward pass misses cascades.
-12. **Panicking at a momentary right-leaning red link or a node with two red links.** Those are the legal *temporary* representations of a 4-node mid-insert; they just must not survive the end of the operation.
-13. **Thinking a rotation can fix a color-flip situation (or vice versa).** Task 4's fix uses **no** rotation: a color flip changes colors only, never shape. Conversely, rotations do not add or remove items from 2-3 nodes.
-14. **Confusing `java.util.TreeMap` with an LLRB.** `TreeMap` is a red-black tree that is *not* left-leaning, corresponds to a **2-3-4** tree, and is *not* a 1-1 correspondence (glue links on either side are allowed).
-15. **Claiming rotation-based rebalancing is cheap in general.** Rebalancing an arbitrary BST from scratch takes O(N) rotations. The LLRB's achievement is doing O(log N) repair work *per insertion* so you never need the O(N) pass.
-16. **Forgetting `root.color = BLACK` after insert.** The root has no parent, so its incoming link cannot be a glue link. (This is also what quietly turns "the root became a temporary red node" into "the tree grew one level," matching how 2-3 trees grow at the root.)
-17. **Assuming delete works symmetrically.** The lecture explicitly says LLRB delete is not covered; "LLRBs insertion is simple to implement (but delete is hard)."
-
----
-
-## Likely Exam Points
-
-### 1. Execute a given rotation
-
-**Q.** Given the tree below, draw the result of `rotateLeft(6)`.
-
-```
-      6
-    /   \
-   1     8
-    \     \
-     4     13
-          /  \
-         9    17
-```
-
-**A.** `6`'s right child is `8`, so `8` rises to become the root and `6` becomes `8`'s left child. `8`'s old left child is null, so `6`'s right child becomes null.
-
-```
-        8
-      /   \
-     6     13
-    /     /  \
-   1     9    17
-    \
-     4
-```
-
-### 2. Identify the new parent / direction of movement
-
-**Q.** If you `rotateLeft(x)`, which direction does `x` move and who becomes its parent?
-
-**A.** `x` moves down and to the **left**, and its new parent is **`x`'s old right child**. (Mirror: `rotateRight(x)` sends `x` down and right, and its new parent is `x`'s old left child.)
-
-### 3. Give a rotation sequence that balances a tree
-
-**Q.** Give a sequence of rotations that balances this tree.
-
-```
-   1
-    \
-     3
-    /
-   2
-```
-
-**A.** `rotateRight(3)` giving `1 -> 2 -> 3` (all right links), then `rotateLeft(1)` giving root `2` with children `1` and `3`. Other correct sequences exist. Also know the fact: rotation preserves the search tree property, so any such sequence is "safe" by construction, and any BST can be balanced in O(N) rotations.
-
-### 4. Convert a 2-3 tree to an LLRB (and back)
-
-**Q.** Draw the LLRB corresponding to the 2-3 tree with root 3-node `[u w]` and children `[a s]`, `[v]`, `[x y]`.
-
-**A.** Each 3-node `p q` becomes `q` with red-left child `p`:
-
-```
-         w
-       */  \
-      u     y
-     / \  */
-    s   v x
-  */
-  a
-```
-
-Reverse direction: contract every red link, merging the red child into its parent as the smaller item of a 2-item node.
-
-### 5. Validity of a candidate LLRB
-
-**Q.** Is the following a valid LLRB? `G` is the root; `G.left = B` via a **black** link; `B.left = A` via a **red** link; `B.right = C` via a black link; `G.right = X` via a black link.
-
-**A.** **No.** Contract the red link: `A` and `B` form the 2-3 node `[A B]`, whose only child is `C`. A 3-node must have 3 children (or be a leaf), so the 2-3 tree is illegal. Equivalently, black-link counts to nulls differ: the path `G -> B -> A -> null` has 3 black links while `G -> X -> null` has 2.
-
-### 6. LLRB height versus 2-3 tree height
-
-**Q.** A 2-3 tree has height `H` (measured in links). What is the maximum possible height of the corresponding LLRB, and why?
-
-**A.** **`2H + 1`**. A root-to-leaf path has `H` black links (one per 2-3 tree link) and up to `H + 1` red links (one per 3-node among the `H + 1` nodes on the path). Hence `H + (H + 1) = 2H + 1`, i.e. never more than about 2x. Since 2-3 trees are O(log N) tall, LLRBs are too.
-
-Follow-up often asked: for the lecture's height-3 2-3 tree, the LLRB had height `3 + 2 = 5`.
-
-### 7. Which repair rule applies?
-
-**Q.** Name the violation and the fix for each situation: (a) a node `h` whose right link is red and whose left link is black; (b) a red node whose left child is also red; (c) a node with two red child links.
-
-**A.**
-(a) **Left Leaning Violation** -> `rotateLeft(h)`.
-(b) **Incorrect 4 Node Violation** -> `rotateRight` the top node of the chain.
-(c) **Temporary 4 Node** -> `colorFlip` that node (emulates 2-3 `split`); **no rotation**, and the shape is unchanged.
-
-### 8. Full insertion trace with cascading
-
-**Q.** Starting from the LLRB `B` (root, black) with black-left child `A` and black-right child `S`, where `S` has a red-left child `E`, insert `Z`. Show every step.
-
-**A.**
-1. `Z` is inserted as a **red right** child of `S`. Now `S` has red children on both sides: a temporary 4-node `[E S Z]`.
-2. Rule 3 applies: `flip(S)`. The link `B -> S` becomes red; `S -> E` and `S -> Z` become black. 2-3 world: `split(E/S/Z)` promotes `S` into `B`, giving the 3-node `[B S]` over `A`, `E`, `Z`.
-3. The cascade: at `B`, the red link now leans **right**, a Left Leaning Violation. Rule 1 applies: `rotateLeft(B)`.
-4. Final tree: root `S`, red-left child `B` (whose children are `A` and `E`), right child `Z`. This is the correct LLRB drawing of `[B S]` over `A`, `E`, `Z`.
-
-### 9. Small insert trace from scratch
-
-**Q.** Insert `1`, `2`, `3` in that order into an empty LLRB. What is the final tree?
-
-**A.** `2` as a black root with black children `1` and `3` (perfectly balanced). Steps: `1` becomes a black root; inserting `2` creates a red right link, fixed by `rotateLeft(1)` to give `2` with red-left `1`; inserting `3` creates red children on both sides of `2`, fixed by `flipColors(2)`, then `put` resets the root to black.
-
-### 10. Runtimes
-
-**Q.** State the worst-case runtimes of `contains` and `insert` on an LLRB, and justify them.
-
-**A.** Both **Θ(log N)**. Height is O(log N) by the 2-3 correspondence plus the `2H + 1` bound, so `contains` is O(log N) BST search. `insert` is O(log N) to descend and create the node, plus O(1) rotation/flip work at each of O(log N) levels on the way back up, so O(log N) total.
-
-### 11. New-link color, and why
-
-**Q.** When inserting into an LLRB, should the new link be red or black? Why?
-
-**A.** **Red.** In a 2-3 tree a new item always joins an existing leaf node first (2-node becomes 3-node, 3-node becomes a temporary 4-node); the tree does not immediately get taller. A red (glue) link is exactly the LLRB encoding of "this item joined an existing node." A black link would falsely claim a new 2-3 tree level.
-
-### 12. Conceptual true/false
-
-**Q.** True or false, with justification: (a) Rotation changes the set of keys in a BST. (b) A color flip can change the shape of an LLRB. (c) Every LLRB is a BST. (d) Java's `TreeMap` is an LLRB. (e) An LLRB is always perfectly balanced.
-
-**A.** (a) **False**, rotation preserves keys and in-order order. (b) **False**, a flip only recolors, which is why Task 4 needs no rotation. (c) **True**, LLRBs *are* normal BSTs; colors are a fiction layered on top. (d) **False**, `TreeMap` is a red-black tree that is **not** left-leaning and corresponds to a 2-3-4 tree, not 1-1. (e) **False**, it is within a constant factor of balanced (height at most `2H + 1`), which is enough for O(log N).
-
-### 13. Counting / combinatorics facts from the slides
-
-**Q.** How many distinct BSTs are there on N items, and what bound did the lecture give on rotation distance between two BST configurations?
-
-**A.** **Catalan(N)** distinct BSTs (the particular one you get depends on insertion order), and you can get from any configuration to any other in **`2n - 6`** rotations.
-
-### 14. Why not just implement 2-3 trees?
-
-**Q.** List the implementation difficulties of 2-3 trees that motivate LLRBs.
-
-**A.** Maintaining different node types; interconverting between 2-nodes and 3-nodes (and temporary 4-nodes); walking back up the tree to split nodes. Plus performance problems in practice. LLRBs get the same asymptotics with a single node type and a short insert method.
+*A:* No. It is a red-black tree that is **not** left leaning: it allows glue links on either side and corresponds to a 2-3-**4** tree, which is not a 1-1 correspondence. It is more complex but significantly faster.
 
 ---
 
 ## Summary
 
-- 2-3 / B-trees give guaranteed balance but are ugly to implement: multiple node types, node interconversion, upward splitting. ("Beautiful algorithms are, unfortunately, not always the most useful.")
-- **Tree rotation** is O(1) pointer surgery on a BST that changes shape while preserving the search tree property and in-order order. `rotateLeft(G)`: `G`'s right child rises, `G` becomes its left child, and the riser's old left subtree becomes `G`'s new right subtree. `rotateRight` is the mirror and the inverse.
-- `rotateLeft(x)` sends `x` **down and left**; `x`'s new parent is its old **right** child. A rotation is invalid if the needed child does not exist. Rotations can raise or lower height.
-- There are Catalan(N) BST shapes on N keys; rotations can reach any shape from any other (within `2n - 6` moves), and can rebalance any BST in O(N) moves, which is too slow to do per-operation.
-- **Big idea:** maintain a 1-1 correspondence (isometry) between the BST and a 2-3 tree. Then balance is inherited for free from the 2-3 tree.
-- 2-nodes map directly; a **3-node `p q`** becomes BST node `q` with a left **glue link** to `p`, drawn **red**. Glue nodes were rejected as inelegant and wasteful.
-- The result is a **Left-Leaning Red-Black BST (LLRB)**: a perfectly normal BST. Red is a fiction; search is plain BST search.
-- **Invariants:** no node has two red links; red links lean left; every root-to-**null** path has the same number of black links (perfect black balance). Root-to-**leaf** is the wrong invariant.
-- **Height:** each 3-node adds one red link, so a 2-3 tree of height `H` yields an LLRB of height at most `H + (H + 1) = 2H + 1`, never more than about 2x. Therefore LLRBs are O(log N) tall.
-- **Insertion:** insert as a normal BST with a **red** link, then on the way back up apply, in order: `rotateLeft` on a right-leaning red link (Left Leaning Violation); `rotateRight` on two consecutive left red links (Incorrect 4 Node Violation); `colorFlip` on a node with two red children (Temporary 4 Node, emulating `split`). Flips change colors only, never shape.
-- Repairs can **cascade** upward, exactly like 2-3 splits; the recursive "return the new subtree root" idiom handles this automatically, and the root is forced black at the end.
-- **Runtime:** `contains` O(log N), `insert` O(log N) (O(log N) descent plus O(log N) rotations/flips). Delete is not covered in this course.
-- Inserting `7, 6, 5, 4, 3, 2, 1` into an empty LLRB, which would produce a degenerate chain in a naive BST, yields a perfectly balanced tree.
-- **Landscape:** BSTs are simple but imbalance-prone; 2-3 trees are balanced but painful; LLRBs are easy to insert into and balanced via the 2-3 bijection; Java's `TreeMap` is a non-left-leaning red-black tree in (non-1-1) correspondence with a 2-3-4 tree, more complex but faster. Also out there: AVL, WAVL, splay trees, treaps, skip lists, and hashing (coming later).
+- **B-trees are balanced but painful:** multiple node types, 2-node/3-node interconversion, and splitting while walking up the tree. Hence the search for something implementable.
+- **Rotation** reshapes a BST without changing its key set or search tree property. `rotateLeft(x)`: `x`'s right child becomes `x`'s new parent, and that child's old left subtree becomes `x`'s new right subtree. `rotateRight(x)` is the mirror image. A rotation is invalid if the needed child is missing.
+- Rotation can **shorten or lengthen** a tree; `Catalan(N)` BSTs exist on `N` keys and all are mutually reachable (at most `2n - 6` rotations). Rebalancing a BST from scratch costs `O(N)` moves, which is why we want balance maintained incrementally instead.
+- **The big idea:** color some links **red** so each red link glues two BST nodes into one 3-node. This gives an exact **1-1 correspondence (isometry)** between a BST and a 2-3 tree. Red links point only left, giving an **LLRB**.
+- **LLRBs are ordinary BSTs.** Search ignores color. Red is "a convenient fiction" used only to guide insertion.
+- **Invariants:** no node has two red links (that would be a 4-node), and every root-to-**null** path has the same number of black links (perfect black balance). Root-to-*leaf* is the wrong formulation.
+- **Height:** a 2-3 tree of height `H` maps to an LLRB of height at most `H + (H + 1) = 2H + 1`, so LLRBs have `Θ(log N)` height.
+- **Insertion:** insert into the BST as usual with a **red** link, then on the way back up apply, as needed: `rotateLeft` for a right-leaning red link, `rotateRight` for two consecutive left red links, and a **color flip** for a node with two red children (which emulates 2-3 `split` and changes no pointers). Fixes may **cascade** upward; finish by recoloring the root black.
+- **Runtime:** `contains` and `insert` are `O(log N)`, with `O(log N)` rotations and flips per insert. **Delete is not covered.**
+- **Landscape:** plain BSTs are simple but can degenerate; 2-3/B-trees are balanced but clumsy; LLRBs give easy balanced insertion via the 2-3 bijection; `java.util.TreeMap` is a non-left-leaning red-black tree tracking a 2-3-4 tree. Other options exist: AVL, WAVL, splay trees, treaps, skip lists, and hashing (coming later).
