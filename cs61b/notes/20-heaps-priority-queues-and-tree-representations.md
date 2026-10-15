@@ -1,280 +1,264 @@
-<!-- Mon, Oct 12, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Mon, Oct 12, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 20: Heaps, Priority Queues, and Tree Representations
 
 ## Overview
 
-This lecture closes out the search-tree arc (BSTs, 2-3/B-trees, LLRBs) and pivots to a new abstract data type: the **priority queue (PQ)**, which tracks and removes the "smallest" (or "best") item seen so far rather than supporting lookup by key identity. After motivating the ADT with a concrete problem (keeping the M highest-energy particles from a detector stream using only Θ(M) memory instead of Θ(N)), the lecture surveys bad implementations (ordered array, bushy BST, hash table) and then introduces the **binary min-heap**: a binary tree that is both *complete* and obeys the *min-heap property*. Heap `add` works by appending at the end of the heap and **swimming** up; `removeSmallest` works by swapping the last item into the root and **sinking** down, always toward the smaller child. Both are Θ(log N), and `getSmallest` is Θ(1) because the minimum is always at the root. The second half of the lecture asks a more general question: how do you represent a tree in Java at all? It catalogs approaches 1a (fixed-width child links), 1b (array of child links), 1c (favored-child/sibling links), 2 (array of keys plus array of parent indices, like disjoint sets), 3 (array of keys only, assuming completeness), and 3b (same as 3 but with index 0 left empty so that `leftChild(k) = 2k`, `rightChild(k) = 2k+1`, `parent(k) = k/2`). Because heaps are complete by definition, approach 3/3b is the natural representation, which is why array-backed heaps are both fast and memory-efficient (roughly 1/3 the memory of approach 1a). The lecture ends with a summary table of all the search data structures and ADTs covered in the course so far.
+This lecture closes out the search tree arc (BSTs, 2-3/B-trees, LLRBs) and pivots to a brand new abstract data type: the **priority queue** (PQ), which tracks and removes the "smallest" (or "best") item seen so far. After motivating PQs with a particle detector example that must find the top M of potentially billions of events using only Θ(M) memory, the lecture evaluates several candidate implementations (ordered array, bushy BST, hash table) and finds each lacking. The winner is the **binary min-heap**: a complete binary tree obeying the min-heap property, supporting `getSmallest` in Θ(1) and `add`/`removeSmallest` in Θ(log N) via the **swim** and **sink** operations. The final third of the lecture steps back and asks a more general question: how do we represent a tree in Java at all? Six approaches are surveyed (1a fixed-width nodes, 1b array of child links, 1c sibling tree, 2 keys array plus parents array, 3 keys array only, 3b keys array offset by one), and the punchline is that because heaps are *complete*, the parents array is always the same and therefore completely unnecessary: a heap can be stored as a bare array with `parent(k) = (k - 1) / 2`.
 
 ---
 
 ## Key Concepts
 
-### 1. Wrapping up search trees
+### 1. The end of the search tree journey
 
-Before starting the new material, the lecture recaps the previous three lectures:
+A quick recap of the last three lectures before moving on:
 
-- **Binary search trees** are simple but subject to imbalance (worst case Θ(N) spindly).
-- **2-3 Trees (B-trees)** are balanced, but painful to implement and relatively slow.
-- **LLRB insertion** is simple to implement (delete is hard). It works by maintaining a mathematical bijection with a 2-3 tree.
-- **Java's `TreeMap`** is a red-black tree, but *not* left-leaning. It maintains a correspondence with a **2-3-4 tree** (which is *not* a 1-1 correspondence), allows glue links on either side, and is more complex but significantly (?) faster. The question mark is the lecture's own hedging.
+- **Binary search trees** are simple but subject to imbalance.
+- **2-3 trees (B-trees)** are balanced but painful to implement and relatively slow. A 2-3 tree is the special case of a B-tree where the node capacity limit is 2.
+- **LLRBs** have simple insertion (delete is hard, not covered) and work by maintaining a *bijection* (one-to-one correspondence) with a 2-3 tree.
+- **Java's `TreeMap`** is a red-black tree, but **not** left-leaning. It corresponds to a 2-3-**4** tree, and that correspondence is **not** one-to-one: multiple red-black trees can represent the same 2-3-4 tree, because glue links are allowed on either side. More complex to implement, but significantly faster.
 
-And "beyond": there are hundreds of other self-balancing trees (AVL trees, WAVL trees, which the slides call the fastest, splay trees, treaps), other linked structures (**skip lists**, described as "linked lists with express lanes"), and entirely different ideas, the most common being **hashing**, deferred to a later lecture.
+Beyond these there are hundreds of self-balancing trees (AVL, WAVL (the fastest of the ones mentioned), splay trees, treaps). And there are entirely different ways to implement sets and maps: **skip lists** (linked lists with express lanes) and **hashing**, which is the most common alternative and is coming in a later lecture.
 
 ### 2. The priority queue ADT
 
-A priority queue is not a search tree and not a general map. It supports a deliberately narrow interface:
+A priority queue is a "magic bag." You throw things in; the only thing you can pull out is the smallest. The lecture's live demo: put three objects into a bag, then `removeSmallest()` three times and get them out in increasing order of size.
 
 ```java
-/** (Min) Priority Queue: Allowing tracking and removal of the
-  * smallest item in a priority queue. */
 public interface MinPQ<Item> {
-    /** Adds the item to the priority queue. */
-    public void add(Item x);
-    /** Returns the smallest item in the priority queue. */
-    public Item getSmallest();
-    /** Removes the smallest item from the priority queue. */
-    public Item removeSmallest();
-    /** Returns the size of the priority queue. */
+    public void add(Item x);          // add the item
+    public Item getSmallest();        // return (don't remove) the smallest
+    public Item removeSmallest();     // remove and return the smallest
     public int size();
 }
 ```
 
-The crucial point is what is *absent*: there is no `get(key)`, no `contains(key)`, no iteration in sorted order, no "give me the median." You can only see and remove one distinguished element. That restriction is exactly what buys you efficiency. In the course's taxonomy table, the PQ is the data structure that retrieves **by key order (a.k.a. key size)**, as opposed to a List (retrieve by index), a Map/Set (retrieve by key identity), or Disjoint Sets (retrieve by two int values).
+Critically, a PQ is **not** a set or a map. It does not retrieve by key identity or by index. It retrieves **by key order**. You cannot ask a PQ "do you contain X?" efficiently, and you cannot iterate it in sorted order without destroying it. It is useful precisely when all you care about is the extreme item.
 
-Note also the lecture's remark that we don't usually consider `MinPQ` and `MaxPQ` to be different data structures, since you can just supply the opposite comparator.
+Note that MinPQ and MaxPQ are not usually considered different data structures, since you can just supply the opposite comparator.
 
-### 3. Why a PQ saves memory: the particle detector example
+### 3. Why PQs matter: the Θ(M) memory trick
 
-The motivating problem: a particle detector streams in the energies of incoming particles for 24 hours, and you want the **M highest-energy particles** of the day.
+The motivating problem: a particle detector streams in particles all day; you want the **M highest energy** particles. The naive solution stores every particle, sorts, and takes the top M: Θ(N) memory where N could be 100 quadrillion.
 
-The naive approach stores every particle in an `ArrayList`, sorts with an energy comparator, and takes the first M. Correct, but it uses Θ(N) memory where N is the (potentially enormous) number of particles detected.
+The PQ solution is slightly counterintuitive: **to track the M largest items, use a MinPQ of size M.** Add every incoming particle; whenever the size exceeds M, `removeSmallest()`. The smallest item in the bag is exactly the one you least care about, so throwing it away is free. Memory stays Θ(M).
 
-The insight is that you never need to remember more than M particles at once. If you are holding the best M you have seen so far and a new particle arrives, then either it belongs in the top M (in which case the weakest of your current M is now out) or it does not (in which case it is itself the weakest and gets dropped). Either way, you add then remove the smallest, and the "smallest of the current best M" is exactly what a **MinPQ** gives you in Θ(1), with removal in Θ(log M). That is why a *min*-PQ is the right tool for finding *maxima*: the min-PQ's root is the item on the chopping block.
+This pattern (min-heap of size M to track the top M) is worth memorizing; it generalizes to "top K" problems everywhere.
 
-### 4. Heap definitions, and why both halves matter
-
-**Binary min-heap**: a binary tree that is **complete** and obeys the **min-heap property**.
-
-- **Min-heap property**: every node is less than or equal to **both** of its children.
-- **Complete**: missing items only at the bottom level (if any), and all nodes are as far left as possible.
-
-The min-heap property is much weaker than the BST property. It says nothing about left-versus-right order, only about parent-versus-child. So the root is the global minimum, but the second-smallest could be either child, and the ordering within a level is arbitrary. This weakness is a feature: it makes the invariant easy to restore after a single structural change, with only one path's worth of work.
-
-Note the `≤`: **equal keys are allowed** between parent and child. This is precisely why heaps "handle duplicate priorities much more naturally than BSTs," where duplicate keys are awkward.
-
-Completeness matters for two separate reasons:
-
-1. It forces the height to be Θ(log N), guaranteeing the log-time bounds without any rotations or rebalancing machinery. Compare to the LLRB gymnastics of the previous lecture: a heap gets balance *for free* from the shape invariant.
-2. It makes the array representation (approach 3) possible, since a complete tree's shape is fully determined by its size, so no links need to be stored at all.
-
-The lecture's own examples of invalid heaps include a tree that is **incomplete** (a gap in the bottom level or nodes not pushed left) and a tree that **lacks the min-heap property**. The comprehension question presented four trees and asked how many were binary min-heaps; the answer was **2** (one of the four was incomplete, one lacked the min-heap property). Worth absorbing: the valid examples included trees like `8 / (8, 8) / (8, 8, 8, 7)`... no, careful: in the slides' set, a tree with root 8 and a descendant 7 beneath an 8 *violates* the min-heap property. The takeaway to internalize is just that you must check both conditions independently on every node.
-
-A heap full of all-equal values (e.g. all 8s) *is* a valid min-heap, since `≤` holds everywhere.
-
-### 5. `getSmallest`: the easy one
-
-The lecture calls this the "hopefully easy question." The min-heap property applied transitively down any path means the root is `≤` everything beneath it, so the root is the global minimum. `getSmallest()` just returns the root's item: **Θ(1)**, no traversal.
-
-### 6. `add(x)`: append, then swim
-
-The algorithm, from the add demos:
-
-1. **Add to the end of the heap temporarily**, meaning the next open position in the bottom level (leftmost available), which is the only position that preserves completeness.
-2. **Swim up the hierarchy to your rightful place**: while the new item is smaller than its parent, swap with the parent and repeat.
-
-Swimming stops as soon as the parent is `≤` the item ("This is my true place"). Each swap moves the item up one level, so at most height = Θ(log N) swaps.
-
-Why does this restore the invariant? Appending can only break the single parent-child relationship between the new node and its parent. Each swap pushes the possible violation one level up while fixing everything below: the parent that moved down is `≤` its other child already (it was before), and `≤` the subtree beneath where the new item came from.
-
-The demos use two inserts into the heap `1 / (5, 1) / (6, 5, 6, 3) / (7, 7, 8)`:
-- **Insert 3**: placed at the end (under the 6 that sits leftmost-available), then swims: 3 is less than its parent 5, so they swap; then 3 is less than its new parent 5... the demo shows 3 ending up at the position previously held by the 5 in the second level, with 5 pushed down. Final state: `1 / (3, 1) / (6, 5, 6, 3) / (7, 7, 8, 5)`.
-- **Insert 5**: placed at the end, then swims past a 6 (5 < 6, so swap), then stops under its parent ("I am home"). Final state: `1 / (3, 1) / (6, 5, 5, 3) / (7, 7, 8, 5, 6)`.
-
-Notice in the second case the 5 swam exactly one level and halted, illustrating that swim cost is "however far up you need to go," not always to the root.
-
-### 7. `removeSmallest()`: swap last into root, then sink
-
-The algorithm, from the delete demos:
-
-1. **Swap the last item in the heap into the root** (and remove the old root, which is the answer you return). Taking the *last* item is what preserves completeness: removing the last position never leaves a hole in the middle.
-2. **Sink down the hierarchy, "yielding to most qualified folks"**: repeatedly compare the item to its children; if a child is smaller, swap with the **smaller of the two children** and continue. Stop when both children are `≥` the item ("I won't descend further") or when you reach a leaf.
-
-Starting from `1 / (3, 1) / (6, 5, 5, 3) / (7, 7, 8, 5, 6)`, the demo deletes the min: the last item 6 goes to the root, then sinks. 6 is bigger than its children, so it swaps with the smaller child 1, then continues: it swaps with 3, landing in place. Result: `1 / (3, 3) / (6, 5, 5, 6) / (7, 7, 8, 5)`.
-
-The next delete demo takes the last item 5 into the root and sinks it; the slides note **"Break tie arbitrarily"** when the two candidate children tie, and the sink stops early with "I won't descend further."
-
-Two details people get wrong:
-
-- You must swap with the **smaller** child, not just any child that is smaller than you. If you swap with the larger one, that larger value becomes a parent of the smaller one and the min-heap property is violated.
-- **Ties are broken arbitrarily**, which is sound: if a child equals the parent, `≤` still holds, so you may stop or swap freely.
-
-### 8. The employee/company metaphor
-
-The lecture summarizes the operations with a corporate analogy that is genuinely useful for remembering the shape of the algorithms:
-
-- `getSmallest()`: return the item in the root node (the president).
-- `add(x)`: place the new employee in the last position, and promote as high as possible.
-- `removeSmallest()`: "assassinate the president," promote the rightmost person in the company to president, then demote repeatedly, always taking the 'better' successor.
-
-The "better successor" clause is the smaller-child rule. The small-value-equals-high-rank orientation is what makes this a *min*-heap.
-
-### 9. Why the other implementations are worse
+### 4. Bad implementations of a MinPQ
 
 | | Ordered Array | Bushy BST | Hash Table | Heap |
 |---|---|---|---|---|
 | `add` | Θ(N) | Θ(log N) | Θ(1) | Θ(log N) |
 | `getSmallest` | Θ(1) | Θ(log N) | Θ(N) | Θ(1) |
 | `removeSmallest` | Θ(N) | Θ(log N) | Θ(N) | Θ(log N) |
-| Caveats | | Dups tough | Items go into random places | Items with same priority hard to handle |
+| Caveats | | Dups tough | | Dups fine |
 
-(These are worst-case Θ runtimes.)
+(Worst-case Θ runtimes.)
 
-- **Ordered array**: `getSmallest` is trivial, but inserting in order requires shifting, and removing the front requires shifting too, so Θ(N).
-- **Bushy BST**: all three are Θ(log N), which sounds competitive, but "maintaining bushiness is annoying" (you need the whole LLRB/B-tree apparatus) and "handling duplicate priorities is awkward."
-- **Hash table**: "No good! Items go into random places." A hash table destroys order information entirely, so finding the smallest requires scanning everything: Θ(N).
+- **Ordered array**: `getSmallest` is trivially index 0, but `add` has to find the insertion point and scoot everything over: Θ(N). Worst case is inserting a new smallest.
+- **Bushy BST**: find the smallest by walking left until there is no left child; that is where you stop, and nothing can be smaller. All three operations are Θ(log N) in a bushy tree. Reasonable! But **duplicate priorities are awkward** in a BST, and keeping it bushy is annoying. This matters in practice: Dijkstra's algorithm (coming later in the course for driving directions) definitely produces ties.
+- **Hash table**: Θ(1) add, but items go into *random* places, so finding the smallest requires scanning everything: Θ(N). No good.
 
-The lecture's closing notes on the heap row:
+### 5. The binary min-heap
 
-- "Why 'priority queue'? Can think of position in tree as its 'priority.'"
-- "Heap is log N time **AMORTIZED** (some resizes, but no big deal)." The array backing the heap occasionally needs to grow, and resizing is Θ(N), but amortized over the inserts this is fine (same argument as `ArrayList`).
-- "BST can have constant `getSmallest` if you keep a pointer to smallest." So the heap's Θ(1) `getSmallest` is not by itself decisive.
-- "Heaps handle duplicate priorities much more naturally than BSTs."
-- "Array based heaps take less memory (very roughly about 1/3rd the memory of representing a tree with approach 1a)." Intuition: approach 1a stores a key plus two or three reference fields per node; approach 3 stores only the key.
+**Binary min-heap**: a rooted binary tree that is (a) **complete** and (b) obeys the **min-heap property**.
 
-Note the honest caveat in the table under Heap: **"Items with same priority hard to handle."** This refers to a different issue than duplicate *keys*: if you want to change or track the priority of a particular item already in the PQ, heaps alone do not give you a handle on where that item lives. (The lecture lists this as a caveat without elaborating.)
+- **Min-heap property**: every node is **less than or equal to** both of its children.
+- **Complete**: every level is full (level i has 2^i nodes) except possibly the bottom level, and on the bottom level all nodes are as far **left** as possible with no gaps.
 
-### 10. Representing trees in Java: the six approaches
+Contrast with a BST: a BST says "everything to my left is smaller, everything to my right is larger," which is a strong and fiddly property. A heap says only "everything below me is greater than or equal to me." This is a **weaker, less picky** constraint, which is why it naturally tolerates equal items, and why there is no left/right ordering guarantee between siblings whatsoever.
 
-This is a general-purpose topic, not heap-specific. The question is: given a tree, how do you store the parent-child structure?
+Checking examples from the lecture, with root at top:
 
-**Approach 1: mapping from node to children (recursive, link-based).**
+```
+   8          5          4          0
+  / \        / \        / \        / \
+ 8   8      6   2      7   1      7   1
+/|\        /|  / \    /|\        /|\
+8 8 8     8  0 3  5  9...
+```
+- A tree whose bottom level has gaps that are not left-packed is **incomplete**, even if the min-heap property holds.
+- A tree can be perfectly **complete** and still fail because some node is greater than a child (e.g. a `4` sitting above a `1`).
+- A tree whose bottom level is partly empty but left-packed **is** fine.
 
-- **1a: Fixed-width nodes.** Each node holds a key and a fixed number of child links, one per possible child. This is what `BSTMap` used.
-  ```java
-  public class Tree1A<Key> {
-      Key k;            // e.g. 0
-      Tree1A left;
-      Tree1A middle;
-      Tree1A right;
-      ...
-  ```
-  Simple, but wastes space if nodes often have fewer children than the maximum, and the maximum must be known in advance.
+A max-heap is the exact mirror image: every node is greater than or equal to both of its children.
 
-- **1b: Variable-width nodes (array of child links).** Each node holds a key and an array of children.
-  ```java
-  public class Tree1B<Key> {
-      Key k;            // e.g. 0
-      Tree1B[] children;
-      ...
-  ```
-  Handles arbitrary branching factors; costs an extra array object per node.
+### 6. Heap operations
 
-- **1c: Sibling tree (firstborn/sibling links).** Each node holds a key, a link to its *favored* (first) child, and a link to its next sibling.
-  ```java
-  public class Tree1C<Key> {
-      Key k;            // e.g. 0
-      Tree1C favoredChild;
-      Tree1C sibling;
-      ...
-  ```
-  Every node has exactly two reference fields regardless of branching factor; you reach a node's children by going to `favoredChild` and then walking the `sibling` chain. (extra context: this is the classic "left-child right-sibling" representation, which turns an arbitrary tree into a binary structure.)
+**`getSmallest()`**: return the root. Θ(1). The min-heap property guarantees the root is ≤ everything below it, which is everything.
 
-**Approach 2: array of keys plus array of structure.** Store keys in a `Key[]` and parent indices in an `int[]`, indexed in parallel. "Similar to what we did with disjointSets."
+**`add(x)`: place at the end, then swim.**
+1. Put `x` in the **next open position** at the bottom level (leftmost gap). This preserves completeness by construction, so now you only have to fix the min-heap property.
+2. **Swim**: while `x` is less than its parent, swap with the parent. Stop as soon as you reach a parent you should not swap with, i.e. a parent that is ≤ you.
+
+Worked trace from lecture, inserting 3 into:
+```
+        1
+      /   \
+     5     1
+    / \   / \
+   6   5 6   3
+  / \  |
+ 7  7  8
+```
+3 is placed as the next child under the `6` subtree, swims past 5, swims past 5 again (per the slide sequence 3 rises through the levels), and finally lands where its parent is ≤ 3: "this is my true place." Then inserting 5 into the resulting heap: it is placed at the next open slot under the right subtree, swims up one level past a 6, and stops because the parent above is ≤ 5.
+
+**`removeSmallest()`: swap last into root, then sink.**
+1. The answer is the root; take it.
+2. Move the **last item in the heap** (the rightmost node on the bottom level) into the root. This is the only choice that preserves completeness: removing the last slot leaves the tree complete.
+3. **Sink**: repeatedly compare the node with its children. If a child is smaller, swap with the **smaller of the two children**. Stop when both children are ≥ you (or you have no children).
+
+Why the **smaller** child specifically? If you swapped with the larger child, the item you promoted would then be larger than its sibling, creating a new violation at the root you just "fixed." Taking the smaller child guarantees the promoted item is ≤ both of its new children.
+
+Lecture trace: deleting min from
+```
+        1
+      /   \
+     3     1
+    / \   / \
+   6   5 5   3
+  / \  |  \
+ 7  7  8  5  6
+```
+The root `1` is removed, the last item `6` is moved to the root ("what's happening to me??"), and 6 sinks: it swaps with the smaller child `1`, then continues down, swapping with `3`, until all of its children are ≥ it.
+
+Deleting again, the last item (a `5`) becomes the temporary root and sinks. When there is a **tie** between the two children, **break it arbitrarily**: both resulting heaps are valid, just as many different BSTs can hold the same data. (A student suggested breaking ties toward the right might save a tiny bit of sinking; Josh agreed it is at best a small optimization, roughly one level in the worst case.)
+
+**Why sinking never overshoots**: you only ever swap when you have a child strictly smaller than you, which is exactly the situation that is a violation. So you stop precisely when there is nothing left to fix.
+
+**The company analogy** used throughout:
+- `getSmallest()`: look at the president.
+- `add(x)`: hire the new employee into the last position, then promote them as high as they deserve.
+- `removeSmallest()`: assassinate the president, promote the rightmost person in the company to president, then demote them repeatedly, always swapping with the "better" (smaller) successor.
+
+### 7. How do you represent a tree in Java at all?
+
+This is the generalization step. Six approaches, of which the first three use explicit 64-bit reference links.
+
+**Approach 1a: Fixed-width nodes.** One hard-coded reference field per child. This is what `BSTMap` used (and similar to a linked list).
+```java
+public class Tree1A<Key> {
+    Key k;
+    Tree1A left;
+    Tree1A middle;
+    Tree1A right;
+}
+```
+Fastest pointer traversal: W straight to X, one hop. But the branching factor is baked in.
+
+**Approach 1b: Variable-width nodes (array of child links).** Supports any number of children per node.
+```java
+public class Tree1B<Key> {
+    Key k;
+    Tree1B[] children;
+}
+```
+Box-and-pointer reasoning: `W`'s `children` field holds a reference to a *separate array object*, and each slot of that array holds a reference to a child node. So getting from W to X is **two hops** (W → array → X) instead of one. More flexible, slightly less performant due to that extra level of indirection.
+
+**Approach 1c: Sibling tree (firstborn/sibling links).** Attributed to Paul Hilfinger.
+```java
+public class Tree1C<Key> {
+    Key k;
+    Tree1C favoredChild;
+    Tree1C sibling;
+}
+```
+Each node points to one "favored" child, and children point to their next sibling. So W's three children X, Y, Z are stored as W → X, X → Y (sibling), Y → Z (sibling). Weird, but exam problems about it exist. (Josh: "I don't know of any reason you would do this, but I have seen an exam problem about this before.")
+
+**Approach 2: Array of keys + array of structure.** Similar to disjoint sets.
 ```java
 public class Tree2<Key> {
     Key[] keys;
     int[] parents;
-    ...
+}
 ```
-In the slide's example, the tree with root `k` (index 0), children `e` (1) and `v` (2), then `b, g, p, y` (3-6), etc., gives
-```
-Key[] keys    = { k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-int[] parents = { 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6 }
-```
-So `parents[7] == 3` says that `a` (index 7) hangs off `b` (index 3). The root's parent entry points at itself (index 0 has parent 0), exactly as in disjoint sets. This works for *any* tree shape, since structure is recorded explicitly, and it avoids one object per node.
+Two parallel arrays. `keys[i]` is the key at node i; `parents[i]` is the index of node i's parent. The root is its own parent. For the lecture's example tree with keys `k e v b g p y a d f j m r x` at indices 0-13, `parents` is `0 0 0 1 1 2 2 3 3 4 4 5 5 6`.
 
-**Approach 3: array of keys only, structure stored nowhere.**
+**Why two arrays when disjoint sets used only one?** In disjoint sets the nodes had no identity: they were just the integers 0 through N-1, so the single parents array sufficed. Here nodes have *identities* (keys), so you need a second array to say which key lives at which node.
+
+This representation captures **any** tree. The lecture demonstrated editing it live: change `parents[13]` from `6` to `0`, and node 13 is now a direct child of the root. Every tree you can draw has a corresponding parents array, and vice versa.
+
+**Approach 3: Array of keys only. Don't store structure anywhere.**
 ```java
 public class Tree3<Key> {
     Key[] keys;
-    ...
+}
 ```
-"To interpret array: Simply assume tree is complete." "Obviously only works for 'complete' trees." The `parents` array from approach 2 was redundant for a complete tree, because the parent index is a pure arithmetic function of the child index. The same key array as above,
-```
-Key[] keys = { k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-```
-represents the same tree with no structure array at all. This is the representation of choice for heaps, precisely because heaps are complete by definition.
+The key insight of the lecture: look at that parents array again. `0 0 0 1 1 2 2 3 3 4 4 5 5 6`. It is *extremely* regular. Why? Because **the tree is complete**. Every complete tree of the same size has *exactly* that parents array. So storing it is pointless: it carries zero information once you know the tree is complete.
 
-**Index arithmetic for approach 3 (0-indexed).** The lecture poses this as a challenge: write `parent(k)`.
+And heaps are always complete. So approach 3 stores just the keys and **assumes** the tree is complete. "So where is the tree? Well, it doesn't exist. We don't have to store the tree structure at all. That's why completeness is one of the properties of a heap." The structure is *computed*, not stored:
+
 ```java
 public int parent(int k) {
     return (k - 1) / 2;
 }
 ```
-Check it against the example: `parent(1) = 0`, `parent(2) = 0` (both children of the root map to 0, since integer division truncates); `parent(7) = 3`, `parent(8) = 3`. Correspondingly (extra context, stated implicitly by the slide's indices): `leftChild(k) = 2k + 1` and `rightChild(k) = 2k + 2`.
 
-**Approach 3b (the book implementation): leave one empty spot.** Same as 3, but offset everything by one spot, leaving index 0 empty. This "makes computation of children/parents 'nicer'":
+Check it: node 11's parent is (11-1)/2 = 5. Node 13's parent is (13-1)/2 = 6. Node 12's parent is (12-1)/2 = 11/2 = 5 (Java integer division truncates toward zero). Node 6's parent is (6-1)/2 = 5/2 = 2. Correct in each case.
+
+A nice side effect: the earlier student question of "how do you find where the next item spawns?" dissolves. The next open position is just the next unoccupied array index. You find it instantly rather than walking the tree.
+
+(extra context) The matching children formulas for approach 3 are `leftChild(k) = 2*k + 1` and `rightChild(k) = 2*k + 2`; the lecture gave only the 3b versions explicitly.
+
+**Approach 3b: Offset by one, leave index 0 empty.** This is what the textbook (and the Princeton algorithms book) does.
 - `leftChild(k) = k * 2`
 - `rightChild(k) = k * 2 + 1`
 - `parent(k) = k / 2`
 
-The same tree becomes
-```
-Key[] keys = { -, k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-               0  1  2  3  4  5  6  7  8  9 10 11 12 13 14
-```
-The arithmetic is cleaner because the "times two" and "divide by two" relationship is exact (in binary, a node's index is its parent's index with one bit appended). The cost is one wasted array slot.
+Same idea, nicer arithmetic, at the cost of one wasted array slot. Some older 61B material and many references use this; either is fine, just be consistent.
 
-### 11. Abstraction happens in layers
+Josh's historical note: interpreting a linear array as a complete tree is a very old-school trick from an era when memory and time were extremely tight, and it remains useful even today.
 
-The lecture's closing diagram makes a point worth absorbing conceptually: the PQ ADT is implemented by a heap-ordered tree, and that tree is in turn implemented by one of approaches 1a/1b/1c/2/3/3b. Likewise a separate-chaining hash table is implemented as an array of buckets, and each bucket can be an `ArrayList`, resizing array, linked list, BST (requires comparable items), or even a `HashSet` (called a "weird choice"). So "which data structure" is often a question at several levels at once.
+### 8. Final tradeoffs
 
-### 12. The search data structures summary
+Notes from the summary slide:
+- **Why "priority queue"?** Think of a node's **position in the tree** as its priority: highest priority at the top.
+- Heap operations are Θ(log N) **amortized**, because the backing array occasionally needs resizing (when it gets too full on `add`, or you might downsize when too empty on `remove`). No big deal.
+- A BST **can** achieve constant `getSmallest` if you maintain a pointer to the smallest element.
+- Heaps handle **duplicate priorities** much more naturally than BSTs. This is the main advantage.
+- **Array-based heaps use far less memory**: very roughly about 1/3 the memory of representing the same tree with approach 1a (no per-node object headers, no left/right reference fields).
+
+### 9. The big data structures picture
 
 | Name | Storage Operation(s) | Primary Retrieval Operation | Retrieve By |
 |---|---|---|---|
 | List | `add(key)`, `insert(key, index)` | `get(index)` | index |
 | Map | `put(key, value)` | `get(key)` | key identity |
 | Set | `add(key)` | `containsKey(key)` | key identity |
-| PQ | `add(key)` | `getSmallest()` | key order (a.k.a. key size) |
+| PQ | `add(key)` | `getSmallest()` | key order (key "size") |
 | Disjoint Sets | `connect(int1, int2)` | `isConnected(int1, int2)` | two int values |
 
-Implementations mentioned in the ADT-to-implementation diagram: Set/Map by chaining HT, linear probing HT, linked list, resizing array, vanilla BST, red-black, B-trees (2-3/2-3-4), and heap; PQ by heap, balanced tree, ordered linked list, or chaining HT ("lacks order, very odd"); List by linked list or resizing array; Disjoint Sets by quick find, quick union, weighted QU, WQUPC. Specialized List-flavored ADTs: Stack, Queue, Deque. Sorted Set / Sorted Map correspond to `java.util.SortedSet` and `java.util.SortedMap`, backed by BST, 2-3 tree, or red-black.
+**Abstraction happens in layers.** A PQ is implemented by a heap-ordered tree, which is in turn implemented by one of approaches 1a/1b/1c/2/3/3b. Similarly, a separate-chaining hash table is implemented by an array of buckets, each bucket implemented by an ArrayList / resizing array / linked list / BST.
 
-"Data Structure: A particular way of organizing data." Two more are still to come in the course: **tries and graphs**.
-
-### 13. Open implementation questions the lecture leaves you with
-
-1. How does a PQ know how to determine which item in a PQ is larger? What could we change so that there is a default comparison?
-2. What constructors are needed to allow for different orderings?
-
-The slides pose these without answering them. (extra context: the standard answers are to bound the type parameter as `<Item extends Comparable<Item>>` for a natural default ordering, and to provide both a no-arg constructor that uses `compareTo` and a constructor taking a `Comparator<Item>`, which is what `new HeapMinPQ<>(cmptr)` in the usage example implies. Java's own `PriorityQueue` does exactly this.)
+Remaining data structures for the course: **tries** and **graphs**.
 
 ---
 
 ## Definitions
 
-- **Priority Queue (PQ)**: An abstract data type supporting `add(Item x)`, `getSmallest()`, `removeSmallest()`, and `size()`. Useful if you want to keep track of the "smallest", "largest", "best", etc. seen so far. Retrieval is by key order (key size), not key identity or index.
-- **MinPQ**: A priority queue whose distinguished element is the smallest. A MaxPQ is not considered a separate data structure, since you can supply the opposite comparator.
-- **Binary min-heap**: A binary tree that is complete and obeys the min-heap property.
-- **Min-heap property**: Every node is less than or equal to both of its children.
-- **Complete (tree)**: Missing items occur only at the bottom level (if any), and all nodes are as far left as possible.
-- **Swim (up)**: The operation used by `add`: starting from a node, repeatedly swap with the parent while the node is smaller than its parent, "promoting as high as possible."
-- **Sink (down)**: The operation used by `removeSmallest`: starting from the root, repeatedly swap with the smaller child while a child is smaller than the node ("yielding to the most qualified folks"), breaking ties arbitrarily.
-- **Approach 1a (fixed-width nodes)**: Tree representation where each node object stores a key and a fixed number of child references, one per possible child. Used by `BSTMap`.
-- **Approach 1b (variable-width nodes)**: Each node stores a key and an array of child references.
-- **Approach 1c (sibling tree / firstborn-sibling links)**: Each node stores a key, a reference to its favored (first) child, and a reference to its next sibling.
-- **Approach 2 (array of keys, array of structure)**: Keys in a `Key[]`, parent indices in a parallel `int[]`. Similar to the disjoint sets representation. Works for any tree shape.
-- **Approach 3 (array of keys)**: Keys in a `Key[]` with no structure stored; the tree is assumed complete, so parent/child indices are computed arithmetically. Zero-indexed: `parent(k) = (k - 1) / 2`.
-- **Approach 3b**: Approach 3 with index 0 left empty, giving `leftChild(k) = k*2`, `rightChild(k) = k*2 + 1`, `parent(k) = k/2`. This is the textbook's implementation.
-- **Skip list**: A linked structure described in the lecture as "linked lists with express lanes," an alternative to search trees for implementing sets/maps.
-- **Data Structure**: A particular way of organizing data.
+- **Priority Queue (PQ)**: An abstract data type supporting `add`, `getSmallest`, `removeSmallest`, and `size`; retrieval is by **key order**, not by key identity or index.
+- **MinPQ / MaxPQ**: Min-oriented and max-oriented priority queues. Not considered distinct data structures, since one can be built from the other by supplying the opposite comparator.
+- **Binary min-heap**: A rooted binary tree that is **complete** and obeys the **min-heap property**.
+- **Min-heap property**: Every node is less than or equal to **both** of its children.
+- **Max-heap property**: Every node is greater than or equal to both of its children.
+- **Complete (tree)**: Every level is entirely full (level i contains 2^i nodes) except possibly the bottom level; on the bottom level all nodes are as far left as possible, with no gaps.
+- **Swim**: The upward-fixing operation used by `add`. Repeatedly swap a node with its parent while the node is smaller than its parent.
+- **Sink**: The downward-fixing operation used by `removeSmallest`. Repeatedly swap a node with the **smaller** of its two children while a child is smaller than it.
+- **Approach 1a (fixed-width nodes)**: Each node holds a fixed number of hard-coded child reference fields.
+- **Approach 1b (variable-width nodes)**: Each node holds a reference to an array of child references.
+- **Approach 1c (sibling tree)**: Each node holds a reference to one favored child and a reference to its next sibling.
+- **Approach 2**: Two parallel arrays, `Key[] keys` and `int[] parents`; works for any tree.
+- **Approach 3**: A single `Key[] keys` array; tree structure is *assumed* to be complete and computed arithmetically. `parent(k) = (k - 1) / 2`.
+- **Approach 3b**: Approach 3 with index 0 left empty. `parent(k) = k / 2`, `leftChild(k) = 2k`, `rightChild(k) = 2k + 1`.
+- **Bijection (in the LLRB recap)**: A one-to-one correspondence; every LLRB maps to exactly one 2-3 tree and vice versa. Red-black trees and 2-3-4 trees do **not** have this property.
+- **Skip list**: An ordered linked list with "express lanes," an alternative way to implement a set or map.
 
 ---
 
 ## Worked Examples
 
-### Example 1: The naive, memory-hungry approach to the top-M problem
+### Example 1: The naive Θ(N) approach (what not to do)
 
 ```java
 public List<Particle> highestEnergyParticles(Detector det, int M) {
@@ -291,57 +275,46 @@ public List<Particle> highestEnergyParticles(Detector det, int M) {
 }
 ```
 
-**What it does, step by step.** An empty `ArrayList` is created. The loop runs for 24 hours of wall-clock time (the `Timer` is created in the init slot and checked in the condition; there is no update expression, since `timer.hours()` advances on its own). Every particle the detector produces is appended. After the day ends, the whole list is sorted by energy in reverse (descending) order, and the first M elements are returned.
+**What it does**: collects every particle detected over 24 hours into an ArrayList, sorts the whole list in descending energy order, and returns the first M.
 
-**Why it is unsatisfying.** It "potentially uses a huge amount of memory Θ(N), where N is number of particles." Box-and-pointer reasoning in words: `allParticles` is a single reference variable pointing at one `ArrayList` object, but that object's backing array holds N references, each pointing to a distinct `Particle` object on the heap. All N particles stay reachable for the whole day, so none can be garbage collected, even though N - M of them are ultimately irrelevant. The sort also costs time proportional to N log N.
+**Why it is bad**: the ArrayList grows to hold all N particles. If the detector produces 100 quadrillion events and you only want the top 50, you have paid Θ(N) memory for a Θ(M) answer. (The slides' type signatures here are slightly inconsistent, `Comparator<String>` for a list of `Particle`; that is a slide typo, not a conceptual point.)
 
-(Note: the slide code has small inconsistencies, `Comparator<String>` where `Comparator<Particle>` is meant, `sublist` rather than `subList`, and a three-argument `Collections.sort` that does not exist. These are slide typos, not the point of the example.)
-
-**The stated goal**: do this in Θ(M) memory using a MinPQ, constructed as
-
-```java
-MinPQ<Particle> highEnergyParticles = new HeapMinPQ<>(cmptr);
-```
-
-### Example 2: The MinPQ solution, "track the M best"
+### Example 2: The Θ(M) MinPQ solution
 
 ```java
 public List<Particle> highestEnergyParticles(Detector det, int M) {
     Comparator<Particle> cmptr = new EnergyComparator();
     MinPQ<Particle> highEnergyParticles = new HeapMinPQ<>(cmptr);
+
     for (Timer timer = new Timer(); timer.hours() < 24; ) {
         highEnergyParticles.add(det.getNextParticle());
-        if (highEnergyParticles.size() > M)
-           { highEnergyParticles.removeSmallest(); }
+        if (highEnergyParticles.size() > M) {
+            highEnergyParticles.removeSmallest();
+        }
     }
+
     ArrayList<String> returnList = new ArrayList<String>();
     while (highEnergyParticles.size() > 0) {
-            returnList.add(highEnergyParticles.removeSmallest());
+        returnList.add(highEnergyParticles.removeSmallest());
     }
     return returnList;
 }
 ```
 
-**Step by step.**
+**Step by step:**
 
-1. A `Comparator<Particle>` that orders by energy is created, and a heap-backed MinPQ is constructed with it. The PQ will therefore treat "smallest" as "lowest energy."
-2. For each incoming particle: `add` it, then if the PQ now holds M+1 items, `removeSmallest()` discards the lowest-energy one.
-3. **The invariant**: at the top of every iteration, the PQ contains exactly the M highest-energy particles seen so far (or all of them, if fewer than M have arrived). Adding one item makes it M+1 items, which are the M+1 best seen so far; discarding the minimum of those M+1 leaves the M best. The invariant is restored.
-4. After the loop, the PQ holds the day's top M. Draining it with repeated `removeSmallest()` appends them to `returnList` in **ascending** energy order (lowest first), which is worth noticing: the returned list is sorted opposite to the naive version's descending order.
+1. **The comparator** is passed into the `HeapMinPQ` constructor. The Particle class may have no natural order, so the comparator is what tells the heap what "smallest" means: lowest energy. This is why the implementing class takes a comparator at construction.
+2. **The loop invariant**: after each iteration, `highEnergyParticles` holds the M highest-energy particles seen so far (or all of them, if fewer than M have arrived). Particles 1 through M just accumulate. Starting with particle M+1, every `add` pushes size to M+1 and the immediately following `removeSmallest` evicts the weakest of those M+1.
+3. **Why discarding is safe**: the evicted particle is, by definition, the lowest-energy one currently retained. Since it was already beaten by M others, it can never be in the final top M. We do not store it anywhere; we genuinely do not care.
+4. **Memory**: the heap's backing array never exceeds roughly M+1 entries, so Θ(M). Note the returned list is also Θ(M).
+5. **Draining**: the final `while` loop empties the heap into a list. Because `removeSmallest` is called repeatedly, the results come out in **ascending** energy order, i.e. the Mth best first and the single best last. (extra context) If you need descending order, reverse the list afterward or push onto a stack.
+6. **Readability**: notice there is not a single explicit `if (a.energy > b.energy)` comparison in the body. The PQ API absorbs all of that.
 
-**Why this is Θ(M) memory.** The PQ's backing array never exceeds about M+1 slots, and only M+1 `Particle` objects are reachable at any moment. Every discarded particle becomes unreachable immediately after `removeSmallest()` returns and its reference is dropped, so it is eligible for garbage collection. The lecture's summary: "Can track top M transactions using only M memory. API for MinPQ also makes code very simple (don't need to make explicit comparisons)." That last clause is the API-design lesson: the comparator is handed to the PQ once at construction, and the loop body contains no `if (energy > ...)` logic at all.
-
-**Runtime** (extra context, since the slides emphasize memory): each of the N particles costs one `add` plus possibly one `removeSmallest`, both Θ(log M), so total Θ(N log M) time, versus Θ(N log N) for sort-everything. Better in both time and space.
-
-(The slide code declares `ArrayList<String> returnList` while the method returns `List<Particle>`; another slide typo.)
-
-### Example 3: `swim` on an array-backed heap
-
-This is the lecture's actual code for approach 3:
+### Example 3: `swim` in approach-3 array representation
 
 ```java
 public void swim(int k) {
-    if (keys[parent(k)] ≻ keys[k]) {
+    if (keys[parent(k)] > keys[k]) {   // '>' stands in for the comparator
         swap(k, parent(k));
         swim(parent(k));
     }
@@ -352,207 +325,156 @@ public int parent(int k) {
 }
 ```
 
-The `≻` is the slide's shorthand for "comes after in priority order," i.e. the parent is larger than the child, which is the violation condition for a min-heap.
+**Tracing `parent`:** suppose the heap array is laid out as in the lecture's example tree with 14 nodes at indices 0-13.
+- `parent(13) = (13 - 1) / 2 = 12 / 2 = 6`. Correct: node 13 is a child of node 6.
+- `parent(11) = (11 - 1) / 2 = 10 / 2 = 5`. Correct.
+- `parent(12) = (12 - 1) / 2 = 11 / 2`. Java integer division **truncates**, giving 5. Correct: node 12 is the left child of node 5, node 13 the right child of node 6. This truncation is load-bearing; in a language with true division this formula breaks.
 
-**Step by step.** `swim(k)` asks: is my parent bigger than me? If so, the min-heap property is violated at that edge, so swap the two array entries and recursively swim from the parent's index, which is now where the item lives. If not, the item is in its rightful place and the recursion stops.
+**Why there is no explicit base case:** the recursion stops in two ways. Normally, it stops as soon as `keys[parent(k)]` is not greater than `keys[k]`, meaning the node has reached its rightful place. At the root, `parent(0) = (0 - 1) / 2 = -1 / 2 = 0` in Java (truncation toward zero), so index 0 is its own parent, the comparison `keys[0] > keys[0]` is false, and the recursion terminates. The lecture examined whether an explicit `if (k == 0) return;` guard is needed and concluded it works without one (Josh: "I think it works. Like 80% sure"), while noting that adding the guard is the safest and clearest option. **For an exam, writing the explicit `k == 0` base case is the defensible choice.**
 
-**Why this terminates and is correct.** Each recursive call strictly decreases the index, since `(k-1)/2 < k` for `k >= 1`. The recursion bottoms out either when the parent is `≤` the item, or at the root. At the root, `parent(0) = (0-1)/2 = 0` in Java (because integer division of -1 by 2 truncates toward zero, giving 0), so `keys[0] ≻ keys[0]` is false and the recursion stops. The index arithmetic happens to make the root a safe base case without an explicit guard, though writing `if (k == 0) return;` explicitly is clearer and does not rely on that coincidence.
+**Box-and-pointer / memory reasoning**: there are no boxes and no pointers here. That is the whole point. In approach 1a, a 14-node tree is 14 separate heap-allocated objects, each with an object header plus a key reference plus two 64-bit child references, and traversing from a node to its parent is **impossible** without a parent pointer. In approach 3, there is one array object holding 14 key references, and "traversal" is pure arithmetic on an `int`. No dereferencing, no cache misses chasing pointers, roughly a third of the memory, and the parent is reachable in one subtraction and one shift.
 
-**Box-and-pointer reasoning in words.** There are no node objects here at all. `keys` is one reference variable pointing at a single array object; the array's slots hold references to the `Key` objects. A "swap" rewires two slots of that one array; nothing about tree structure is stored or changed, because the structure is implicit in the indices. This is exactly why approach 3 is memory-frugal: there is no per-node object header, and no `left`/`right`/`middle` fields.
+### Example 4: Reading a heap out of an array
 
-**Trace.** Suppose the heap is, in approach-3 array form, `{1, 3, 1, 6, 5, 6, 3, 7, 7, 8}` (the lecture's pre-insert-5 heap, read level by level). We append 5 at index 10 and call `swim(10)`:
+Given `keys = [1, 3, 1, 6, 5, 5, 3, 7, 7, 8, 5, 6]` under approach 3, reconstruct the tree:
 
-- `parent(10) = (10-1)/2 = 4`. `keys[4] = 5`, `keys[10] = 5`. Is 5 ≻ 5? No. Stop.
+- Index 0 (`1`) is the root.
+- Indices 1-2 (`3`, `1`) are level 1.
+- Indices 3-6 (`6`, `5`, `5`, `3`) are level 2.
+- Indices 7-11 (`7`, `7`, `8`, `5`, `6`) are the partial bottom level, left-packed.
 
-So that particular 5 would not move at all. Compare to inserting 3 into `{1, 5, 1, 6, 5, 6, 3, 7, 7, 8}` at index 9, i.e. `swim(9)`:
-
-- `parent(9) = 4`. `keys[4] = 5 ≻ 3`? Yes. Swap indices 9 and 4: `{1, 5, 1, 6, 3, 6, 3, 7, 7, 5}`. Recurse on `swim(4)`.
-- `parent(4) = (4-1)/2 = 1`. `keys[1] = 5 ≻ 3`? Yes. Swap indices 4 and 1: `{1, 3, 1, 6, 5, 6, 3, 7, 7, 5}`. Recurse on `swim(1)`.
-- `parent(1) = 0`. `keys[0] = 1 ≻ 3`? No. Stop.
-
-Final array `{1, 3, 1, 6, 5, 6, 3, 7, 7, 5}`, which matches the lecture's drawn result: root 1, second level 3 and 1, third level 6, 5, 6, 3, fourth level 7, 7, 8... with the 8 having been displaced; the key point is the 3 ended up two levels up and the 5s shifted down along that one path. Two swaps, Θ(log N).
-
-### Example 4: `sink`, reconstructed from the delete demos
-
-The lecture draws `sink` but does not show its code. Reconstructing it for approach 3 (extra context: the code below is written to match the lecture's described algorithm; the slides give only `swim`):
-
-```java
-public void sink(int k) {
-    int left = 2 * k + 1;
-    int right = 2 * k + 2;
-    if (left >= size) { return; }            // no children: we are a leaf
-    int smallerChild = left;
-    if (right < size && keys[right] ≺ keys[left]) {
-        smallerChild = right;                // ties: keep left, "break tie arbitrarily"
-    }
-    if (keys[k] ≻ keys[smallerChild]) {
-        swap(k, smallerChild);
-        sink(smallerChild);
-    }
-}
 ```
+            1(0)
+         /        \
+      3(1)         1(2)
+     /    \       /    \
+   6(3)   5(4)  5(5)   3(6)
+   / \    /  \
+ 7(7)7(8)8(9)5(10)  ... 6(11) under index 5
+```
+Verify the min-heap property by checking each index k against `2k+1` and `2k+2`. Verify completeness by confirming the occupied indices are exactly 0 through size-1 with no holes, which is automatic in this representation. **That is the elegance: completeness cannot be violated, because there is nowhere to put a gap.**
 
-**Step by step.** Compute both child indices. If the left child does not exist, neither does the right (completeness guarantees children fill left to right), so we are a leaf and stop. Otherwise pick the smaller child; if the right child does not exist, the left is the only candidate. If the node is bigger than that smaller child, swap and continue sinking from the child's position; otherwise stop ("I won't descend further").
+### Example 5: Hand-tracing `removeSmallest` on an array
 
-**Why the smaller child.** If you swapped with the larger child instead, you would place the larger value above the smaller one, creating a fresh violation at the node you just vacated. Choosing the smaller child guarantees the promoted value is `≤` both the sinking item and its sibling, so the edge you just created is valid.
-
-**Trace of the first delete demo.** Heap array: `{1, 3, 1, 6, 5, 5, 3, 7, 7, 8, 5, 6}` (root 1; level 2: 3, 1; level 3: 6, 5, 5, 3; level 4: 7, 7, 8, 5, 6). `removeSmallest()`:
+Start with `[1, 3, 1, 6, 5, 5, 3, 7, 7, 8, 5, 6]` (size 12).
 
 1. Save `keys[0] = 1` as the return value.
-2. Move the last item (`6` at index 11) into index 0, shrink size to 11: `{6, 3, 1, 6, 5, 5, 3, 7, 7, 8, 5}`. "Wuh oh..." as the slides put it: the root is now wildly out of place.
-3. `sink(0)`: children are indices 1 (`3`) and 2 (`1`). Smaller is `1` at index 2. Is `6 ≻ 1`? Yes. Swap: `{1, 3, 6, 6, 5, 5, 3, 7, 7, 8, 5}`. Recurse on `sink(2)`.
-4. `sink(2)`: children are indices 5 (`5`) and 6 (`3`). Smaller is `3` at index 6. Is `6 ≻ 3`? Yes. Swap: `{1, 3, 3, 6, 5, 5, 6, 7, 7, 8, 5}`. Recurse on `sink(6)`.
-5. `sink(6)`: left child would be index 13, which is `>= size`, so index 6 is a leaf. Stop.
+2. Move the last element, `keys[11] = 6`, into index 0. Size becomes 11. Array: `[6, 3, 1, 6, 5, 5, 3, 7, 7, 8, 5]`.
+3. Sink from index 0. Children are indices 1 (`3`) and 2 (`1`). The smaller is `1` at index 2, and `1 < 6`, so swap: `[1, 3, 6, 6, 5, 5, 3, 7, 7, 8, 5]`. Now at index 2.
+4. Children of index 2 are indices 5 (`5`) and 6 (`3`). Smaller is `3` at index 6, and `3 < 6`, so swap: `[1, 3, 3, 6, 5, 5, 6, 7, 7, 8, 5]`. Now at index 6.
+5. Children of index 6 would be indices 13 and 14, both out of range (size 11). Stop.
 
-Final array `{1, 3, 3, 6, 5, 5, 6, 7, 7, 8, 5}`, which is the lecture's drawn result (root 1; level 2: 3, 3; level 3: 6, 5, 5, 6; level 4: 7, 7, 8, 5). Return value: `1`. Two swaps, Θ(log N).
-
-### Example 5: Reading approach 2 versus approach 3
-
-Given the lecture's tree (root `k`; children `e`, `v`; then `b, g` under `e` and `p, y` under `v`; then `a, d` under `b`, `f, j` under `g`, `m, r` under `p`, `x` under `y`):
-
-**Approach 2** stores both arrays:
-```
-Key[] keys    = { k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-int[] parents = { 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6 }
-```
-To find `x`'s ancestors: `x` is at index 13, `parents[13] = 6` which is `y`, `parents[6] = 2` which is `v`, `parents[2] = 0` which is `k`. Path: `x, y, v, k`.
-
-**Approach 3** stores only
-```
-Key[] keys = { k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-```
-and recovers the same answer arithmetically: `parent(13) = (13-1)/2 = 6`, `parent(6) = (6-1)/2 = 2`, `parent(2) = (2-1)/2 = 0`. Identical path. The `parents` array was pure redundancy, because the tree is complete.
-
-**Approach 3b** stores
-```
-Key[] keys = { -, k, e, v, b, g, p, y, a, d, f, j, m, r, x }
-```
-and `x` sits at index 14: `parent(14) = 7` (`y`), `parent(7) = 3` (`v`), `parent(3) = 1` (`k`). Notice how clean this is in binary: 14 = `1110`, 7 = `111`, 3 = `11`, 1 = `1`. Each step just drops the last bit. That is the entire reason 3b exists.
+Return `1`. The result is a valid heap, and note how the two swaps correspond exactly to the slide sequence where `6` traded places first with `1` and then with `3`.
 
 ---
 
 ## Common Pitfalls
 
-1. **Confusing the heap property with the BST property.** A heap says nothing about left versus right. Do not assume the left child is smaller than the right, do not assume an in-order traversal is sorted, and do not try to "search" a heap for an arbitrary key in log time. The only thing you know for free is the minimum.
+1. **Thinking a heap is sorted.** The array is *not* in sorted order and there is no ordering relationship between siblings or between cousins. Only the parent-child relationship is constrained. A heap of size N tells you the minimum instantly and tells you essentially nothing else for free.
 
-2. **Forgetting that completeness is part of the definition.** A tree can satisfy "every node ≤ its children" and still not be a heap if it has a gap in the bottom level or nodes not pushed as far left as possible. Both of the lecture's invalid examples fail for exactly one reason each: one is incomplete, the other lacks the min-heap property.
+2. **Confusing "complete" with "full" or "perfect."** Complete allows a partially-filled bottom level, as long as it is left-packed. A tree with a missing node in the middle of the bottom level is incomplete even if the min-heap property holds perfectly.
 
-3. **Misreading "complete."** Complete does not mean perfect/full. The bottom level may be partially filled, as long as it is filled left to right with no gaps.
+3. **Sinking into the larger child.** If you swap a sinking node with the larger of its two children, the node you promoted is now larger than its sibling and you have created a new violation at the very position you just vacated. **Always take the smaller child.**
 
-4. **Sinking into the wrong child.** Always swap with the **smaller** of the two children. Swapping with a child that merely happens to be smaller than the parent (but is the larger child) breaks the invariant.
+4. **Swimming when you should sink, or vice versa.** `add` swims (new item starts at the bottom). `removeSmallest` sinks (displaced item starts at the top). Mixing them up is a classic exam error.
 
-5. **Removing the wrong node to fill the root.** In `removeSmallest`, you move the **last item in the heap** (bottom level, rightmost occupied) into the root. Moving any other node, or promoting a child directly, destroys completeness.
+5. **Removing the root and "pulling up" a child.** A tempting but wrong `removeSmallest`: delete the root and promote the smaller child, recursively. This produces a correct min-heap-property tree but **destroys completeness**, because the hole propagates down an arbitrary path rather than to the last position. The last-element-to-root-then-sink approach is what preserves completeness.
 
-6. **Adding anywhere other than the end.** `add` must place the new item at the next open bottom-level position; inserting "wherever it fits" breaks completeness and destroys the Θ(log N) height guarantee.
+6. **Off-by-one between approach 3 and 3b.** `parent(k) = (k-1)/2` in approach 3; `parent(k) = k/2` in approach 3b. Using the 3b children formula (`2k`, `2k+1`) with a 0-indexed heap gives garbage. Pick one convention and state it.
 
-7. **Mixing up 0-indexed and 1-indexed heap arithmetic.** Zero-indexed (approach 3): `parent(k) = (k-1)/2`, `leftChild(k) = 2k+1`. One-indexed with slot 0 empty (approach 3b): `parent(k) = k/2`, `leftChild(k) = 2k`. Using `k/2` on a 0-indexed array is wrong (e.g. `parent(3)` would give 1 instead of the correct 1... check more carefully: `(3-1)/2 = 1` and `3/2 = 1` agree here, but `parent(4)`: correct is `(4-1)/2 = 1`, while `4/2 = 2` is wrong). The formulas disagree on exactly the cases that matter, so pick one convention and state it.
+7. **Forgetting Java's integer truncation is required.** `(k-1)/2` only works because Java truncates. Writing it in a language with float division, or accidentally using a floating-point type, breaks the formula.
 
-8. **Assuming heaps are sorted, or that a heap gives you sorted iteration cheaply.** The array `{1, 3, 1, 6, 5, 5, 3, ...}` is a perfectly valid heap and is not sorted. You can get sorted order only by repeatedly removing the smallest, at Θ(N log N) total.
+8. **Assuming a BST can't do PQ work.** It can, at Θ(log N) for all three operations, and with a smallest-pointer it even achieves Θ(1) `getSmallest`. The real reasons to prefer a heap are duplicate-priority handling, simpler implementation, and roughly 1/3 the memory.
 
-9. **Thinking a min-PQ is the wrong tool for a max problem.** The particle example uses a **MinPQ** to find the **highest**-energy particles. Reason it through each time: the thing you repeatedly need to identify is the current worst-of-the-best, which is a minimum.
+9. **Expecting `getSmallest` to remove.** `getSmallest` returns a reference; it leaves the item in the queue. Only `removeSmallest` removes.
 
-10. **Forgetting the discard step in the top-M idiom.** `add` without the `if (size() > M) removeSmallest()` guard silently reverts you to Θ(N) memory.
+10. **Forgetting the heap bound is amortized.** The array resizes occasionally, so Θ(log N) for `add` is amortized, not strictly worst-case per operation.
 
-11. **Overstating the heap's advantage over a BST.** The lecture explicitly notes that a BST can also have Θ(1) `getSmallest` if you keep a pointer to the smallest node. The heap's real advantages are simplicity of balance, natural handling of duplicate priorities, and roughly 1/3 the memory.
-
-12. **Forgetting the "amortized" qualifier.** Array-backed heap `add` is Θ(log N) amortized, since the backing array occasionally resizes in Θ(N).
-
-13. **Treating the tree-representation approaches as heap-only.** Approaches 1a through 2 work for arbitrary trees; only 3 and 3b require completeness. Conversely, 3/3b is not the only way to store a heap, just the natural one.
-
-14. **Assuming approach 2's parent array marks the root with -1.** In the lecture's example the root's parent entry is its own index (0), matching the disjoint-sets convention.
+11. **Assuming each tree has exactly one valid heap arrangement.** When sinking hits a tie between children, either choice yields a valid heap. Different insertion orders of the same multiset give different (equally correct) heaps.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Validating a heap
+### 1. Identify valid binary min-heaps
 
-**Q.** Is the following a valid binary min-heap? Root 4; children 7 and 1; then under 7: 5 and 9; under 1: nothing.
+**Q:** Which of the following are valid binary min-heaps? (a) root 5, children 6 and 2, with 6's children 8 and 0, and 2's children 3 and 5. (b) root 0, children 7 and 1, with 7's children 9 and nothing, and 1 having no children. (c) root 8, children 8 and 8, with the left 8 having children 8 and 8 and the right 8 having one child 7.
 
-**A.** No, for two independent reasons. (i) The min-heap property fails at the root: 4 > 1, so the root is not ≤ both children. (ii) It is incomplete: the bottom level has nodes under the 7 but the position under the 1 is... actually in level-order left-to-right the filled bottom positions are the two under 7, and there is no gap to their left, so completeness holds here. The decisive failure is the min-heap property at the root (4 > 1). Always check both conditions separately and name which one fails.
+**A:** (a) is **complete** but **violates the min-heap property**: 6 > 0 (and 2 > 0 as well, following the subtree). Invalid. (b) is complete (bottom level left-packed with 9 as the leftmost slot) and obeys min-heap: 0 ≤ 7, 0 ≤ 1, 7 ≤ 9. **Valid.** (c) violates min-heap: a node with value 8 has child 7. Invalid. Remember equal values are fine (8 ≤ 8), so all-8s trees pass the heap property as long as they are complete.
 
-### 2. Hand-simulating `add`
+### 2. Trace an insertion
 
-**Q.** Starting from the heap (level order) `{2, 4, 3, 8, 5, 9, 7}`, perform `add(1)`. Give the resulting array.
+**Q:** Insert 2 into the min-heap stored as `[1, 3, 4, 7, 5, 9, 6]`. Show the resulting array.
 
-**A.** Append 1 at index 7: `{2, 4, 3, 8, 5, 9, 7, 1}`. Swim from 7: `parent(7) = 3`, `keys[3] = 8 > 1`, swap → `{2, 4, 3, 1, 5, 9, 7, 8}`. Swim from 3: `parent(3) = 1`, `keys[1] = 4 > 1`, swap → `{2, 1, 3, 4, 5, 9, 7, 8}`. Swim from 1: `parent(1) = 0`, `keys[0] = 2 > 1`, swap → `{1, 2, 3, 4, 5, 9, 7, 8}`. Swim from 0: at the root, stop. Result: `{1, 2, 3, 4, 5, 9, 7, 8}`, with three swaps.
+**A:** Place 2 at index 7: `[1, 3, 4, 7, 5, 9, 6, 2]`. Swim from 7: `parent(7) = (7-1)/2 = 3`, `keys[3] = 7 > 2`, swap → `[1, 3, 4, 2, 5, 9, 6, 7]`, now at index 3. `parent(3) = 1`, `keys[1] = 3 > 2`, swap → `[1, 2, 4, 3, 5, 9, 6, 7]`, now at index 1. `parent(1) = 0`, `keys[0] = 1`, not greater than 2, stop. Final: **`[1, 2, 4, 3, 5, 9, 6, 7]`**.
 
-### 3. Hand-simulating `removeSmallest`
+### 3. Trace a removal
 
-**Q.** Starting from `{1, 2, 3, 4, 5, 9, 7, 8}`, perform `removeSmallest()`. What is returned, and what is the resulting array?
+**Q:** Call `removeSmallest()` on `[1, 2, 4, 3, 5, 9, 6, 7]`. What is returned and what is the resulting array?
 
-**A.** Returns 1. Move the last item (8, index 7) to the root and shrink to size 7: `{8, 2, 3, 4, 5, 9, 7}`. Sink from 0: children are 2 (index 1) and 3 (index 2); smaller is 2; 8 > 2, swap → `{2, 8, 3, 4, 5, 9, 7}`; recurse from index 1. Children of 1 are indices 3 (`4`) and 4 (`5`); smaller is 4; 8 > 4, swap → `{2, 4, 3, 8, 5, 9, 7}`; recurse from index 3. Index 3's left child is 7, which is ≥ size 7, so it is a leaf. Stop. Result: `{2, 4, 3, 8, 5, 9, 7}`.
+**A:** Returns **1**. Move last element `7` to the root, size 7: `[7, 2, 4, 3, 5, 9, 6]`. Sink from 0: children at 1 (`2`) and 2 (`4`); smaller is 2; `2 < 7`, swap → `[2, 7, 4, 3, 5, 9, 6]`, at index 1. Children at 3 (`3`) and 4 (`5`); smaller is 3; `3 < 7`, swap → `[2, 3, 4, 7, 5, 9, 6]`, at index 3. Children would be at 7 and 8, out of range. Stop. Final: **`[2, 3, 4, 7, 5, 9, 6]`**.
 
 ### 4. Index arithmetic
 
-**Q.** In a 0-indexed approach-3 heap array, what are the indices of the parent, left child, and right child of index 6? What about in approach 3b (index 0 empty)?
+**Q:** In a 0-indexed array heap (approach 3), what are the parent, left child, and right child of index 10? In a 1-indexed heap (approach 3b), what is the parent of index 10?
 
-**A.** Approach 3: `parent(6) = (6-1)/2 = 2`; `leftChild(6) = 13`; `rightChild(6) = 14`. Approach 3b: `parent(6) = 6/2 = 3`; `leftChild(6) = 12`; `rightChild(6) = 13`. The two conventions describe different trees for the same array, so always say which you are using.
+**A:** Approach 3: `parent(10) = (10-1)/2 = 9/2 = 4`; `leftChild(10) = 2(10)+1 = 21`; `rightChild(10) = 2(10)+2 = 22`. Approach 3b: `parent(10) = 10/2 = 5`. Always state which convention you are using.
 
 ### 5. Runtime table
 
-**Q.** Fill in worst-case Θ for `add`, `getSmallest`, `removeSmallest` for ordered array, bushy BST, hash table, and heap. What caveat does the lecture attach to the BST and the heap?
+**Q:** Fill in the worst-case runtimes for `add`, `getSmallest`, and `removeSmallest` for an ordered array, a bushy BST, a hash table, and a heap. Note any caveats.
 
-**A.** Ordered array: Θ(N), Θ(1), Θ(N). Bushy BST: Θ(log N), Θ(log N), Θ(log N). Hash table: Θ(1), Θ(N), Θ(N). Heap: Θ(log N), Θ(1), Θ(log N) (log N amortized, due to array resizes). BST caveat: duplicates are tough, and maintaining bushiness is annoying (though a pointer to the smallest node gives Θ(1) `getSmallest`). Heap caveat: items with the same priority are hard to handle (in the sense of tracking/updating a specific item's priority), though duplicate priorities themselves are handled more naturally than in a BST.
+**A:** Ordered array: Θ(N), Θ(1), Θ(N). Bushy BST: Θ(log N), Θ(log N), Θ(log N), but duplicate priorities are awkward and bushiness must be maintained. Hash table: Θ(1), Θ(N), Θ(N), useless for PQ because items land in random buckets. Heap: Θ(log N), Θ(1), Θ(log N), amortized because of array resizing, and handles duplicates naturally.
 
-### 6. The top-M idiom
+### 6. The top-M pattern
 
-**Q.** You are given a stream of N numbers and must output the M largest using Θ(M) memory. Which PQ flavor, and what is the loop body?
+**Q:** You are streaming N numbers and want the M largest. Should you use a MinPQ or a MaxPQ, and why? What is the memory usage?
 
-**A.** A **MinPQ** of capacity M+1. Loop body: `pq.add(x); if (pq.size() > M) pq.removeSmallest();`. The MinPQ's root is the weakest of your current best M, which is exactly the candidate for eviction. Memory is Θ(M); time is Θ(N log M).
+**A:** A **MinPQ** of capacity M. Add each item; if size exceeds M, `removeSmallest()`. The smallest of your current best-M is exactly the one that falls out of contention first, so evicting it is free. Memory is Θ(M), not Θ(N). (A MaxPQ would let you pop the largest, which is the opposite of what you want to discard.)
 
-### 7. Which tree representation, and why
+### 7. Why completeness matters
 
-**Q.** Why is approach 3 suitable for a heap but not for a general BST? And what does approach 3b buy over approach 3?
+**Q:** Why does the binary heap require completeness? Give two distinct reasons.
 
-**A.** Approach 3 stores no structure at all and instead *assumes the tree is complete*, deriving parent/child relationships from index arithmetic. A heap is complete by definition, so this is lossless. A general BST can be arbitrarily spindly, so index arithmetic would require leaving huge numbers of array slots empty (exponential in the height, in the worst case), making it hopeless. Approach 3b buys nicer arithmetic (`2k`, `2k+1`, `k/2` instead of `2k+1`, `2k+2`, `(k-1)/2`) at the cost of one wasted slot; it is the textbook's implementation.
+**A:** (1) Completeness bounds the height at Θ(log N), guaranteeing logarithmic swim and sink. (2) Completeness means the parents array of approach 2 is always identical for a given size and therefore carries no information, so it can be dropped entirely: the structure is computable from indices (`parent(k) = (k-1)/2`). This makes the array representation possible, which saves roughly 2/3 of the memory versus approach 1a and makes "find the last position" an O(1) array lookup rather than a tree walk.
 
-### 8. Memory comparison
+### 8. Tree representations
 
-**Q.** Roughly how much memory does an array-based heap use compared to representing the same tree with approach 1a?
+**Q:** A node in a sibling tree (approach 1c) representation has fields `favoredChild` and `sibling`. Node W has children X, Y, Z in that order. Describe the references.
 
-**A.** Very roughly about 1/3. Approach 1a allocates a node object per item with a key field plus child reference fields (plus object overhead); approach 3 stores only the keys in one array, with the structure implicit.
+**A:** `W.favoredChild = X`, `X.sibling = Y`, `Y.sibling = Z`, `Z.sibling = null`. W does not directly reference Y or Z; to reach Z you go W → X → Y → Z. This representation handles arbitrary branching factors with exactly two reference fields per node, at the cost of O(number of children) access to the i-th child.
 
-### 9. Why not a hash table
+### 9. Approach 2 vs disjoint sets
 
-**Q.** A hash table gives Θ(1) `add`. Why is it a bad PQ?
+**Q:** Disjoint sets used a single `int[] parent` array. Approach 2 uses `Key[] keys` **and** `int[] parents`. Why the extra array?
 
-**A.** "Items go into random places." Hashing deliberately scatters keys to spread load, which destroys all order information, so `getSmallest` requires scanning every bucket: Θ(N). A PQ retrieves by key *order*, which is fundamentally the one thing a hash table does not preserve. (The summary diagram lists chaining HT as a possible PQ implementation but labels it "lacks order, very odd.")
+**A:** In disjoint sets the elements *were* the integers 0 through N-1, so the index already identified the element and no separate key storage was needed. In approach 2 the nodes carry arbitrary keys (identities) distinct from their positions, so `keys[i]` is required to say what lives at node i while `parents[i]` says where node i sits in the structure.
 
-### 10. Comparator plumbing
+### 10. Why the smaller child when sinking
 
-**Q.** The usage example writes `new HeapMinPQ<>(cmptr)`. What two implementation questions does the lecture raise about this, and what are the standard answers?
+**Q:** When sinking, why must you swap with the smaller child rather than either child?
 
-**A.** (1) How does the PQ know which item is larger, and what could we change so there is a default comparison? (2) What constructors are needed to allow different orderings? The slides leave these open. (extra context: bound the type parameter with `<Item extends Comparable<Item>>` so `compareTo` serves as the default, and supply two constructors, a no-arg one using natural ordering and one taking a `Comparator<Item>` stored in a field and consulted by `swim`/`sink`. This is also how a MaxPQ is obtained: pass the reversed comparator rather than writing a new class.)
+**A:** Swapping with the larger child promotes it above its sibling, which is smaller, immediately violating the min-heap property at that position. Swapping with the smaller child promotes a value that is ≤ both the sinking node and its sibling, so the position you vacate is left valid.
 
-### 11. Search-tree recap (carryover from Lectures 17-19)
+### 11. Conceptual: LLRB vs red-black recap
 
-**Q.** What kind of tree is Java's `TreeMap`, and what does it correspond to?
+**Q:** Java's `TreeMap` maintains a correspondence with which tree, and is the correspondence a bijection?
 
-**A.** A red-black tree, not left-leaning. It corresponds to a **2-3-4 tree**, and the correspondence is *not* 1-1 (glue links are allowed on either side). It is more complex to implement than an LLRB but significantly faster.
-
-### 12. ADT classification
-
-**Q.** For each of List, Map, Set, PQ, Disjoint Sets, name the primary retrieval operation and what you retrieve by.
-
-**A.** List: `get(index)`, by index. Map: `get(key)`, by key identity. Set: `containsKey(key)`, by key identity. PQ: `getSmallest()`, by key order (key size). Disjoint Sets: `isConnected(int1, int2)`, by two int values.
+**A:** A 2-3-**4** tree, and it is **not** one-to-one: glue (red) links may lean either direction, so multiple red-black trees can encode the same 2-3-4 tree. LLRBs, by contrast, are in one-to-one correspondence with 2-3 trees because red links are forced to lean left.
 
 ---
 
 ## Summary
 
-- **Search tree wrap-up**: BSTs are simple but imbalance-prone; 2-3/B-trees are balanced but painful; LLRB insert is easy (delete is hard) via a bijection with 2-3 trees; Java's `TreeMap` is a non-left-leaning red-black tree corresponding (not 1-1) to a 2-3-4 tree. Many other balanced trees exist (AVL, WAVL, splay, treaps), plus skip lists and hashing.
-- **Priority queue ADT**: `add`, `getSmallest`, `removeSmallest`, `size`. Retrieves by **key order**, not key identity. MaxPQ is just MinPQ with the opposite comparator.
-- **Killer application**: tracking the top M of a stream of N items in Θ(M) memory (and Θ(N log M) time) instead of Θ(N) memory, by `add`-then-`removeSmallest` whenever the size exceeds M.
-- **Binary min-heap** = **complete** binary tree + **min-heap property** (every node ≤ both children). Both conditions are required; check them independently.
-- The `≤` allows equal keys, so heaps handle **duplicate priorities** far more naturally than BSTs.
-- **`getSmallest`**: return the root. Θ(1).
-- **`add(x)`**: append at the next bottom-level position (preserving completeness), then **swim up** while smaller than the parent. Θ(log N).
-- **`removeSmallest()`**: return the root, move the **last** item into the root, then **sink down**, always swapping with the **smaller child**, breaking ties arbitrarily. Θ(log N).
-- Completeness gives Θ(log N) height for free, with no rotations or rebalancing.
-- **Runtimes**: heap is Θ(log N) / Θ(1) / Θ(log N) (log N amortized because of array resizing), beating ordered array (Θ(N) add and remove) and hash table (Θ(N) for both order-dependent ops), and tying bushy BST on asymptotics while being simpler and ~1/3 the memory of a linked tree.
-- **Tree representations**: 1a fixed-width child links (used by `BSTMap`), 1b array of child links, 1c favored-child/sibling links, 2 key array + parent-index array (disjoint-sets style, any shape), 3 key array only (assumes complete; `parent(k) = (k-1)/2`), 3b key array with slot 0 empty (`leftChild = 2k`, `rightChild = 2k+1`, `parent = k/2`; the textbook's choice).
-- Approach 3/3b works for heaps precisely because heaps are complete, so the structure array of approach 2 is redundant.
-- **Abstraction is layered**: PQ → heap-ordered tree → one of approaches 1a/1b/1c/2/3/3b.
-- Course ADT table: List (by index), Map/Set (by key identity), PQ (by key order), Disjoint Sets (by two ints). Still to come: **tries and graphs**.
-- Open questions the lecture leaves hanging: how the PQ decides which item is larger (default comparison via `Comparable`) and what constructors support alternative orderings (a `Comparator`-taking constructor).
+- **Search tree wrap-up**: BSTs are simple but imbalance-prone; 2-3/B-trees are balanced but painful and slow; LLRBs have easy insert and a bijection with 2-3 trees; Java's `TreeMap` is a non-left-leaning red-black tree corresponding (non-bijectively) to a 2-3-4 tree. Other options exist: AVL, WAVL (fastest), splay, treaps, skip lists, and hashing (coming later).
+- **Priority queue** is an ADT with `add`, `getSmallest`, `removeSmallest`, `size`, retrieving by **key order**.
+- **Killer application**: track the top M of a stream of N items using a MinPQ of size M, giving Θ(M) memory instead of Θ(N).
+- **Bad implementations**: ordered array (Θ(N) add), hash table (Θ(N) getSmallest, random placement), bushy BST (all Θ(log N) but duplicates are awkward and bushiness is annoying).
+- **Binary min-heap** = complete binary tree + min-heap property (every node ≤ both children). Weaker and friendlier than the BST invariant; duplicates are natural.
+- **`getSmallest`** = return the root, Θ(1).
+- **`add`** = insert at the next open bottom-left slot (preserving completeness by construction), then **swim** up while smaller than the parent. Θ(log N).
+- **`removeSmallest`** = take the root, move the **last** element into the root (preserving completeness), then **sink** down, always swapping with the **smaller** child. Ties broken arbitrarily. Θ(log N).
+- **Six tree representations**: 1a fixed-width child links (fastest, fixed branching), 1b array of child links (flexible, extra indirection), 1c firstborn/sibling links (odd but exam-worthy), 2 keys array + parents array (works for any tree), 3 keys array only (requires completeness), 3b same with index 0 empty.
+- **The punchline**: for a complete tree, the parents array is always the same, so it carries no information and can be discarded. Structure becomes arithmetic: `parent(k) = (k-1)/2` (or `k/2` in 3b, where `leftChild(k) = 2k`, `rightChild(k) = 2k+1`).
+- **Heap tradeoffs**: Θ(1) getSmallest, Θ(log N) amortized add/removeSmallest (resizing), natural duplicate handling, roughly 1/3 the memory of approach 1a. Comparison order is supplied via a `Comparator` passed to the constructor (or via a `Comparable` type bound for a default ordering).
+- **Remaining structures in the course**: tries and graphs.
