@@ -1,210 +1,163 @@
-# Lecture 20: The Second Noble Truth, the Three Cravings, and Reading the Wheel of Life
+# Lecture 20: Philology in Three Dimensions, and How to Read a Scholarly Essay
 
 ## Summary
+This session was a writing and reading workshop rather than a history lecture. The first half was feedback on the class's reading responses, focused on vague adjectives ("interesting," "important," "useful"), undefined jargon ("intervention"), empty structural claims ("step by step," "gradual"), and conventions for introducing an author's name and essay title. The second half was a guided close reading of Sheldon Pollock's essay "Philology in Three Dimensions," worked through section by section: how its three planes of reading (historical, traditional, presentist) relate, why the Sanskrit tradition gets its own section, and what Pollock means by a "balancing act." The instructor also taught a practical order of operations for reading a long academic work under time pressure: abstract, introduction, first chapter, table of contents, key chapter, conclusion.
 
-This session continued the unit on the Four Noble Truths. It opened with an oral check-in on material from the previous class (what dukkha means, how many kinds there are, what each one is), then moved from the first truth to the second: the origin or cause of dukkha.
-
-The instructor's central move was to argue that the first truth is a claim about subjective experience rather than about the physical world. To make that case he gave an extended detour into Buddhist epistemology: a thought experiment about the White House, and a three-part model of how knowledge is produced (agent, object, action). From there he laid out the causes of dukkha: three kinds of craving, then the triad of craving, aversion and ignorance, with ignorance treated as the root failure of awareness.
-
-The last third of the class was a guided reading of two images: the animal triad at the hub of the wheel (pig, snake, rooster) and the full wheel of life with its six realms, Yama holding it, and buddhas placed outside it. The session closed with the instructor reinterpreting Yama, the lord of death, as time, and arguing that time too is a concept rather than an entity.
-
-A transcription note: the recording garbles "dukkha" repeatedly (it appears as "cut," "Ducart," "Dukov," "Bukha," "UConn," "Dukkhan"). Where the transcript is genuinely unrecoverable I say so below rather than guess.
+Note on sources: Pollock's "Philology in Three Dimensions" is not among the extracted readings in readings-text/, so no page numbers for it are given below. Everything attributed to Pollock here comes from what was said in class.
 
 ## Lecture notes
 
-### Office hours and participation
+### Vague adjectives: "interesting"
+The problem with calling a text or an argument "interesting" is that it carries almost no information. It is not descriptive, and its meaning depends entirely on context and tone, which a reader of your paper cannot access. Spoken face to face, "interesting" can be positive or dismissive; on the page, stripped of voice and expression, the reader cannot tell which you meant.
 
-The instructor opened with housekeeping. Meeting with him is optional. Students who want dedicated one-on-one time should email him to set an appointment, either right after class or at another agreed time. The syllabus lists his scheduled office hours as Thursday by Zoom and Friday at 363 Dwinelle, 12:00 to 1:00 p.m., or by appointment.
+The instructor illustrated this with a story about grading alongside a colleague. The instructor and a professor both judged a student paper strong; the colleague said she disagreed and that the paper "could be better." Asked for a single example, she paused for over a minute and could not produce one. The instructor's reading was that the objection was about something other than the paper. The lesson: a judgment you cannot support with an example is not a judgment, it is a mood. The same standard applies to your own praise or criticism of a scholarly text.
 
-He then framed the oral questioning that followed as a participation opportunity. His point: attendance and weekly assignments are mechanically scored and "crystal clear," but engagement is flexible and based on his impression of a student's attention and behavior. He explicitly asked students not to leave all the answering to the people in the front rows.
+### "Important" and "useful"
+"Important" is vague too, though slightly better than "interesting" because it reads as clearly positive. The deeper problem is that it is redundant. Your essay has a word limit. If you chose to include a point, you have already signaled that you think it matters. Writing "this is important" adds no information, and labeling something "significant" does not demonstrate significance to the reader.
 
-### Oral review: what is dukkha and how many kinds are there
+"Useful" has the same defect plus a register problem: it is colloquial, and if something were not useful you would not have mentioned it. "Effective" is a slight improvement, but the real fix is to say what the thing does.
 
-He posed three questions: what does dukkha mean, how many types are there, and what is each one. Students were told they could answer a part rather than all of it.
+A line worth keeping from this part of class: a text does not stop producing meaning once it has been written. That is the premise behind the whole Pollock discussion later in the session.
 
-Student answers and his elaborations recovered the three kinds covered in the previous class:
+### "Step by step" versus chronology
+Several students wrote that Pollock presents "a step-by-step argument rather than a strict chronology." The instructor pushed on this: what is the actual contrast? "Step by step" means gradual or progressive, which is not in opposition to chronological order. The two are closer to parallel than to contrast, so the sentence sets up a distinction that does not hold.
 
-1. Gross or obvious suffering. The example offered by a student was the way emotions change when class ends or when you switch from something you dislike to something you like. The instructor added weather: California weather is usually good, but it swings hot and cold, and he said he himself woke up unwell that morning because of the change.
-2. The dukkha of change. Pleasant states do not hold.
-3. The conditioned or pervasive kind, which a student connected to time. The instructor confirmed this and promised the class would return to time, which it did at the end of the session.
+Worse, "step by step" and "gradual" are not real descriptions of structure. Every academic paper tries to bring the reader along in stages; that is what structure is. Saying the paper proceeds step by step tells the audience nothing. What they need is the logical structure: what the parts are, and why they are in that order and that relation.
 
-He summarized the first truth as the claim that dukkha is pervasive, "contained everywhere in the world."
+### "Intervention"
+One response claimed "the final intervention here is the most original part of the essay." The instructor called this a bold claim, and also a circular one: "intervention" and "most original part" are close to the same word, so the sentence explains nothing. If you use a term like "intervention," define what it means in academic usage, for example the specific contribution a work makes to a field, or the element that distinguishes it from existing scholarship. Otherwise the sentence is both vague and pointless.
 
-### Is the first truth subjective or objective?
+### How many times do you read a paper
+The instructor polled the class. Most students read the assigned essay twice: once straight through, once to locate the main argument and gather the elements they wanted to use in their own essay. The instructor endorsed this and then asked about abstracts. Students who read abstracts reported getting the essence, the overview, the argument and the framework.
 
-This was the pivot of the lecture. He asked whether the statement "the nature of this world is suffering" describes the objective external world, the material world, or something else. A student answered that it is talking about yourself. He agreed and pushed it further: the first truth is not a description of the nature of external physical matter, it is a description of our feeling and understanding of the world. The starting point of Buddhist observation is mind, awareness, or sentient beings.
+The recommended method, stated as a rule for the class:
 
-He then unpacked "sentient." Students offered "think" and "conscious." He accepted both: a sentient being can perceive, know, be aware, analyze, judge, and reach conclusions. He used animals as the boundary case. A cat or dog perceives and is aware, and can register how many people live in the house, but does not judge to the extent humans do. So animals have awareness without the full judging capacity. He also listed the range of mind-possessing beings as gods, humans, animals, hell beings and hungry ghosts, with mind functioning differently in each.
+1. Read the abstract before you start the essay, to get the main argument, the structure, or at least the context. Journal essays have abstracts; academic books have an abstract and an introduction serving the same purpose.
+2. Read the abstract again after your first pass through the text, and check whether you actually understood what it said.
 
-He added a caution about comparing Buddhism to science. The transcript is mangled here (it renders something like "critic realism"), but the point is clear: he objects when people equate Buddhist epistemology with scientific realism, because science describes objective external phenomena while Buddhism starts from consciousness. The two are asking different questions.
+For a 200 or 300 page book under time pressure:
 
-### The White House thought experiment
+1. Abstract.
+2. Introduction, which is where the author states the argument.
+3. First chapter, or the first two. These usually matter most.
+4. Go back to the table of contents. How many parts are there? Are they parallel with chapter one, variations on it, or a progression?
+5. Pick the chapter you most need.
+6. Conclusion.
 
-He asked how many students had visited the White House (a handful raised hands), then how many had heard of it (everyone). He then asked the students who had never visited: does the White House exist for you?
+### The structure of Pollock's essay
+The instructor had the class reconstruct the essay's sections from memory. The opening section carries no subtitle, which means it functions as the introduction, or as the context-setting part. Its job is to introduce the three dimensions. Then come the sections on the dimensions themselves, a separate section called "Reading the Sanskrit tradition," and a final section on the balancing act of reading in three dimensions.
 
-A student said yes. He asked in what manner, and the student answered "in my mind." He drew the distinction he wanted: the White House exists for that student as a concept, not as direct experience. His argument: if you only know something conceptually, your experience cannot prove the phenomenon exists. Whether the external world exists depends on mind, and all we can understand of the external world is the version mediated by mind. He extended this with the case of a person who has died: for that person, the external world no longer exists. His conclusion was that Buddhism on this point is strongly individualist and mind-based.
+(The transcript garbles the student answer naming the first section, "Frelatta," and a page-number exchange around "22." Those are unrecoverable from the audio.)
 
-### Epistemology and the three spheres
+### Plane one: the historical dimension
+The method: situate a text in the historical events and conditions surrounding it, and use the tools of language, close reading and philosophy to reconstruct the historical context and the author's original meaning. One student initially said the center of this method is historical documents; the instructor corrected this, since the texts in question need not be historical documents at all. Buddhist texts, for instance, are documents without being historical records.
 
-He introduced the term "epistemology," which no one in the room claimed to know, and defined it plainly as the way or manner of gaining knowledge. So "Buddhist epistemology" means the Buddhist way of getting knowledge.
+The center of the method is not the human being. It is the text, treated as an object, approached objectively.
 
-He then asked whether knowledge exists in the external world as an objective thing. Most of the class shook their heads. Student reasons offered:
+The historical origin of this plane is Spinoza, which means this dimension emerges from the West, not the East. The class placed it in the Renaissance and the Enlightenment. The texts Spinoza worked on were the Bible and religious scripture. The instructor's reading of why he applied a quasi-scientific method to scripture: Spinoza held scripture to be a human composition, made up by human beings, and he wanted a meaning available to everyone rather than one controlled by a few.
 
-- Knowledge is not made of matter, and there is no way to perceive it outside your brain.
-- Concepts, language and text require human effort, so knowledge needs human engagement to come into being.
-- A counter-proposal: a clock represents time, so time is out there in the world, but someone still has to grasp it.
+Before Spinoza, interpretive power belonged to religious authorities, popes and priests, who held the right to provide exegesis, and religion organized moral and social life. So the move to put all the weight on the text itself, and to exclude human engagement from interpretation, was a fight over power: taking the authority to interpret out of the hands of religious institutions and relocating it in the text.
 
-He accepted the thrust of these and built his model. Knowledge involves three spheres or stages:
+The epistemological assumption of plane one: knowledge is in the text. Truth exists there, as an object, waiting to be apprehended by whoever develops adequate methods.
 
-1. The agent, or subject.
-2. The object.
-3. The action that happens between them.
+### A Buddhist aside on evaluating methods
+Before listing plane one's limits, the instructor framed the move with a point from Buddhism: everything has two sides, good and bad, and you cannot take one without the other. Great pleasure carries the seed of a downfall, so awareness keeps you from being carried away by it; a painful situation also contains something good that you can wait for and cultivate, so you need not fall into pessimism. The same even-handedness applies to a methodology. Plane one is genuinely powerful, a scientific route to wresting away interpretive authority, and it also has limits.
 
-(The transcript garbles the labels he wrote on the board here, including a word that comes through as "placebo"; that part is not recoverable.)
+### The limits of plane one
+A student raised author bias: the method cannot account for it, because you do not know which way the author was biased. The instructor's main objection was about the reader. If knowledge is wholly in the text, fixed, singular, independent and unchangeable, then no reader can produce knowledge from it. You have no license to interpret in your own way and no way to generate anything new, no matter how you read.
 
-His claim: there is no knowledge sitting in the object. The object holds only information, "lots of elements of messages, information, but it's not knowledge." Knowledge is produced by the engagement of all three spheres: an agent takes some action toward an object, and knowledge is the judgment or result of that analysis. Before the engagement there is only information. After it, there is knowledge.
+### Plane three: the presentist dimension
+Plane three analyzes texts by modern standards and does not care about the historical plane. It is the reaction against a text-based method seen as scientific but mechanical: readers want to intervene in reading and to understand in their own way. The class named Marxist historiography as belonging here, not to plane one, since plane one claims an objective view that this dimension treats as problematic. Politics is part of what is at stake.
 
-### The second truth: the origin of dukkha
+On this plane, the text needs to be meaningful to me, in the present, not to history and not to other people. The text is in that sense dead: its meaning is no longer anchored to the original author, the original social context or the original assumptions, and the reader has full right to determine, interpret and construe it. The text is no longer a historical text. It lives only in the reader's present.
 
-Returning to the Four Noble Truths, he asked whether analyzing the cause of dukkha means analyzing the external world. The answer, following everything above, is no. Since the first truth describes our comprehension and experience of the world rather than the world's intrinsic nature, the causes must be sought in mind and feeling. He restated this across all three kinds: gross suffering is based on our feelings, the dukkha of change is subtler but still based on feeling, and the conditioned kind connects to time.
+So planes one and three are the two extremes: plane one text-based and objective, plane three reader-centered, human-based and subjective.
 
-He then opened the floor: what causes suffering? He noted students could draw on the assigned reading chapters, outside information, or their own experience. (The transcript renders the author's name as "guessing"; this is most likely Gethin, whose *The Foundations of Buddhism* is on the course reading list. Note that the extracted text file for that reading in `readings-text/` is empty, so no page references can be given for it.)
+### The first tension, and the part students skip
+Pollock opens by discussing the three dimensions, but he does not introduce them one, two, three. He introduces plane one at one end and plane three at the other, as a pair in tension, and he notes that this dispute is ongoing and still evolving, with scholarship split between the two camps. He gestures at the tension without fully elaborating it.
 
-A student answered: desire. He accepted it and asked what kind. The exchange produced material desire, money, and then a chain of what money stands for: freedom, power, safety, and sometimes the power to kill people. Another student offered the desire for things not to change, which he treated as the opening onto the second kind of dukkha.
+The instructor's point: most students read the three dimensions as a temporal sequence, historical then traditional then presentist, and in terms of chronology that reading works. But it misses what Pollock is actually doing, which is pointing out that the middle, plane two, gets ignored.
 
-He mapped desires onto the three kinds of dukkha:
+### Plane two: the traditional dimension
+Plane two is the space of traditional reading, reading done by readers inside a tradition. Asked whether it is text-based or reader-based, the class answered that it is a combination, and the instructor accepted that. Come back to the epistemological question: in what manner is knowledge produced? On plane two, through the interaction of the reader with the text.
 
-- Gross suffering can often be solved with money. His example was heat: air conditioning in India, China, and even France. He described a friend in Paris texting complaints about the heat with no air conditioning available.
-- The dukkha of change is the desire not to age, to hold a happy moment forever. His example was fairy tales where the prince and princess marry and live happily ever after, a story children eventually see through because nothing stays happy forever.
-- At the extreme, people refuse to accept death. He cited Chinese emperors searching for ways to preserve their lives.
+This is why Pollock can say there is no wrong reading. Reading is a process. He gives a case of a reading that is grammatically wrong and nonetheless influential, powerful, received, accepted and developed within Indian history. (The transcript mangles the example's name; it is not recoverable.) Scholars working on plane one can say that reading is wrong, but the fact of its reception is not something we can ignore.
 
-He then set up a spectrum with two edges: people who want to live forever (eternally), and people who want the opposite. He asked for the philosophical term for the second. A student guessed "depression," which he rejected, and then someone supplied annihilation. He accepted that: the wish for there to be nothing.
+Plane two is still human-based, but humans do not own all interpretive rights. It takes the text seriously, as plane one does, while also asking how knowledge gets produced. And it is "still us," so the three planes have to be combined.
 
-### The three kinds of craving
+### Why the Sanskrit tradition needs its own section
+The question the class worked on: why does Pollock devote a separate section to reading in the Sanskrit tradition instead of folding it into the plane two discussion?
 
-He then gave the formal categorization. Buddhism sorts craving or desire into three types:
+The contrast is not Sanskrit against something else linguistic. It is East against West. Plane one arose in Western society; plane three arose out of and against plane one. Both are Western, and Western intellectual history before Spinoza had no tradition of plane two: interpretation belonged to religious authorities, so there was no open traditional space of reading. The two Western extremes develop against each other and leave the middle empty.
 
-1. **Craving for sensory pleasures.** Direct, gross, and parallel to the first kind of dukkha. He described it as attachment to sensory gratification associated with eye, ear, nose, tongue, body and mind, so the five faculties plus mind. Examples: beautiful scenes, movies, flowers, paintings, decorations for the eye; music and melodies for the ear; and for taste, an aside that American food is extremely sweet, too sweet for him. For touch, soft and delicate things rather than rough ones.
-2. **Craving for existence.** The transcript records him saying a term that sounds like "bahbah," which is presumably *bhava*, existence. This is the craving for continued existence, for the mind to go on and never disappear. He developed a long digression here: most ancient philosophies, Chinese ones included, held that mind continues in some form after death, whether attached to a place, roaming the world or the sky. The Chinese Communist Party's doctrine, by contrast, holds that mind is completely annihilated at death. He argued this creates real anxiety, especially for the elderly and those close to death, and that it is a tension the Party's own doctrine cannot resolve, so it has to borrow from religion or other philosophies to settle people's minds.
-3. **Craving for non-existence.** The urge toward annihilation, escaping suffering through the destruction of oneself. His examples were suicide rates, which he described as especially high in Japan and Korea, and an anecdote about workers at companies in financial trouble jumping from buildings. These were offered as classroom illustrations, not as cited data. His assessment of the belief that suicide ends pain: "We cannot say. Probably it's true, but it's not right." He called it another kind of gambling.
+Plane two does exist elsewhere, and the Sanskrit tradition is where Pollock finds it. Readers in that tradition do not pursue a single ultimate truth in the text (plane one) and do not simply interpret it by their own lights (plane three). They build an open space in which many readers contribute interpretations, and this is a process of producing plural knowledge. That is a dimension of philology in its own right, because it is part of knowledge production.
 
-He added drugs as his best example of the dukkha of change combined with craving. The first use feels good, so you want more; the good interval gets shorter and shorter, the dose gets larger, and eventually you lose control. You went looking for something to run from suffering and it ended up dominating and killing you.
+If the Sanskrit material were only an illustration of plane two, it would not need a separate section. It gets one because it supplies the second tension in the essay: not just plane one against plane three, but Western against Eastern reading traditions. Pollock is not only arguing within Western scholarship. He is trying to raise these reading dimensions to a universal level, applicable in the West and in the East.
 
-### Aversion and ignorance
+### What "balancing act" means
+The class's first instinct was that balance means applying all three dimensions to every text, like ingredients, one after another. The instructor rejected that reading.
 
-He then asked whether desire is the only cause of dukkha. It is fundamental but not the whole story. The other two members of the triad are aversion (also given as aggression and hatred) and ignorance.
+One student said you have to judge, based on what kind of text it is, which plane to use. Another said that going deep into only one dimension risks losing the interpretations the other two would give you. The instructor's formulation: you have the right to choose which plane you approach a text from, in any order. Balancing means acknowledging that the other planes remain possible, leaving space for them, and not treating your own plane as the only way to interpret. That is how you avoid the characteristic downfall of each single dimension.
 
-Asked about the relationship between desire and aversion, a student said they are opposites. He accepted that and reframed it as a range rather than two separate things: desire and aversion mark the two edges of a spectrum, and our emotions fall somewhere within it. Either we crave something or we hate and want to avoid something. His key claim: aversion is itself a kind of desire. Craving is wanting what makes you feel good; aversion is wanting to avoid what makes you feel bad. Both are desire, which is why desire is called the root of the cause of dukkha.
+### Stating Pollock's argument
+A student offered: historicism and traditional reading should not be ranked against each other, all three are relevant in their own way, and the reader should not be blindsided by any one of them. The instructor accepted this and gave a fuller version:
 
-Then ignorance. He defined it as not being aware, not knowing, and asked unaware of what. Student answers: subject and object, and then consequences. He accepted consequences and linked it to karma, the principle that everything has consequences. But his deeper answer was that ignorance means being unaware of dukkha itself: unaware that whatever you experience is a form of dukkha, that what feels good is the dukkha of change or the conditioned kind, and what feels bad is gross dukkha. Ignorance is being unaware of your own situation, status, and the nature of your own feeling and experience.
+Pollock's premise is that philology is making sense of texts. Recall from an earlier class that philology etymologically means the love of words, the love of language. Pollock's main claim is that it is the making sense of texts. "Making sense" then has three forms: planes one and three, which are paired because both emerge from Western society, where no plane two tradition existed, and plane two, which Pollock proposes to Western scholarship on the basis of his work on Eastern textual traditions. His conclusion is that the three must be held together in balance.
 
-He then ran an awareness exercise with the class. He first flattered them (the smartest people of their generation, confident in their own awareness), then asked how many were confident they were aware of their own status: where am I, who am I, in what time, place and condition. Some raised hands. His follow-up questions: right now, while listening to me, are you aware of the pressure of your feet on the floor? Of the feeling of sitting in your seat? The answer was no, because attention had been captured by him and his words. That loss of awareness of your own situation is what he means by ignorance. He stressed that ignorance is not a lack of intelligence. A smart person can be ignorant in this sense.
+The instructor's own argument from this, offered as a model: Pollock introduces readers into philology in order to show how knowledge is produced. Knowledge does not reside in the text, and it is neither fixed nor singular. It is plural, it flows, and it is produced by people in their encounter with texts. That is why philology in three dimensions is a way of making sense of texts.
 
-His everyday example: students walking to class use a small bridge up the hill outside the building, and he regularly sees groups stop and chat on it, blocking it completely while people wait behind them. That is a failure of awareness of surroundings. He tied this to practice: Buddhist meditation is a practice for bringing awareness back. Losing awareness is ignorance, and the fundamental thing you fail to be aware of is that the nature of your experience is suffering. Because of ignorance, you crave: you believe getting the thing will make you happy and avoiding the thing will keep you safe.
+### Reading is harder than writing
+The instructor's closing point on method: reading a text like this is harder than essay writing. If you do not read carefully you end up with an impression rather than an understanding. Everyone in the class knew there were three dimensions. Far fewer could say how they connect, or whether the sequence is historical emergence or something else. When you read papers, read for the main argument, the structure, and what the author is trying to capture.
 
-### Reading the first image: pig, snake, rooster
+The encouragement attached to this: the whole class grasped the three dimensions, which is a real level of comprehension, and there is room left to improve. Reading skill accumulates with experience. In later courses, consider bringing Pollock's framework into your own papers; an essay grounded in a theory or methodology is stronger than one that strings together local observations without asking how to analyze them. Philology is a methodology and also a discipline in its own right, with scholars working on its history, its techniques and its ethics.
 
-He put up an image using animals to symbolize the three things just covered: craving, aggression and ignorance. The assignments he gave were:
+### Sentence-level corrections from student drafts
+With about nine minutes left the class worked through passages from student papers.
 
-- Pig for ignorance
-- Snake for aversion or aggression
-- Rooster or cock for desire
+Broken pattern: "In Philology in Three Dimensions by Sheldon Pollock, addresses a threat to the humanities." The subject has been swallowed by the prepositional phrase. Correct it to something like "In his essay Philology in Three Dimensions, Sheldon Pollock addresses a threat to the humanities." The same fault appeared in a second sentence: "In the essay ... He argues," which needs "In his essay."
 
-He remarked that he does not know why they were arranged that way, that it seems to reflect some understanding of animals, and he called the device clever. The point of the image is that beings are pushed by these three and so enter samsara.
+Naming convention: the first time you mention a person, give the full name; afterwards use the surname only. But this does not transfer to every tradition. Songtsen Gampo has no surname. The whole name is the name, so do not shorten it.
 
-### Reading the second image: the wheel of life
-
-He then moved to the full wheel, noting it is extremely common in Buddhist temples, usually painted on the entrance wall or inside. He walked the class through it by asking rather than telling.
-
-**The hub.** The pig, snake and rooster sit at the center, because they are the cause.
-
-**Six sections.** He asked how many parts the wheel has. A student answered six. He asked why six rather than three or four. One student guessed a peaceful side and a violent side, which he noted without confirming. He then went through the realms:
-
-- **Gods (devas).** People enjoying themselves, playing instruments, dressed well.
-- **Demigods (asuras).** Shown fighting. He explained the relationship between asuras and gods as complicated: there is a tree whose roots are in the asura realm but whose fruit appears in the god realm, so the asuras tend the tree and the gods take the harvest. The asuras are jealous and resentful at having their efforts stolen, so they look for ways to fight the gods. But the two groups also interact and intermarry, building marriage alliances with each other.
-- **Humans.** On a comparable level to the demigods, but with a clear boundary from the gods: humans cannot see or interact with gods directly, except in manifest form. Within the human realm he noted internal hierarchy too, some elite figures enjoying life and others who suffer or serve them.
-- **Animals.**
-- **Hungry ghosts.** He pointed out the iconography: very thin necks, because they cannot get food down, and large bellies, because the craving never stops. He noted the projected image was too small to see this clearly.
-- **Hell beings.** Shown suffering intensely.
-
-He described the mechanism driving the wheel as a cycle: craving, aversion and ignorance, with ignorance perpetuating and re-creating craving and aversion, each escalating and stimulating the next. Which realm you enter depends on karma. He drew a distinction worth keeping: your immediate next life is largely already determined by karma already accumulated, but you are the one deciding your future karma, so to some extent you can choose which realm you are reborn into in lives further out, not the next one.
-
-**The figure holding the wheel.** A student asked who holds it. He asked who controls death and rebirth in Indian culture, and a student supplied Yama. He confirmed: Yama, the lord of death. His reasoning for why the lord of death holds the whole wheel: every being in all six realms eventually dies, so death controls everyone. Death also means rebirth, because dying terminates your current situation and moves you into the next one.
-
-**Yama reinterpreted as time.** He then asked a different question. Not who is the lord of death, but *where* is the lord of death, for someone who is not Indian and does not hold Indian cosmology. A student answered: time. He confirmed this enthusiastically. We are all subject to time, time keeps changing, and we cannot stop it.
-
-He then argued that time is subjective. His evidence was ordinary experience: when you are unhappy, time feels long. He pointed out that students in the class keep checking the clock, and admitted he does too, because he also suffers through the hour and feels relief when it is over. When you are in a happy mood time feels short. So time is not objective.
-
-His second question was whether time exists as an entity at all. He contrasted it with things he counted as entities: the United States as a state or regime, an individual person, a tree. Can you perceive time, engage with it, change it, create it, fabricate it? A student answered that time is in your mind. He agreed: time is a concept, a thought.
-
-Then the puzzle he wanted. If time is only a concept, why does it have power over everyone? His example was the attendance rule: enter the room by 11:10 or be recorded absent. That looks like an entity with real authority. A student answered that we agreed to the contract that is time. He accepted this and connected it to something the class had discussed earlier about legitimacy: agreement rests on common, shared consent. Time does not exist somewhere you can personally experience it. You created the concept, the group agreed to it, and the agreement gives it power over all of you. In that sense time is a concept that does not exist and yet governs everything.
-
-**The figures at the top.** He asked whether the class had finished the picture and pointed out the figures outside the wheel at the top. A student identified them as buddhas, having gotten free from the cycle. He asked free from where, and the answer was from samsara, from time. His formulation: they transcend samsara, they transcend time, they are not subject to time and do not belong to samsara.
+Combining sentences: "In the beginning, Pollock explains why philology matters. According to him, philology is a way of understanding how texts create meaning." These two can be one sentence. Also prefer "starting from" or similar to the flat "in the beginning," and keep the focus on what the author is doing.
 
 ## Key people, places and terms
-
-| Term | Meaning as given in class | Transcript spelling to watch for |
-|---|---|---|
-| Dukkha | Suffering, unsatisfactoriness; the subject of the first noble truth, described as pervasive | "cut," "Ducart," "Dukov," "Bukha," "UConn," "Dukkhan" |
-| Three kinds of dukkha | Gross suffering, the dukkha of change, the conditioned or pervasive kind (linked to time) | "the three dukkas" |
-| Second noble truth | The origin or cause of dukkha | "truth of the origin of Dukkhan" |
-| Epistemology | The way or manner of gaining knowledge | spelled out correctly in the recording |
-| Three spheres | Agent or subject, object, and the action between them; knowledge is produced by their engagement, and the object alone holds only information | one board label is unrecoverable, rendered as "placebo" |
-| Craving for sensory pleasures | Attachment to gratification through eye, ear, nose, tongue, body and mind | "craving for central pressures," "sexual measures" |
-| Craving for existence | Desire for continued existence, for mind never to disappear; the Sanskrit term he gave is presumably *bhava* | "Bahbah" |
-| Craving for non-existence | The urge toward annihilation, escape from suffering through self-destruction | "non-existence, urge of annihilation" |
-| Aversion | Hatred, aggression, wanting to avoid; argued to be a form of desire, the opposite edge of the same range | "a virgin," "the version," "Rashid" |
-| Ignorance | Not being aware; specifically unaware of your own situation and of the fact that your experience is dukkha. Distinct from lack of intelligence | "in Nars," "in Lawrence," "the universe means," "In the Arts Museum" |
-| Pig, snake, rooster | Hub animals of the wheel: ignorance, aversion, desire | "a pic," "a coq, a rooster" |
-| Six realms | Gods, demigods (asuras), humans, animals, hungry ghosts, hell beings | "six rounds," "hungry girls," "hell bell beings" |
-| Asura | Demigod; tends the tree whose fruit the gods take, resentful and warring with the gods but also intermarrying with them | "Australian people," "assembly gods" |
-| Samsara | The cycle beings rotate through, entered because of craving, aversion and ignorance | "some they're," "samsara" |
-| Karma | Determines which realm you are reborn into; your next life is largely already set, your further future is still open | "comma," "column," "positive column" |
-| Yama | Indian lord of death, shown holding the wheel; reinterpreted in class as time | "a dance," "dance of law," "death law" |
-| Buddhas | The figures outside the wheel at the top, having transcended samsara and time | "Kwa de," "the Buddha" |
-| Nirvana | Named only as the topic of the next class | "nabana" |
-
-Note on one name: the transcript contains "Hey, Lawrence" in the middle of the weather discussion. The instructor of record is Laurence Zhou, so this is probably either a self-reference or a greeting to a late-arriving student. It is not recoverable from the audio.
+- **Sheldon Pollock**: Sanskritist and scholar of South Asian intellectual history, author of the essay "Philology in Three Dimensions" discussed all session. The transcript renders his name variously as Pollock, Palak, Follock, Sherlock and Cheryl; all are the same person. He also edited *Literary Cultures in History: Perspectives from South Asia* (University of California Press), cited repeatedly in Kapstein, *The Tibetans* (notes at lines 653, 20193, 20231, 23370 of the extracted text).
+- **Philology**: etymologically the love of words or language; in Pollock's argument, the practice of making sense of texts.
+- **Plane one, the historical dimension**: text-centered, objective, aimed at reconstructing historical context and authorial meaning. Western in origin, traced to Spinoza.
+- **Plane two, the traditional dimension**: knowledge produced in the interaction of reader and text within a receiving tradition; plural interpretations; no wrong reading. Found in the Sanskrit tradition rather than in Western intellectual history.
+- **Plane three, the presentist dimension**: reader-centered and subjective, reading by modern standards, indifferent to original context. Marxist historiography was named as an example.
+- **Baruch Spinoza**: Renaissance and early Enlightenment philosopher, treated in class as the origin of plane one. Applied text-based method to the Bible, against the interpretive authority of popes and priests. The transcript garbles the name as Sweenosa, Spinos and Munoza.
+- **Exegesis**: authoritative interpretation of scripture, held by religious authorities before Spinoza.
+- **Epistemology**: the question the instructor returned to for each plane, phrased as "where is knowledge?" and "in what manner is knowledge produced?"
+- **The balancing act**: not sequential application of the three planes, but choosing your plane while leaving space for the others.
+- **Songtsen Gampo**: seventh-century Tibetan emperor, used here only as a naming-convention example. Spelled "Songtsen Gampo" in van Schaik, *Tibet: A History* (appears 18 times in the extracted text, including the Potala Palace statue caption and the discussion of him as a deity). It is a full name with no surname, so do not abbreviate it.
 
 ## Connections to the readings
-
-**Kapstein, *The Tibetans*, Chapter 7, "Buddhist Basics" (pp. 242 to 244).** This is the single closest reading to today's lecture, and the six realms the class worked through on the wheel are enumerated there almost in order. Kapstein quotes a nineteenth-century Tibetan master listing the realms and their characteristic sufferings: "If born in the hells, the torments of heat and cold are unbearable. If born among the hungry ghosts, one is afflicted by the pains of hunger and thirst. If born among the animals, one is brought to grief by the pains of being slaughtered, devoured, enslaved, and by that of stupidity. If born among human beings, one will mourn the anguish of birth, aging, illness and death. If born among the demigods, there is still the suffering of violence and strife. And even if born among the gods, there will be the pain of death and the fall to a lower condition." That last line is the textual basis for why the god realm is still inside the wheel, a question the lecture raised but did not fully answer.
-
-The same pages give the Tibetan vocabulary for terms the lecture only used in Sanskrit or English. Samsara is Tibetan *khorwa*, nirvana is *nyangdé*, karma is *lé*, the enlightenment of a Buddha is *sanggyé*, compassion is *nyingjé*. Kapstein also frames the whole complex the way the instructor did, starting from "the impermanence of conditioned reality and the resulting inevitability of suffering and death." Worth noting for the next class: Kapstein says Tibetan Buddhists are encouraged *not* to seek nirvana for themselves alone but to cultivate compassion for all living beings and take the bodhisattva path. That is directly relevant to the announced topic of samsara versus nirvana.
-
-**van Schaik, *Tibet: A History*, p. 37.** The one-line definition the lecture assumed: the Mahayana aim was "to transcend samsara, the vicious cycle of suffering."
-
-**van Schaik, pp. 38 to 39, the Samye debate.** This is the strongest connection to the lecture's argument that dukkha is subjective. Van Schaik writes that Moheyan and Kamalashila, despite their disagreement, "agreed on the basic principle that samsara was a product of deluded thoughts and emotions." That is the lecture's thesis stated as common ground between two opposed Tibetan schools. Kamalashila's position, that analysis "undermined the validity of concepts as anything but conventional labels," is also the move the instructor made when he said time is a concept sustained by shared agreement.
-
-**van Schaik, pp. 62 to 63, the Kadampas and mind training.** Van Schaik lists "mental afflictions such as desire, hatred, jealousy, pride and ignorance" and roots them in "our attachment to this illusory self." Compare this to the lecture's triad. Desire, hatred and ignorance line up exactly with the rooster, snake and pig, and van Schaik's list adds jealousy and pride. This is a usable point of friction for a paper: the lecture presented three poisons as the fixed set, while van Schaik's Tibetan sources give a longer and less tidy list.
-
-**van Schaik, p. 95, Longchenpa's poem.** "The terms 'knowledge' and 'ignorance' / Are both wrong, nothing but dream and illusion; / The nonduality of right and wrong, that's the state of a buddha." This is a Tibetan author pushing the lecture's epistemology one step further than the lecture did. If knowledge is produced by the engagement of agent, object and action, Longchenpa's claim is that the knowledge/ignorance distinction itself dissolves at the level of a buddha, which is also why the buddhas sit outside the wheel.
-
-**van Schaik, p. 98, the bardo.** "By negotiating these, one can achieve a good rebirth and avoid coming back as an animal, ghost or denizen of hell." The three lower realms of the wheel named as the thing a Tibetan funeral text is trying to help you avoid. Useful for showing that the wheel is not just a doctrinal diagram but a practical map.
-
-**van Schaik, pp. 107 to 108, Nagarjuna and the two truths.** The philosophical apparatus behind the lecture's White House and time arguments. Van Schaik's example is the moon's reflection in a pool, which depends on the moon, the pool, and the person looking, so it cannot be called independently existent, yet it is clearly visible and so cannot be called nonexistent either. This is structurally the same argument the instructor made about time. Van Schaik's formulation of the payoff is sharp and quotable: "Belief in the true existence of these conventions locks people into suffering, but it is only through conventions, through language, that the Buddhist path can be taught."
-
-**Gethin, *The Foundations of Buddhism*.** The instructor appears to have referred students to a chapter from this reading when asking what causes suffering. Flagging a practical problem: the extracted text file for this reading in `readings-text/` contains no recoverable text (it is 350 bytes of page breaks), so you will need the actual PDF or the bCourses copy to cite it.
+- **The reading method taught in class and UNC's "Reading to Write."** The handout opens with "Read (or at least skim) all parts of the reading," naming cover, title, preface, introduction, illustrations, appendices, epilogue, footnotes and author bio as sources of information. The instructor's abstract-introduction-chapter one-contents-key chapter-conclusion sequence is a sharper version of the same advice, with the addition of reading the abstract twice, before and after your first pass. The handout also tells you to guess why the instructor assigned a reading and how it fits the course themes, which is worth doing with the Pollock essay: it was assigned as a methodology for the Tibetan material, not as content about Tibet.
+- **"Interesting" and "important" and UNC's "Getting Feedback."** The handout advises against asking vague questions and tells you to have readers summarize your main points back to you rather than tell you the paper is clear. The instructor's colleague anecdote is the same principle from the other side: feedback without a concrete example is not usable, and neither is a claim in your essay without one.
+- **Empty structural description and UNC's "Summary: Using It Wisely."** The handout warns against moving "through the plot, history, or author's argument in chronological order, or in the exact same order" as the source, and asks whether you are making an original argument about the text. Writing that Pollock proceeds "step by step" is exactly the symptom the handout describes: tracking the author's sequence instead of analyzing the logic of the structure. The handout's remedy, formulating your own argument and using the source as evidence, is what the instructor modeled when he gave his own argument about knowledge being plural.
+- **Word choice and UNC's "Revising Drafts."** The sentence-level section says to "aim for precision in word choice" and not to settle for the first adequate word. "Interesting," "important" and "useful" are the first words that come to mind, which is why they are the ones to cut.
+- **Why this essay for a Tibet course.** Pollock edited the volume Kapstein cites for Tibetan literary culture, and the three-planes framework bears directly on how this course handles its sources. The Dunhuang library cave article and van Schaik's reconstruction of imperial Tibet are plane one work on texts that also have long traditional reception histories, which is plane two. The syllabus asks students to "recognize how a single name can carry multiple meanings, and how those meanings continue to influence both the past and present of Tibet" (syllabus, course description), which is a plane two and plane three problem stated in Tibetan terms.
 
 ## Writing and reading-skills guidance
-
-What was actually said:
-
-- **The wheel of life is being set up as a writing target.** Near the end of the image analysis he said, in a line the transcript partly mangles, that if he asked the class to write about this picture for a midterm paper, you would know what to write. Treat this as the strongest assignment signal in the session. The method he modeled is the method he wants: identify each element, ask why it is placed where it is, and ask what the arrangement claims.
-- **His reading method for images is interrogative, not descriptive.** He never simply labeled the picture. Every element came out of a question: how many parts, why six, who are these people, who holds the wheel, where is the lord of death. If you write about a visual source, that is the structure to imitate. The UNC Writing Center handout on evidence makes the same point about illustrations: they "are all open to interpretation," so you have to "guide the reader through the interpretation process" and build context rather than assume the image speaks for itself (UNC, *Evidence*).
-- **Oral examination counts.** He stated plainly that engagement is the flexible part of the grade and depends on his impression of your attention and behavior, in contrast to attendance and weekly assignments which are mechanically scored. The syllabus confirms students are expected to be prepared for in-class oral examinations based on the readings and that students who consistently do not participate receive zero for the participation component.
-- **He expects you to argue from the reading plus your own experience.** When he asked for the causes of suffering, he explicitly offered three sources: the assigned chapters, outside information, and your own experience and conclusions. All three were accepted as answers in class.
-
-One caution for the midterm, from the syllabus rather than from this lecture: the essay must not be a summary of lecture content or class discussion. A paper on the wheel of life would need a new analytical angle. The friction between van Schaik's five-item list of afflictions (p. 63) and the lecture's three-poison triad, or Longchenpa's rejection of the knowledge/ignorance distinction (p. 95) against the lecture's epistemology, are the kind of angles that would clear that bar.
+1. Cut "interesting," "important," "significant" and "useful" as evaluations. Say what the thing does or shows. If you included the point, you have already claimed it matters.
+2. Never make a judgment you cannot immediately support with a specific example from the text. Applies to praise, criticism and peer review.
+3. Define any technical term you use, including "intervention." If a sentence restates the term with a synonym, it says nothing.
+4. Do not describe structure as "step by step" or "gradual." All papers are gradual. Describe the logical relation between the parts: parallel, contrasting, nested, a pair in tension.
+5. Do not set up a contrast unless the two terms are genuinely opposed. "Step by step rather than strict chronology" fails this test.
+6. Read the abstract twice, before and after your first pass.
+7. Under time pressure on a book: abstract, introduction, first chapter or two, table of contents, the chapter you need, conclusion.
+8. Reconstruct the section structure of anything you write about, including whether an untitled opening section is functioning as an introduction or as context.
+9. First mention of a person: full name. After that: surname. Exception: names with no surname, such as Songtsen Gampo, which stay whole.
+10. Do not bury your subject in an opening prepositional phrase. "In his essay X, Pollock argues," not "In X by Pollock, argues."
+11. Combine short adjacent sentences that do one job.
+12. Ground your essay in a methodology rather than stacking loose observations. Asking how to analyze something is stronger than noting that it relates to something else.
 
 ## Assignments, deadlines and exam hints mentioned in class
+No dates or deadlines were stated in this session. What was said about assessment and upcoming work:
 
-Mentioned in this session:
+- The feedback in the first half was on the class's reading responses, and the instructor referred to students rewriting their essays, so these corrections are meant to be applied to the next revision.
+- The instructor said he hoped to use the Pollock essay as the model for how to read, which means the three-planes framework and the reading procedure are both fair game for the kind of oral questioning he ran throughout this class. The syllabus notes that students should be "prepared for in-class oral examinations based on the readings."
+- Suggested, not required: bring Pollock's framework into papers for this and other courses as the methodological grounding of an argument.
 
-- **Office hours and appointments.** Optional. Email him to arrange a one-on-one meeting, either after class or at another time.
-- **Attendance cutoff.** He stated the operational rule as being in the room by 11:10, otherwise you are recorded absent. This is Berkeley Time applied to the 11:00 start. The syllabus wording is that students arriving more than 15 minutes after the scheduled start are marked absent, and that attendance is taken by sign-in sheet at the beginning of class.
-- **Participation and engagement.** Flexible, impression-based, and explicitly in play during the oral questioning. He asked students in the back to answer rather than leaving it to the front rows.
-- **Midterm essay hint.** The wheel of life image was flagged as something you should be able to write about for the midterm paper. Take the image analysis notes above seriously.
-- **Next class topic.** Samsara and nirvana: the features of samsara, the difference between the two, and how nirvana relates to Buddhism as a whole. The buddhas outside the wheel were the bridge he built to it.
-
-No new deadline was announced in this session. From the syllabus, the relevant upcoming dates are the midterm essay draft due Friday October 23 at 7:00 a.m., the diagnostic (peer-review) version due Wednesday October 28 at 7:00 a.m., and the polished version due Monday November 2 at 7:00 a.m. Weekly reading response prompts are posted on bCourses by Thursday at 11:59 p.m., and late submissions receive zero credit.
+For context from the syllabus, not from this session: the midterm essay draft is due Fri. Oct. 23 at 7:00 a.m., the Diagnostic (peer-review) version Wed. Oct. 28 at 7:00 a.m., and the polished version Mon. Nov. 2 at 7:00 a.m. The midterm must not summarize lecture content and must present a new topic or a new analytical perspective, which is where the warning about summary-shaped structural description becomes a grading matter.

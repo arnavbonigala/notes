@@ -1,230 +1,190 @@
-# Lecture 23: Nirvana With and Without Remainder, the Paths, and Reading the Heart Sutra
+# Lecture 23: Midterm Essay Workshop — Narrowing Proposals, Drawing Boundaries, Choosing a Perspective
 
 ## Summary
 
-This session finished the doctrinal unit on liberation and then moved into a hands-on exercise with the Heart Sutra. The instructor opened by returning to last session's material on the marks of conditioned existence and the Mahayana statement that nirvana is peace, then put a question to the class: is enlightenment instantaneous or progressive? He argued for the progressive view using an extended analogy about tasting salt, where teaching proceeds by negation ("this is not salt") until direct experience arrives, and where even after the experience the practitioner must keep cultivating until it becomes internalized.
+This session was a workshop on the midterm essay rather than a content lecture. The instructor went through the submitted topic proposals as a group, explained what a zero on the proposal means and how to recover from it, and diagnosed the single most common problem: topics that are far too ambitious for a 1,000-word paper. He then walked through four or five specific student proposals (geography, the Buddha's unanswered questions, Songtsen Gampo as a manifestation of Avalokiteshvara, the Dunhuang cave, the invention of the Tibetan script) and showed in each case how to narrow the topic, draw a clear boundary around it, and pick an analytical perspective. He closed by restating the ground rules: use only the assigned course materials, find a specific detail the lectures did not cover, and build a tension out of it rather than describing a situation.
 
-From there he laid out two types of nirvana, nirvana with remainder and nirvana without remainder, where "remainder" means the physical body as the karmic residue and the base of one's world. He mapped those onto categories of awakened beings: buddhas, solitary buddhas who awaken but do not teach, and shravakas who awaken by hearing the Buddha's teaching. He then compared Buddhism with other religious traditions, concluding that Buddhism is best described as a path, and surveyed two versions of that path: the eightfold path of early and Theravada Buddhism, grouped into wisdom, conduct and meditation, and the six perfections of the Mahayana, which culminate in insight into emptiness.
-
-The second half redefined "practice" as three activities, listening, contemplation and meditation, where meditation means becoming habituated to something rather than sitting cross-legged. The instructor played or performed examples of chanted recitation, explained the Mahayana rationale for reciting a text one cannot yet understand (recitation purifies karma and accumulates merit, and wisdom follows), and then had the class read the Heart Sutra aloud one sentence per student. Analysis of the five aggregates was cut short by time and deferred to the next session.
+A note before the details: the "Gethin" reading the instructor pointed to for Buddhist background is listed in `readings-text/` as *The Foundations of Buddhism* by Rupert Gethin, but the extracted text file is empty, so none of the Buddhist doctrinal claims below could be checked against it. They are reported as the instructor said them.
 
 ## Lecture notes
 
-### Recap and the opening question about enlightenment
+### Peer review expectations
 
-The instructor referred back to the previous session on the marks of conditioned existence (suffering, and the features of samsara) and to the Mahayana addition that nirvana is peace. He stressed that this last statement is an affirmation rather than another negation: nirvana is said to be something, not merely the absence of suffering, while still being beyond concepts and beyond experience. The transcript of this recap is partly garbled, so the exact list of marks he reviewed is not recoverable from the audio.
+The instructor opened on the peer editing job. Quantity of comments is not the whole measure, but three or four comments is not enough; there is a minimum level of substance expected. Peer feedback should cover: whether the argument is clear and reasonable, whether the structure is clear, and grammar and language use. He described the job as performing surgery on your partner's paper, giving an overview of the whole thing rather than spot fixes. He stressed that peer editing is not like writing a paper from scratch, so there is enough time to do it properly. A few phrases in this opening stretch of the recording are garbled and the specific due time he named is unintelligible.
 
-He then asked whether someone who becomes enlightened reaches the same extent as the Buddha. Most of the class nodded. One student disagreed, saying it would take time. The instructor used the disagreement to make a methodological point: when you cannot answer a question, reframe the question, because the problem is often that the question is not yet clear about what it is asking.
+### What a zero on the proposal means
 
-He restated the question as a binary:
+Most proposals were good, with topics that only need small adjustments based on his written comments. A few were not acceptable. A zero on the proposal is not a zero on the assignment itself. It is tentative, and it means you must re-propose: rewrite the proposal for the midterm paper.
 
-- Instant enlightenment: there is only one kind of awakening, you obtain it all at once, and that is the terminal point.
-- Progressive enlightenment: there is a structure or spectrum of stages, and you move from one level to the next.
+### The scale problem: 1,000 words is three pages
 
-### The salt analogy
+The dominant problem across proposals is over-ambition. He asked the class to remember the word count: 1,000 words, which is about three pages. He put that in professional perspective. A dissertation or book chapter runs twenty to forty pages, so a midterm paper is roughly a fourth or a fifth of one chapter. That space is short and dense and cannot carry a grand general thesis. The syllabus confirms the figure: the midterm essay must be at least 1,000 words, 12-point font, 1.5 spacing, .doc or .docx.
 
-A student added that awakening is not a single state and must be maintained after it is obtained. The instructor built this out at length with the taste of salt:
+### Case 1: geography
 
-- If you have never tasted salt, I cannot convey it by description. I can only give you sugar and say "this is not salt," then something bitter and say "this is not salt," then chili and say "this is not salt."
-- This is how Buddhism teaches, because enlightenment is beyond your experience. The teaching proceeds as a series of negations and debates.
-- Eventually you taste actual salt and recognize it directly.
-- But you cannot hold that experience permanently at first. At the beginning you depend on the material, on being given the salt. Only through repetition does it become impressed in memory and internalized, until the word alone is enough.
+Several students proposed writing on how geography shaped political decisions and social structure in Tibet. He liked this because the class has not covered geography, and because altitude and terrain genuinely mattered in the medieval period. His objection was to the vocabulary: phrases like "scientific geography" and "social geography" appeared in proposals without any indication of what the student would actually do with them, so the approach was not clear.
 
-Conclusion: enlightenment is progressive, requiring cultivation before and after the first direct experience. He added a practical warning: if someone tells you they are enlightened and wants you to follow them, check carefully.
+His recommended fix was to go technical and concrete. Ask how people separated across a plateau could communicate at all. If the court wanted to mobilize troops, how did it reach a scattered population? There was no urbanization of the modern kind and no instrument for distant contact. Doing anything at a distance cost resources and time.
 
-### Two types of nirvana
+He then contrasted this with the Mongol period: under Khubilai Khan the Tibetan population was ordered to build message routes, a relay system for transmitting messages. His claim was that no such system existed during the imperial period, making communication unreliable and, in his word, primitive. Flag this one. Kapstein states the opposite for the imperial period: in the mid- and late eighth century, under Tri Songdetsen, "an elaborate system of relays was also developed in order to maintain communications along the extended lines required by the growing sphere of conquest" (Kapstein, ch. 3). Van Schaik describes the Mongol postal service as a separate, later institution, one of the few parts of Mongol administration retained after Sakya rule fell. If you write on communication, this is a real tension worth building a paper around rather than a point to assert in either direction.
 
-- **Nirvana with remainder.**
-- **Nirvana without remainder**, which he connected to the Sanskrit prefix *pari* (as in *parinirvana*, a complete or perfected nirvana).
+### Maps and video as text
 
-He worked out "remainder" through questioning. A student suggested desire. The instructor pushed for something more physical and arrived at the **body**. The argument:
+Some students proposed analyzing maps. He accepted maps as legitimate but warned that a map is visual and two-dimensional and is hard to put on the page in a written essay. His alternative: treat a video as a text. He reminded the class of his earlier definition of "text," which is not limited to written material but includes visual and video material. The requirement is that you say which video you watched and what sense of Tibetan geography you took from it, then read it rather than just cite it.
 
-- The human body is the base of everything: of desire, emotion, thought, property.
-- He used a hypothetical, "Jake," a millionaire with investments, a family, a big house. If Jake dies, none of it is meaningful to Jake any longer, because the foundation is gone.
-- In this framework there is no separate "world" apart from the body. Your body is your world.
-- The body is the result of past karma. Someone can be awakened and still have a body, because their past karma is not yet exhausted. Our actions of body, speech and mind are also the causes of future karma.
+He summarized the whole geography discussion in one rule: the point is not to describe the geographic situation of mid-eighth-century Tibet, it is to argue that given those conditions, certain things follow.
 
-So nirvana with remainder means awakening that has occurred in the mind and in personal experience while the physical basis has not transcended the world. Nirvana without remainder means all karmic results are exhausted and extinguished.
+### What the instructor is actually grading
 
-### Categories of awakened beings
+He stopped to ask the class directly what they thought the purpose of the paper was. Was he hoping for research that is new to the field? No. A student answered that it was for students to understand a part of what they have learned better and pursue their own interest in it, and he agreed.
 
-- **Buddha**: awakens and teaches others. The instructor noted that the Theravada formulation describes the Buddha as awakening by himself, but said that in the Mahayana one would expect teachers to be involved, and that a person who claims to be self-enlightened should be treated with suspicion.
-- **Solitary buddha** (pratyekabuddha in the standard terminology; the transcript renders it as "solitary buddhas"): awakens but does not teach, seeking only their own goal.
-- **Shravaka**: awakens by hearing the teachings of the Buddha.
+He then stated his two criteria:
 
-The first group belongs in the category of nirvana without remainder; shravakas, arhats and solitary buddhas were placed under nirvana with remainder.
+1. Whether you really close read the assigned materials. The readings cover many small topics he has no class time for and can only touch on. He wants you to find that space, the thing in the reading that was not lectured on, and analyze and reflect on it.
+2. Whether you can actively process information rather than passively absorb it. His warning: it is easy to be attracted by romantic detail and then forget it. Take one step back and think about the whole picture and the main argument of the whole text.
 
-He mentioned that traditions count the stages differently, with ten stages in the Mahayana and a different count elsewhere, and explicitly told the class not to take notes on the details and not to use the stages as a paper topic, because it pulls you into a very difficult textual and doctrinal problem.
+He was emphatic about not going outside the assigned materials. There are renowned scholars he could assign, but that reading would occupy too much of your time for what it adds. Work only on Kapstein and van Schaik, with Gethin available for Buddhism. Do not spend your time searching for outside material.
 
-### Buddhism compared with other traditions
+He added that the grand topics can be kept for the final essay or for later undergraduate work. (The syllabus sets the final essay at 1,500 words minimum, also restricted exclusively to course materials.)
 
-He asked what the class saw as the fundamental difference between Buddhism and other religions. Student answer: there are no gods, there is a buddha but not a god. He accepted that and added a second difference about orientation:
+### Case 2: the Buddha's unanswered questions
 
-- Christianity and especially Chinese Confucianism are oriented to this world. Confucianism in particular is about how people behave, function and are organized in this world.
-- Buddhism treats this world as a construction produced by karma, a kind of delusion, and points away from it toward nirvana.
+He singled this out as a strong example because the class never discussed the unanswered questions. The proposal asked why the Buddha refused to answer a set of questions. He laid out the tensions a student could build on:
 
-From this he drew the formal structure he wanted the class to hold onto. If there is a goal (he labeled it "A" on the board) and we are not already there, we need a path to get from the starting point to the goal. Hence his summary: Buddhism is a path. It is less about doctrines in the abstract than about how to get enlightened.
+- First tension: the Buddha is supposed to be omniscient. If he refuses to answer, does he not know? If he does not know, the claim to omniscience fails. The instructor's position is that the Buddha knew and intentionally declined.
+- Second tension: if he knew and still refused, does that imply a lack of compassion? Buddhism is supposed to be compassionate, so the refusal needs explaining.
+- Third: why these particular questions, and why does discussing them not serve the purpose at hand?
 
-### The eightfold path (early and Theravada Buddhism)
+His key move: the paper is not really about the questions. It is about using the refusal to tell your reader what the Buddhist path and purpose are. You introduce Buddhist doctrine through the frame of the unanswered questions. He pointed to the core you already have from class: the goal is nirvana, and nirvana stands in contrast to samsara. You do not need the whole of Buddhist doctrine, only the core.
 
-He listed the eight, with the detail he gave for each:
+He described the number of questions as ten throughout. The standard count in the Pali sources is usually given as ten or fourteen depending on the list; since the Gethin extract in `readings-text/` is empty, this could not be checked against the assigned reading. Verify the number before you use it.
 
-1. Right view, meaning seeing the four truths.
-2. Right intention, which he glossed as desirelessness, non-ill-will or friendliness, and compassion. (The transcript garbles this item badly; the audio alternates between "designlessness" and "friendlessness.")
-3. Right speech: refraining from false speech, divisive speech, hurtful speech and idle chatter.
-4. Right action.
-5. Right livelihood.
-6. Right effort.
-7. Right mindfulness.
-8. Right concentration.
+### Drawing the boundary
 
-Grouped into three trainings:
+He explained why this assignment feels harder than the earlier ones. In previous assignments he supplied the territory: write on marriage, or on legitimacy, in Songtsen Gampo's period. The boundary was already drawn and students worked inside it. This time he gave no boundary and students have to set their own. If your topic is broad and general, your boundary is too big, you will be running from one area to another, and the paper becomes unmanageable. Draw a small boundary first, mark the demarcation clearly, and only then start discussing.
 
-- The first two: **wisdom** or insight, the level of view.
-- The middle three: **conduct**, *shila*, behavior.
-- The last three: **meditation** practice.
+### Choosing a perspective
 
-He then asked how the three relate. A student proposed a linear relation: wisdom shapes conduct, which in turn increases concentration. Another student proposed a circular relation, since meditation can also influence wisdom. The instructor accepted both, calling the circular version a cause-and-effect loop and the linear version a usable way in.
+The second step after the boundary is perspective. His example came back to the unanswered questions. If you argue about the questions themselves, you have little room to argue. If you take the perspective of introducing basic Buddhist doctrine and values through the fact of the refusal, the paper has somewhere to go.
 
-He underlined the point about view with an interpretation anyone can apply: everyone has a view, whether or not they think they do. Every decision, analysis and conclusion rests on one. Your view already determines your path.
+### Case 3: Songtsen Gampo and Avalokiteshvara
 
-He then noted a second way to read the triad, by domain rather than sequence: view is the thing itself, conduct is how the view guides you in ordinary secular life, and meditation is how it guides you in formal meditative states. He said the class does not need to pursue that distinction.
+A student wanted to analyze Songtsen Gampo as a historical figure later credited as the first Buddhist king to propagate the Dharma, and then extend the argument to the Dalai Lama as a manifestation of Avalokiteshvara.
 
-### Conduct as law and morality
+He asked students not to do the Dalai Lama part, on the grounds that the class has not covered it and the background is complicated. To write on it you would first need to know what the reincarnation system is, the historical context it arose from, and why the Dalai Lamas adopted it. His framing: it is a human-made institution, not a natural one, and the institution of reincarnation exists only in the Tibetan tradition, though other Buddhist traditions do have manifestation. His instruction was blunt: do not write on anything after the collapse of the Tibetan empire. Stay in Songtsen Gampo's period.
 
-He directed the class back to the content of items three through five and asked what it reminded them of. Refraining from false and divisive speech, from harming living beings, from taking what is not given, from sexual misconduct. A student answered: laws. He agreed and expanded:
+Within that period, the analysis he endorsed has two layers. Layer one is Songtsen Gampo as a historical figure, which the class covered extensively. Layer two is Songtsen Gampo as a manifestation of Avalokiteshvara. The analytical move is to ask what the pivotal feature of Avalokiteshvara is. The answer is compassion. Then ask why Tibetans read Songtsen Gampo as that manifestation, and connect his recorded qualities and the interpretation of his life to the attribution of compassion. Then compare the two layers.
 
-- These are laws and rules, they are also morals, and they are not unique to Buddhism. Other religions have the same kind of rules. The content is close to universal.
-- He connected this to a point from the assigned reading about reframing or rebuilding law on a Buddhist basis, and said that later law and morality in such contexts were constructed on exactly this base of right conduct.
+Kapstein supports this directly. He opens the book with the legend of Avalokiteshvara, "the bodhisattva of compassion," gazing on an empty Tibet, and the Potala Palace image he reproduces as Plate 9 shows Songtsen Gampo with Amitabha in his turban, Avalokiteshvara behind him and prince Gungsong Gungtsen. Kapstein also notes that the monkey and ogress of the origin myth are described as emanations of Avalokiteshvara and Tara in post-tenth-century Buddhist works, which gives you a dating handle on when this kind of attribution appears.
 
-### The Mahayana path: six perfections
+### Case 4: Dunhuang, three objects that must not be mixed
 
-The Mahayana follows a different scheme. Everything is guided by two things, insight and compassion, and the path is set out as six perfections (paramitas):
+He liked the Dunhuang proposals because the cave is a fixed, specific location. His warning was that a place, a cave, and a textual corpus are three different objects and cannot be folded into one boundary. Mixing them makes your boundary too big and forces you to shift from one to another without finishing any.
 
-1. **Generosity**: giving, offering, sharing property and time, providing help and protection, as the counter to stinginess.
-2. **Morality or ethical conduct**, which he equated with right conduct in the earlier scheme.
-3. **Patience**, which he said is his own challenge.
-4. **Diligence**, which he joked is already professional equipment for students, since you would not survive the university without it.
-5. **Meditation**.
-6. **Insight**, specifically insight into emptiness.
+For students who wanted all three, he suggested a three-plane structure with the textual corpus as the main object of analysis:
 
-His analytical point about the order: insight comes last because it is the result, not the starting point. It is the fruit of the other five.
+- Plane one: the historical context in which the materials were produced.
+- Plane two: how the early Western explorers read the corpus when they first got access to it, which reflects their projection onto the material.
+- Plane three: how modern scholars read it.
 
-He then asked whether the class had already read anything that teaches the path to insight into emptiness. A student answered: the Heart Sutra. He confirmed it.
+He gestured at a point about early readings pitting Chinese against Tibetan material, but this stretch of the recording is badly garbled and the actual claim is not recoverable.
 
-### The Heart Sutra: title and context
+The assigned Dunhuang article gives you plane two directly. It frames the whole debate around the two oldest explanations, Aurel Stein's and Paul Pelliot's: Stein, from fragments he found, proposed the cave was a repository of sacred waste gathered from Dunhuang shrines; Pelliot, citing the absence of Xi Xia writings and the chaotic piling of documents, paintings, wall coverings, statues and steles, concluded the cave was sealed in 1035 as a storage room during the Xi Xia invasion. The author then re-examines both and argues the cave was a book storehouse rather than a waste repository. That article is itself a plane-two and plane-three text.
 
-- The full title is the Heart of the Perfection of Wisdom. "Heart" means essence, the pivotal or crucial thing. (His Sanskrit or Tibetan gloss for "essence" is not intelligible on the recording.)
-- The text belongs to Mahayana Buddhism and is particularly associated with the Madhyamaka school.
-- The logic of the text within the path: the goal is nirvana, nirvana requires awareness of emptiness, and this sutra teaches how to approach emptiness.
+### Case 5: Namri Löntsen's foundation and Songtsen Gampo's centralization
 
-### Redefining practice
+One student proposed approaching Songtsen Gampo through his father, who was assassinated. The instructor endorsed the comparison: the father laid the foundation and Songtsen Gampo built the empire on it, so the productive move is to compare the power structure under each.
 
-He asked what the class pictures when they hear "practice." Answers: meditation, reflection. Pressed for something concrete, students described the familiar image of a figure sitting cross-legged on the floor, hands arranged, calm and peaceful, and monks in robes keeping quiet. The instructor acted part of this out and accepted it as the popular image, then gave his three-part definition:
+Under the father: the Yarlung house was a dominant large clan, but it rose through marriage alliances with other strong clans and organized military attacks on enemies. He named one enemy as Zingpo. (Kapstein gives this as Takkyawo, Lord of Zingpo, the feud beginning under Takbu Nyenzi and inherited by his son Namri Löntsen, who destroyed the enemy fortress with a coalition that had sworn fealty to him.) The instructor said the Zingpo enemy survived into Songtsen Gampo's own period.
 
-1. **Listening**: hearing the view, taking in correct information. He explained that in ancient India transmission was oral, which is why listening came first.
-2. **Contemplation**: reflecting on and digesting what you heard.
-3. **Meditation**: he explained the term as cultivating or becoming familiar with something by repetition until it becomes habitual and no longer requires conscious effort. Cross-legged sitting is one method, not the definition.
+His key analytical observation: when the father conquered other clans he had to distribute the spoils among his allies, dividing the gains rather than keeping them. That tells you the father did not hold centralized power. He had to share profit with other clans, so he was a chieftain rather than an emperor.
 
-He told a personal story here. As a child he was trained by a Buddhist teacher in the Indian oral tradition and was forbidden to take notes; he was trained to memorize instead. He still works that way when doing Buddhist translation, memorizing rather than writing things down, because notes distract him, and he described a later instructor pushing back and insisting he take notes. His framing was that memorization is a habit you cultivate, not a claim to perfect recall.
+Under Songtsen Gampo the structure changes. He becomes an emperor rather than a chieftain, and he centralizes through several instruments:
 
-### Chanting and recitation as practice
+- Marriage alliances, now international rather than only internal, with Nepal and with China.
+- Imported administrative and cultural technique brought in from China and elsewhere, which strengthens the state internally.
+- External legitimacy. A connection with a powerful state like China means China endorses him, not his ministers, which raises his position against rival clans.
 
-He gave examples of recitation, including a brief demonstration and a recording of group chanting (the chanted audio is largely unintelligible in the transcript, and includes a passage of Chinese). Points made:
+Van Schaik confirms the father's poisoning when Songtsen was thirteen and the insurgency of absorbed clan territories that followed, and describes Gar bringing back craftsmen who knew paper and ink. On the marriages, he notes the Lhasa statue of Songtsen flanked by his Chinese princess and a "perhaps legendary" Nepalese princess, and in a note adds that some modern scholars question whether Bhrikuti existed at all, though a Nepal-Tibet matrimonial alliance is not far-fetched. That hedge is itself usable: the legitimacy effect of a marriage does not require the marriage to be historical.
 
-- Lay people regularly recite sutras, sometimes quietly, sometimes aloud, sometimes in groups.
-- Group chanting of the Heart Sutra is a daily ritual practice, and he identified one example as Chinese or Taiwanese.
-- Chanting is often accompanied by instruments, drums and percussion, and he noted that this material also circulates on social media now.
+### Case 6: why invent a writing system
 
-### Why recite a text you cannot understand
+He turned to proposals on the Tibetan script. The obvious answer is administrative: a state needs writing. He wanted students to find the harder question.
 
-He asked the class directly: when you recite or read a sutra, what are you aiming for? Students said: to understand it. He asked whether they believed they could understand it. Some were confident, others shook their heads; one said the act of chanting is itself peaceful, so the action is already the practice.
+He described the traditional story that Songtsen Gampo sent a mission to India to learn Sanskrit and brought Sanskrit back as the basis of the Tibetan writing system, and then corrected it: what was taken was a simplified, phonetic adaptation of an Indic script, not Sanskrit itself. He also noted that the Tibetan language is not organized like Sanskrit and that in some respects, at the level of the individual word, it patterns closer to Chinese. He told students not to go deep into linguistics but said the point is worth mentioning.
 
-He then gave the Mahayana answer:
+Then the tension, which is the part he actually wanted: why create a new system at all? The Chinese writing system had existed for more than a millennium and Indian scripts had already gone through multiple developed versions. Both were mature. Creating a new system means starting with something immature that must be revised over time, and that costs effort, labor and money. So why do it deliberately? His answer, offered as the thing to argue: it is tied to an intention to shape a distinct state identity.
 
-- We cannot understand it, because it states the most profound and ultimate truth of Buddhism, and we are ordinary beings conditioned and covered by our past karma, which obscures and binds us. We lack the wisdom for it.
-- Therefore reading the text is not primarily in order to understand it. It is to purify karma, which is to say to gain merit.
-- Merit is then used to destroy karma. When karma is completely exhausted and purified, understanding and wisdom follow.
-- So reading itself is a form of practice.
+The readings support the correction. Kapstein: tradition credits the written language to Songtsen Gampo's reign with minister Thönmi Sambhota sent to Kashmir, but "whatever the exact historical background of this tale, the Tibetan writing system was indeed based upon sixth- or seventh-century North Indian or Central Asian scripts that were derived from the more ancient Brahmi script," the script used for Ashoka's edicts. Van Schaik tells the Tonmi legend at length, including the Brahmin with twenty scripts carved on a pillar. For the "why a new script" question, van Schaik offers a comparative case: the Tanguts, on establishing their Silk Route empire, also "created a writing system from scratch," though on a Chinese rather than an Indian model, and immediately began translating the Buddhist canon into it. Two states, centuries apart, both choosing invention over adoption. That is a comparison a three-page paper can hold.
 
-### Reading the sutra aloud
+### Close
 
-The class read the text one sentence per student, going around the room, with the instructor interrupting to comment. The sequence covered:
-
-- The title and homage: the Heart of the Perfection of Wisdom, the Blessed Mother, with homage to the Perfection of Wisdom.
-- The setting: the Blessed One residing on Vulture Peak at Rajagriha together with a great sangha of monks and a great sangha of bodhisattvas. (The transcript mangles both place names.)
-- The Blessed One resting in an absorption on the categories of phenomena called illumination of the profound.
-- Avalokiteshvara observing the five aggregates to be empty of intrinsic nature. The instructor paused here to ask what "intrinsic nature" means.
-- Shariputra's question, asked through the Buddha's power: how should a son or daughter of noble family train if they wish to engage in the practice of the profound perfection of wisdom. The instructor had the class identify who asks whom.
-- Avalokiteshvara's answer: they should correctly observe the five aggregates to be empty of intrinsic nature. He identified this as the core of the sutra.
-- "Form is empty, emptiness is form. Emptiness is not other than form, and form is also not other than emptiness. In the same way, feeling, perception, formation and consciousness are empty." He stopped and asked the class whether they understood it, said they would come back to it, and did not get the chance.
-- The passage on all phenomena being without characteristics, unborn, unceasing, without stains. He flagged the accumulation of negations.
-- A short aside on Sanskrit when a student stumbled on the name: the sound is equivalent to English "sh," so the name is Sha-ri-putra, and *putra* means son, so Shariputra is the son of Shari.
-- The long series of negations: no form, no feeling, no perception, no formations, no consciousness; no eye, ear, nose, tongue, body or mind; no form, sound, smell, taste, texture or mental object; no element of the eye up to no element of mind consciousness. He kept repeating "no, no, no" and asking what is left of us and of the world.
-- No ignorance and no exhaustion of ignorance, up to no aging and death and no exhaustion of aging and death. He pointed out the double difficulty: first ignorance is negated, then the exhaustion of ignorance is also negated. He dramatized the objection: if there is no ignorance, why would I accumulate karma, why would I suffer in samsara, why would you teach me Buddhism at all? He said that if he had been present he would have raised the question himself.
-- No suffering, no origin of suffering, no cessation of suffering, no path, no wisdom, no attainment and no non-attainment. He made the contradiction explicit against his own earlier teaching: he spent a week on the four truths, beginning with suffering, and here the text denies suffering, its origin and its cessation; he had just set out the path, and the text denies the path; he asked them to seek wisdom, and the text denies wisdom and attainment. He glossed "no attainment" as no nirvana, and therefore also no samsara.
-- The passage on bodhisattvas whose minds are without obscuration and therefore without fear, who pass beyond error and reach the culmination of nirvana. He drew out the logical twist: precisely because they know there is no nirvana and no samsara, they attain nirvana.
-- All the buddhas of the three times likewise awaken to unsurpassed perfect awakening by relying on the perfection of wisdom. He asked what the perfection of wisdom is, and answered that it is the negation: no suffering, no samsara, no nirvana. In other words, the perfection of wisdom is negative, it negates everything else.
-- The mantra section, which he read himself and said he would explain later.
-- The closing frame: this is how a bodhisattva great being should train; the Blessed One arose from that absorption and gave his approval to Avalokiteshvara, saying "excellent, excellent, son of noble family, it is just so."
-
-### Structural observation on Mahayana sutras
-
-Having finished the reading, he pointed out the form. This is a typical Mahayana text built as a dialogue, usually between two figures, sometimes a disciple, sometimes a lay person, sometimes a teacher and sometimes the Buddha. One figure raises the question and another answers. Here Shariputra asks how to practice the perfection of wisdom and Avalokiteshvara answers, with the Buddha silent in absorption until the end, when he emerges and ratifies the answer.
-
-He closed by returning to the core line, that one should correctly observe the five aggregates to be empty of intrinsic nature, and began to list the aggregates and the sense faculties before running out of time. The breakdown of the five aggregates was explicitly deferred.
+He ended with the procedure in order: go to the materials, find a topic, demarcate the boundary you want to discuss, then choose the right perspective. He dismissed class early to make room for writing questions and offered the following fifteen minutes as office hours for anyone who wanted to stay. He reminded the class that the attendance sheet was circulating.
 
 ## Key people, places and terms
 
-- **Nirvana with remainder**: awakening in which the physical body, as the residue of unexhausted past karma, remains in the world.
-- **Nirvana without remainder**: awakening in which all karmic results are exhausted; the instructor linked it to the Sanskrit *pari-* of *parinirvana*.
-- **Remainder**: glossed in class as the body, treated as the base of desire, emotion, thought and property, and therefore as the base of one's world.
-- **Karma**: action of body, speech and mind; the body is its result and present action is the cause of future results. Kapstein gives the Tibetan as *lé* and samsara as *khorwa* (chapter seven).
-- **Buddha**: awakens and teaches. Kapstein notes the Tibetan coinage *sanggyé*, "awakened and fully blossomed" (chapter three).
-- **Solitary buddha** (pratyekabuddha): awakens but does not teach.
-- **Shravaka**: one who awakens by hearing the Buddha's teaching.
-- **Arhat**: placed in class under nirvana with remainder. Kapstein notes the Tibetan *drachompa*, "slayer of enemies," the enemies being ignorance and the passions (chapter three).
-- **Eightfold path**: right view, right intention, right speech, right action, right livelihood, right effort, right mindfulness, right concentration.
-- **Shila**: conduct or behavior, the middle group of the eightfold path.
-- **Six perfections (paramitas)**: generosity, ethical conduct, patience, diligence, meditation, insight.
-- **Emptiness**: in class, the absence of intrinsic nature; the object of the sixth perfection.
-- **Heart Sutra**: the Heart of the Perfection of Wisdom; "heart" means essence.
-- **Perfection of Wisdom (Prajnaparamita)**: the body of literature the Heart Sutra condenses. Kapstein gives the Tibetan *pharchin* and lists it as a required topic in the monastic colleges (chapter seven).
-- **Madhyamaka**: the Middle Way school the instructor associated with the Heart Sutra. Kapstein gives the Tibetan *uma* and attributes it to Nagarjuna, c. second century CE (chapter seven).
-- **Avalokiteshvara**: the bodhisattva who answers in the Heart Sutra. In the course readings he is also Tibet's patron deity (van Schaik, index entry "Avalokiteshvara (patron deity of Tibet)"; Kapstein chapter one on his gaze upon Tibet).
-- **Shariputra**: the disciple who asks the question; the instructor glossed the name as "son of Shari," from Sanskrit *putra*, son.
-- **Vulture Peak, Rajagriha**: the setting of the sutra, as read aloud in class.
-- **Five aggregates**: form, feeling, perception, formation, consciousness. The detailed treatment was deferred.
-- **Listening, contemplation, meditation**: the instructor's three-part definition of practice, with meditation defined as habituation through repetition.
-- **Merit**: what recitation accumulates, and what is spent to purify karma.
+| Term | What it is | Confirmed in |
+|---|---|---|
+| Songtsen Gampo | Tsenpo, c. 605–650, reigned from c. 617; credited with unifying the empire, the script, and the foreign marriages | Kapstein ch. 1; van Schaik |
+| Namri Löntsen | Songtsen Gampo's father; inherited the Zingpo feud from Takbu Nyenzi, assassinated c. 629 (poisoned, per van Schaik, when Songtsen was thirteen) | Kapstein ch. 3; van Schaik |
+| Takbu Nyenzi | Namri Löntsen's father, Yarlung ruler, began the conflict with the Lord of Zingpo | Kapstein |
+| Zingpo / Takkyawo | Rival polity and its lord, defeated by Namri Löntsen's coalition | Kapstein |
+| Thönmi Sambhota | Minister sent to Kashmir, traditionally credited with creating the Tibetan script | Kapstein; van Schaik gives the name as Tonmi |
+| Brahmi | Ancient Indian script, ancestor of the North Indian and Central Asian scripts the Tibetan system derives from; used for Ashoka's edicts | Kapstein |
+| Avalokiteshvara | Bodhisattva of compassion; Songtsen Gampo and later the Dalai Lamas identified as manifestations | Kapstein, opening legend and Plate 9 |
+| Bhrikuti | The Nepalese princess of tradition; van Schaik calls her "perhaps legendary" and notes some scholars question her existence | van Schaik, ch. 1 and n. 6 |
+| Jokhang / Ramoche | Lhasa temples; the Chinese princess's statue was placed in Ramoche and later moved to the Jokhang | van Schaik |
+| Khubilai Khan | Mongol ruler; Tibetan Buddhism became the main religion of his court, and the Mongol postal relay system dates to this administration | van Schaik; Kapstein |
+| Postal relay (ulag) | Relay system of horsemen and stations; Kapstein traces the Tibetan word ’u-lag to Mongolian, but also records an imperial-era relay system under Tri Songdetsen | Kapstein; van Schaik |
+| Tri Songdetsen | Eighth-century tsenpo under whom the delön office and the imperial relay system were created | Kapstein ch. 3 |
+| Nirvana / samsara | The goal of the Buddhist path and the cyclic existence it is opposed to | Instructor; the Gethin extract is empty, so unverified here |
+| Aurel Stein | Proposed the Dunhuang cave was a sacred waste repository | Dunhuang article |
+| Paul Pelliot | Proposed the cave was sealed in 1035 as storage during the Xi Xia invasion | Dunhuang article |
+| Xi Xia / Tangut | Silk Route state; created its own script from scratch on a Chinese model and translated the Buddhist canon into it | van Schaik; Dunhuang article |
 
 ## Connections to the readings
 
-- **The Heart Sutra lines read in class appear almost verbatim in van Schaik, pp. 107 to 109.** Van Schaik quotes "Form is emptiness; emptiness is form. Emptiness is not other than form; form is not other than emptiness. In the same way, feeling, perception, motivation and consciousness are empty," and introduces it as a summary of an idea already present in the Perfection of Wisdom sutras. The only difference from the classroom translation is "motivation" where the class read "formation." Worth noting as a translation question if you write about this text.
-- **Van Schaik p. 108 gives the Madhyamaka background the instructor only gestured at.** Nagarjuna's critique of independent existence is set out there as a fourfold refutation: that a thing exists, does not exist, both, or neither. The reflection of the moon in a pool is the example. This is the philosophical machinery behind the chain of negations the class read aloud, and it explains why the instructor said the perfection of wisdom "is negative."
-- **Van Schaik pp. 108 to 109 also stages a debate that maps onto the class's instant-versus-progressive question**, though in a different register: Sakya scholars held that the ultimate level is nonconceptual, so meditation is essential for the mind to rest in it, while Tsongkhapa held that logic applies at every level and that one should first establish conventional reality precisely. The Sakya objection, that Tsongkhapa's separation of the two truths would make enlightenment impossible, is a textual case of exactly the stakes the instructor was describing.
-- **Van Schaik p. 38, the Samye debate, is the sharpest reading-side parallel to the instant-versus-progressive question.** Moheyan argues that samsara ends only by stopping ordinary thought, that the distinction between virtuous and sinful action belongs to ordinary thought and is itself part of the problem (black and white clouds both block the sun), and that teachings on the practice of virtue were for duller disciples. Kamalashila answers for the Indian side. Van Schaik notes that both sides accepted emptiness, expressed in the Heart Sutra, and disagreed only about how the insight is realized. This is the same fault line the instructor opened the class with.
-- **Van Schaik p. 44 supports the instructor's point that right conduct becomes law and morality.** Ralpachen's edicts ordered the copying and circulation of a short work on the ten Buddhist virtues throughout the empire, with the aim of instilling Buddhist ethics in everyone: no killing, stealing or improper sex; no lies, slander, abuse or gossip; no covetous, hateful or perverse thoughts. The first two groups overlap almost exactly with right action and right speech in the eightfold path.
-- **Van Schaik p. 44 also supports the merit argument for recitation.** He writes that in most Buddhist cultures there is great merit in activities like donating to monks, building temples, making statues and copying scriptures, including hundreds of copies of the Perfection of Wisdom sutras, and that through karma these help toward happiness and a good rebirth. The instructor's claim that reciting a text you cannot understand is still practice is the same logic applied to recitation rather than copying.
-- **Kapstein chapter seven lists the six perfections in nearly the instructor's order**: embarking on the Great Vehicle, the path of a bodhisattva, and developing "the virtues of charity, self-restraint, patience, diligence, meditation and insight," with insight being above all insight into emptiness. Note that Kapstein puts the same item last and glosses it the same way the instructor did.
-- **Kapstein chapter seven also backs the merit framework directly**, naming recitation of scriptures alongside donations, lamps and incense, prostrations and circumambulations as merit-generating acts, and noting that Tibetan Buddhists are encouraged to cultivate compassion rather than seek nirvana for themselves alone. That last point is the reading-side version of the instructor's remark that solitary buddhas "only seek for their own."
-- **Kapstein chapter seven corroborates the instructor's memorization story as institutional practice, not personal eccentricity**: in the Tibetan colleges, "the first step in studying these topics was the rote memorization of the key texts, of which an accomplished scholar might learn thousands of pages by heart." The required topics listed there include the Perfection of Wisdom and the Madhyamaka.
-- **Kapstein chapter four contains an anecdote structured exactly like the listening-contemplation-meditation hierarchy, and complicates it.** Atisha tells Rinchen Zangpo to get to the heart of it; asked whether teaching, or study and meditation, would be more meritorious, he answers each time, "Better you should abandon the deliberations of this life." A parallel story has a monk move from recitation to meditation under Dromtön's questioning and still be told he is missing the point. Useful if you want to argue that the ranking of practices was itself contested in Tibet.
-- **Rong Xinjiang's Dunhuang library cave article, p. 256, gives one concrete material instance of merit practice**: the Daoist Wang's "sutra-turning containers," filled with scrolls and placed in a Buddhist hall so that devotees could turn them to gain merit. Minor, but it is the one point of contact between this session and that reading.
+- **Communication and relays.** The instructor's claim that the imperial period had no message system is contradicted by Kapstein ch. 3, which has an elaborate relay system developed under Tri Songdetsen for the extended lines of conquest. Van Schaik treats the Mongol postal service as a separate later institution that survived the fall of Sakya rule. If you write the geography-and-communication paper, this disagreement is the paper, not a problem with it.
+- **Geography as argument.** Kapstein's opening chapter frames Tibet's geography through the Avalokiteshvara legend and then states plainly that "inhospitable terrain was clearly a factor inhibiting early civilizational development," and divides the plateau into three zones. That gives you a scholarly framing of geography-as-cause to work with or against, which is exactly what the instructor meant by not merely describing conditions.
+- **Songtsen Gampo in two layers.** Kapstein's Plate 9 and his opening legend give you the devotional layer; his chapter 3 account of Namri Löntsen and the clan coalitions gives you the historical layer. Kapstein's note that the monkey-and-ogress emanation story appears only in post-tenth-century works is a dating argument you can apply to the Songtsen-as-Avalokiteshvara attribution as well.
+- **The script.** Kapstein gives the sober account (Indic-derived, Brahmi ancestry, tradition says Kashmir) and van Schaik gives the legend in full (the twenty scripts on the pillar). Reading the two against each other is itself a close-reading exercise in how a historian handles a traditional narrative. The Tangut parallel in van Schaik supplies a comparative case for the instructor's "why invent rather than adopt" question.
+- **Marriage and legitimacy.** Van Schaik's footnote questioning Bhrikuti's existence while defending the plausibility of the alliance is a model of the kind of hedged claim you can analyze rather than just cite.
+- **Dunhuang.** The assigned article is structured as exactly the plane-two and plane-three reading the instructor described: it rehearses Stein's and Pelliot's early interpretations and then argues against both for a book-storehouse reading.
+- **Gethin.** The instructor pointed to Gethin for Buddhist doctrine, but the extracted text in `readings-text/` is an empty file. If you are writing the unanswered-questions paper, get the actual text before relying on any of the doctrinal claims above, including the count of ten questions.
 
 ## Writing and reading-skills guidance
 
-- **Reframe a question you cannot answer.** The instructor used the opening disagreement to make this a method: if you cannot answer, the problem is often that the question has not been stated clearly enough to be answerable. Rewrite the question before you try again.
-- **Your starting point is already your view, and your view already determines your path.** He made this explicitly about essay writing: everyone has a view whether they recognize it or not, every analysis and conclusion rests on one, and when you write an essay the way you analyze, the arguments you build and the evidence you choose all follow from where you begin. His instruction was to pay attention to your starting point.
-- **Do not write on the stages of enlightenment.** He said this twice and directly: the Mahayana ten stages, the competing counts in other traditions, and the debates around them are not to be used as a midterm or final paper topic, because the textual situation will pull you into problems you cannot resolve at this stage of the course. He also told the class not to take notes on that list.
-- **Negation as a teaching method is worth attention as a reading problem.** The salt analogy and the chain of negations in the sutra are the same device at two scales. When the instructor dramatized the objections ("if there is no ignorance, why do you teach me Buddhism?"), he was modeling a way to read: push on the apparent contradiction rather than smoothing it over.
-- **Expect relations to be more than linear.** When a student offered a linear chain from wisdom to conduct to meditation and another offered a circular one, he accepted both but treated the linear version as the entry point rather than the truth. Useful habit when you are asked to describe a structure in an essay.
-- The transcript contains one reference to a reading method with "three dimensions," attributed to a name the recording garbles. Check your earlier notes or ask in office hours, because it appears to refer to something already covered.
+- **Match scope to length.** 1,000 words is about three pages, roughly a fifth of a book chapter. A grand thesis will not fit. Pick something small and dense.
+- **Draw the boundary first, then write.** Earlier assignments gave you the territory. This one does not. Mark your demarcation explicitly before you start discussing, and do not cross it.
+- **Do not mix object types.** A place, a site, and a textual corpus are three different objects. Choose one as your primary object. If you need more than one, structure them as planes with a single object as the spine.
+- **Choose a perspective, not just a subject.** The same material yields a thin paper or a strong one depending on the angle. Arguing about the unanswered questions gives you little room; using them to expose Buddhist doctrine gives you a paper.
+- **Find the tension.** His repeated test: once you state a fact, what is there to discuss? A good topic contains a contradiction or a puzzle. Omniscience against refusal. Compassion against silence. Mature scripts available against a costly new one invented anyway.
+- **Argue consequence, not description.** Do not describe conditions. Argue that given those conditions, certain outcomes follow.
+- **Read actively, not passively.** Vivid detail is seductive and easy to forget. Step back to the whole picture and the main argument of the text.
+- **Mine the gaps in the lectures.** The readings contain many small topics class had no time for. That space is where your paper should live.
+- **"Text" includes the visual.** A video can be a text if you name it and actually read it. A map is legitimate but hard to handle in prose because it is visual and two-dimensional.
+- **Peer review is surgery, not spot-fixing.** Cover argument, structure, clarity, and language. Three or four comments is below the bar. (The syllabus specifies three areas: suggestions on argument and structure, questions challenging unclear sections, and language and academic writing conventions, and says credit depends on both quality and quantity of substantive comments.)
 
 ## Assignments, deadlines and exam hints mentioned in class
 
-- **No new assignment was given in this session.** The reading of the sutra was an in-class exercise, and the analysis of the five aggregates was deferred to the next session.
-- **Paper topic restriction stated in class**: the stages of enlightenment are off limits as a topic for both the midterm essay and the final paper.
-- **Explicitly deferred content**: the five aggregates, the sense faculties, the meaning of "form is empty, emptiness is form," and the explanation of the mantra. All were promised for a later session, so expect them to be examinable.
-- **Relevant syllabus deadlines**, for reference, since the instructor referred to the midterm and final paper without giving dates: midterm essay draft due Fri. Oct. 23 at 7:00 a.m.; diagnostic (peer review) version due Wed. Oct. 28 at 7:00 a.m.; polished midterm due Mon. Nov. 2 at 7:00 a.m.; final essay draft due Fri. Nov. 27 at midnight; polished final due Fri. Dec. 18 at noon.
-- **Reminder worth connecting to this session's content**: the syllabus requires that the midterm essay draw only on readings discussed before the midterm and that it not be a summary of lecture content. Material from this session on the Heart Sutra, emptiness and the Madhyamaka is in scope and maps directly onto van Schaik pp. 38 and 107 to 109.
+**Stated in class:**
+
+- Proposals graded. A zero is tentative, not a zero for the assignment. Students who received one must rewrite and re-propose the midterm topic.
+- Most proposals need only small adjustments based on the written comments.
+- Midterm paper: 1,000 words, about three pages.
+- Use only assigned materials: van Schaik and Kapstein, plus Gethin for Buddhism. Do not search out additional scholarship.
+- Do not write on anything after the collapse of the Tibetan empire. In particular, no Dalai Lama and no reincarnation institution.
+- Procedure to follow: go to the materials, find a topic, demarcate the boundary, choose the perspective.
+- Save grand topics for the final essay.
+- Peer editing feedback must be substantive; three or four comments is not enough. The due time he named is unintelligible on the recording.
+- Class dismissed early; the following fifteen minutes offered as office hours. Attendance sheet circulating.
+
+**From the syllabus, for the dates the recording does not state clearly:**
+
+- Midterm essay draft (10%): Friday October 23 at 7:00 a.m.
+- Diagnostic Essay, the peer-review component (5%): Wednesday October 28 at 7:00 a.m. Upload your draft to Google Docs, share the link with your peer, comment on theirs, then submit the link to bCourses with editing access for the instructor.
+- Midterm polished version (5%): Monday November 2 at 7:00 a.m. Minimal or invisible revision receives zero credit.
+- Format for all of these: at least 1,000 words, 12-point, 1.5 spacing, standard margins, .doc or .docx. Must include title, introduction, central argument, evidence, conclusion and bibliography. Must not summarize lectures.
+- Final essay for comparison: at least 1,500 words, draft due Friday November 27 at midnight.
+
+No exam was mentioned in this session. Note that the syllabus says students should be prepared for in-class oral examinations on the readings, which is consistent with the instructor's emphasis on close reading as the thing being tested.
