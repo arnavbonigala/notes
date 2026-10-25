@@ -1,332 +1,134 @@
-<!-- Mon, Oct 19, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Mon, Oct 19, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 23: Shortest Paths
 
-This lecture moves from unweighted path finding (DFS/BFS from Lecture 22) to **shortest paths in edge-weighted graphs**. We start by showing why BFS is the wrong tool for a Google Maps style application: BFS minimizes the *number of edges*, not the *total weight*, so it can return a 330 m route when a 130 m route exists. We then define the goal precisely: the **Shortest Paths Tree (SPT)**, a tree with exactly `V - 1` edges that simultaneously encodes the shortest path from a single source `s` to every reachable vertex, represented in code by the familiar `distTo` and `edgeTo` arrays. The engine that builds it is **relaxation**: start with a wrong SPT and repeatedly ask "is this edge better than what I have?" (`relax(E)`), or relax all of a vertex's outgoing edges at once (`relax(v)`). **Dijkstra's algorithm** is then just BFS with the queue swapped for a priority queue: visit vertices in *closest-first* order, relaxing each vertex exactly once, which runs in `O(E log V)` time and `Θ(V)` space. The lecture closes with **A\*** (explicitly marked out of scope), which adds a heuristic estimate `h(v, goal)` to each priority so that a single-target search can stop early without exploring the whole graph, and notes that a bad heuristic can make A\* return a wrong answer.
+This lecture extends the graph traversal work from Lecture 22 (DFS and BFS) to **edge-weighted graphs**, where each edge carries a cost (miles, meters, travel time). BFS finds the path with the *fewest edges*, which is not the same as the path with the *smallest total weight*, so BFS is the wrong tool for a Google Maps style application. The lecture first builds intuition for the goal object, the **Shortest Paths Tree (SPT)**, showing that the set of shortest paths from a single source always forms a tree with exactly `V - 1` edges. It then introduces the improvement operation that shortest-path algorithms are built from, **edge relaxation** (and its generalization, **node relaxation**), and uses it to construct **Dijkstra's algorithm**: visit vertices in "closest first" order using a priority queue as the fringe, relaxing each vertex's outgoing edges exactly once, for `O(E log V)` time on a connected graph. The lecture closes with **A\***, explicitly marked as extra and out of scope, which adds a heuristic estimate `h(v, goal)` to each vertex's priority so that a single-target search can avoid exploring the whole graph.
 
 ---
 
 ## Key Concepts
 
-### 1. Recap: DFS vs BFS for path finding
+### 1. Why BFS is not enough
 
-| Problem | Description | Solution | Efficiency (adj. list) |
-|---|---|---|---|
-| s-t paths | Find a path from `s` to every reachable vertex | `DepthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
-| s-t shortest paths | Find a *shortest* path (fewest edges) from `s` to every reachable vertex | `BreadthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
+Lecture 22 established two path-finding tools:
 
-Which is better? The lecture compares along four axes:
+| Problem | Solution | Efficiency (adj. list) |
+|---|---|---|
+| s-t paths: find a path from `s` to every reachable vertex | `DepthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
+| s-t shortest paths: find a shortest path (fewest edges) from `s` to every reachable vertex | `BreadthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
 
-- **Correctness.** Both work on all graphs (both find *some* path to every reachable vertex).
-- **Output quality.** BFS is a "2-for-1 deal": you get paths *and* those paths are guaranteed to have the fewest edges. DFS gives no such guarantee.
-- **Time efficiency.** Very similar. Both consider every edge twice. Distinguishing them needs experiments or very careful analysis.
-- **Space efficiency.** Neither dominates:
-  - DFS is worse for **spindly** graphs: the call stack gets very deep, so the computer needs `Θ(V)` memory just to remember the recursive calls (a CS61C topic).
-  - BFS is worse for absurdly **bushy** graphs: the queue gets huge. Example: a source connected to 999,999 other vertices means 999,999 vertices enqueued at once, so `Θ(V)` memory.
-  - **In practice this comparison barely matters** for our implementations, because we already spend `Θ(V)` memory on the `distTo` and `edgeTo` arrays. (You could shrink this by storing them in a `Map` instead of an array, so only *reached* vertices occupy space.)
+Comparing them:
 
-### 2. Why BFS does not work for Google Maps
+- **Correctness**: both work on all graphs.
+- **Output quality**: BFS is a "2-for-1 deal", you get paths *and* those paths have the fewest edges.
+- **Time efficiency**: essentially the same, both consider every edge twice. Distinguishing them needs experiments or very careful constant-factor analysis, which big-O hides.
+- **Space efficiency**: DFS is worse on *spindly* graphs, because the call stack gets very deep and the computer needs `Θ(V)` memory to remember the recursive calls (covered more in CS 61C). BFS is worse on absurdly *bushy* graphs: with 1,000,000 vertices all connected to one vertex, 999,999 get enqueued at once, so the queue takes `Θ(V)` memory. Note that in our implementations we spend `Θ(V)` anyway for the `distTo` and `edgeTo` arrays (you could optimize by using a map instead of an array).
 
-BFS returns the path with the shortest *number of edges*, not the shortest *distance*. The lecture's map example: going from `s` to `t`, BFS finds a 2-hop route of length roughly 330 m, while the correct answer is a longer-in-hops route of roughly 130 m. A long road counts as one edge to BFS, exactly the same as a 10 m road.
+The real problem with BFS appears with the Hearst Mining Memorial Building / fountain example from lecture. Represent walkways as edges and intersections as vertices. BFS finds `s -> t` in 2 edge hops, but those 2 hops are a 260 m edge plus a 70 m edge, giving **~330 m**. The route a human would actually walk (straight past the fountain) takes more edges but totals only **~130 m**.
 
-The fix is to attach a number to each edge, its **weight** (length in miles, travel time, cost, etc.), and to minimize the **sum of weights** along the path. That changes the problem, and therefore the algorithm.
+> BFS returns the path with the shortest *number of edges*, not necessarily the shortest path. We need an algorithm that accounts for edge distances, also known as **edge weights**.
 
-A small sanity example from the lecture (towns `A` through `G`, weights in miles): the best path from `A` to `F` is `A -> B -> E -> F` with total length 9, even though `A -> C -> F` touches only three towns, because `A -> C -> F` has total length `1 + 15 = 16`. **Fewest edges does not mean shortest.**
+**The naive fix and why it fails.** A student in lecture proposed subdividing: replace a weight-260 edge with 260 unit-weight edges and unit vertices, then run plain BFS. This *works*, but it is terrible: it blows up `V` and `E` enormously (what if a weight were a million?), and since BFS is `O(V + E)`, the runtime explodes with it. We want to treat weights as *numbers*, not as graph structure.
 
-### 3. The goal: the Shortest Paths Tree
+### 2. The warm-up: greedy is not automatically correct
 
-Two related problems:
+The opening example (towns A through G, edge weights in miles):
 
-- **Single source, single target:** shortest path from `s` to one specific `t`.
-- **Single source, multiple targets:** shortest path from `s` to *every* other vertex.
+```
+                          D
+                  11    /   \ 1
+          B ----------      \
+       2/   \3         2      G
+  A ---      --- E ----------/
+    \1       5/    \4   5
+     C --------------  F
+            15
+```
+(Reconstructed from the slides: edges `A-B` = 2, `A-C` = 1, `B-C` = 5, `B-D` = 11, `B-E` = 3, `C-F` = 15, `E-D` = 2, `E-F` = 4, `E-G` = 5, `G-D` = 1, `F-G` = 1.)
 
-Two structural observations drive everything:
+Finding the best path from A to F: the **greedy** first move is `A -> C` (cost 1, cheaper than `A -> B` at cost 2). But `C`'s only way onward is a 15-mile mountain crossing, so `A -> C -> F` costs **16**. The actual best path is `A -> B -> E -> F` = 2 + 3 + 4 = **9 miles**, even though it visits more towns. This is a counterexample proving that a purely greedy "take the cheapest next edge" strategy does not always work.
 
-1. **A shortest path never contains a cycle** (assuming non-negative weights). Deleting a cycle can only make the total weight smaller or equal, so there is always a simple shortest path.
-2. **The full solution is always a tree.** Think of it as the union of the shortest paths to all vertices. If the shortest path to `G` goes through `E`, then the prefix of that path is itself a shortest path to `E`, so the paths share structure and overlap into a tree rooted at `s`.
+### 3. The optimal substructure insight
 
-**How many edges does the SPT have?** Exactly `V - 1` (given a connected graph where every vertex is reachable). Reason: every vertex has exactly **one** incoming edge in the tree (the last edge on its shortest path), except the source, which has none. The lecture's example has `V = 7` and therefore 6 SPT edges. Note that this is true regardless of how many edges `E` the graph has.
+The instructor's key warm-up question: suppose you are told the shortest path from A to G goes through F. Do you already know what that path is?
 
-**Representation.** Identical to BFS from last lecture:
+Yes, *provided you already know the best path to F*. Why would you ever use a worse route to F and then continue to G? Any path to G through F decomposes into (path to F) + (F to G), and you minimize the total by minimizing the first part. Symmetrically, if there were a shorter path to E than `A -> B -> E`, then gluing `E -> F` onto it would give a shorter path to F, contradicting what we already computed.
 
-- `distTo[v]`: the best known total weight from `s` to `v` (starts at `0` for `s`, `∞` for everything else).
-- `edgeTo[v]`: the vertex (or edge) that comes immediately *before* `v` on that best known path. Following `edgeTo` backwards from `v` reconstructs the path in reverse.
+This is why the solution has such clean structure. You might fear that the shortest paths to all seven vertices would be a tangled mess of overlapping routes needing the graph redrawn over and over. Instead, shortest paths to different targets *share prefixes*, and the whole solution collapses into a tree.
 
-For the lecture's 7-vertex graph with `s = A`, the final answer is:
+### 4. Single Source Single Target vs. Single Source (all targets)
 
-| v | `distTo[]` | `edgeTo[]` |
+**Single source, single target** (A to F only):
+
+| v | distTo[] | edgeTo[] |
 |---|---|---|
 | A | 0.0 | - |
 | B | 2.0 | A→B |
-| C | 1.0 | A→C |
+| C | - | - |
+| D | - | - |
+| E | 5.0 | B→E |
+| F | 9.0 | E→F |
+| G | - | - |
+
+Observation: assuming non-negative weights, the solution is always a path **with no cycles**. (A cycle of non-negative weight can only add cost, so removing it never hurts.)
+
+**Single source, all targets** (A to everything):
+
+| v | distTo[] | edgeTo[] |
+|---|---|---|
+| A | 0.0 | - |
+| B | 2.0 | A→B |
+| C | 1.0 | A→B *(as printed on the slide; the edge is actually A→C, see Pitfalls)* |
 | D | 11.0 | G→D |
 | E | 5.0 | B→E |
 | F | 9.0 | E→F |
 | G | 10.0 | E→G |
 
-(The slide prints `A→B` in the `C` row; that is a typo for `A→C`, since `distTo[C] = 1.0` comes from the weight-1 edge `A→C`.)
+Observation: the solution is always a **tree**, the union of the shortest paths to all vertices.
 
-Notice `distTo[D] = 11` via the long way around `A -> B -> E -> G -> D` (`2 + 3 + 5 + 1`), even though the direct edge `B→D` has weight 11 and `A -> B -> D` costs `2 + 11 = 13`. The SPT is not "mostly direct edges."
+Reading the table: `distTo[D] = 11` with `edgeTo[D] = G→D` means the shortest route to D is "shortest route to G, then the edge G→D", i.e. `A -> B -> E -> G -> D` = 2 + 3 + 5 + 1 = 11. Note that the direct `B -> D` edge of weight 11 would give 2 + 11 = 13, worse.
 
-### 4. Relaxation: the universal improvement operation
+### 5. SPT edge count
 
-The strategy shared by essentially all shortest-path algorithms:
+> If `G` is a connected edge-weighted graph with `V` vertices and `E` edges, how many edges are in the SPT (assuming every vertex is reachable)?
 
-> Start from an **incorrect** SPT, then make improvements until it is correct.
+**Always `V - 1`.** For each vertex there is exactly one incoming edge (except the source, which has none). That is exactly what `edgeTo[]` records: one entry per vertex, one of which is empty. In the 7-vertex example, the SPT has 6 edges. Note `E` does not appear in the answer at all.
 
-The improvement operation is **relaxation**.
+### 6. Edge relaxation
 
-**Edge relaxation.** `relax(E)`: *if edge `E` is better, use it instead.* Concretely, for edge `v → w` with weight `weight(v, w)`:
+Many shortest-path algorithms share one approach:
 
-```
-if (distTo[v] + weight(v, w) < distTo[w]) {
-    distTo[w] = distTo[v] + weight(v, w);
-    edgeTo[w] = v;
-}
-```
+- Start from an **incorrect** SPT.
+- Make improvements until the SPT is correct.
 
-Read it as: "my current best route to `w` costs `distTo[w]`. Could I do better by going to `v` first and then taking this one edge?" If yes, overwrite both arrays. If no, do nothing. Relaxation is cheap, local (it looks at one edge and two array slots), and never makes `distTo` worse.
+The common improvement operation is **edge relaxation**: `relax(E)` means "if edge `E` is better, use it instead."
 
-**Node relaxation.** `relax(v)`: relax *all* of `v`'s outgoing edges. This is the per-vertex unit of work in Dijkstra's.
+Lecture example. Graph: `A->B` weight 1, `B->C` weight 5, `A->D` weight 100, `C->D` weight 3. Starting (wrong) SPT:
 
-### 5. SPT algorithms (all built from relaxation)
-
-The lecture names three, and covers only one:
-
-- **Bellman-Ford (1955):** relax all edges, in any order, and repeat `V` times.
-- **Dijkstra's Algorithm (1956):** relax all nodes exactly once, in **closest-first** order.
-- **Duan-Mao et al. (2025):** relax edges in batches.
-
-### 6. Dijkstra's Algorithm: closest-first order
-
-We have seen Depth First order (stack) and Breadth First order (queue). Dijkstra's introduces a third traversal order: **Closest First**, meaning in increasing order of `distTo`. The vague question in lecture, and its answer:
-
-> To get Breadth First order we used a **Queue** as our fringe. To get Closest First order, what should the fringe be? A **priority queue**.
-
-Pseudocode, as given:
-
-```
-add all vertices to PQ with infinite priority
-// (except the source, whose distTo and priority are 0)
-while (!pq.isEmpty()) {
-    v = pq.removeMin();
-    relax(v);            // i.e. relax all edges from v
-}
-```
-
-Where relaxing an edge that improves `distTo[w]` must also **`changePriority(w, distTo[w])`** so the PQ keeps its closest-first ordering.
-
-**The key invariant and why Dijkstra's is correct.** In Dijkstra's, relaxing an edge that points to an **already-visited** (already removed from the PQ) vertex **never works**. The lecture's argument by example: we are relaxing `E`, and the edge `E→C` points at `C`, which we already visited. But we visited `C` before `E`, which (because we remove in closest-first order) means `distTo[C] ≤ distTo[E]`. Since weights are non-negative, `distTo[E] + weight(E, C) ≥ distTo[E] ≥ distTo[C]`, so the edge cannot be an improvement. Concretely in the demo: `5 + 1 > 1`, so `C` is unchanged.
-
-Said generally: **once a vertex is removed from the PQ, its `distTo` is final.** A vertex that is "white" (visited, no longer on the fringe) can never be improved again, assuming non-negative weights. That is exactly why the algorithm can get away with relaxing each node only once, and why it yields the correct SPT.
-
-### 7. Runtime analysis
-
-Assuming a binary-heap-based priority queue:
-
-| Operation | # Operations | Cost per operation | Total cost |
-|---|---|---|---|
-| PQ `add` | `V` | `O(log V)` | `O(V log V)` |
-| PQ `removeSmallest` | `V` | `O(log V)` | `O(V log V)` |
-| PQ `changePriority` | `E` | `O(log V)` | `O(E log V)` |
-
-Each vertex is added once and removed once. Each *edge* is examined once (when its source vertex is relaxed), and each examination triggers at most one `changePriority`.
-
-Total: `O(V log V + V log V + E log V)`. For a connected graph `E ≥ V - 1`, so this simplifies to the headline result:
-
-**Dijkstra's runtime: `O(E log V)`. Space: `Θ(V)`.**
-
-### 8. A\* (marked "Extra, not in scope" on the slides)
-
-**The problem with Dijkstra's for navigation.** Dijkstra's is single-source *multiple*-target. If you only want Denver to NYC, Dijkstra's will explore nearly everything within two thousand miles of Denver (including Utah and Montana) before it reaches NYC. Correct, but wasteful. We want it to head *east* first.
-
-**The A\* idea.** Visit vertices in order of `d(source, v) + h(v, goal)`, where `h(v, goal)` is an **estimate** of the remaining distance from `v` to the goal. Compare to Dijkstra's, which orders by `d(source, v)` alone. In words: expand `v` if we already know the fastest way to reach `v` **and** we suspect `v` is on a fast route to the goal.
-
-- `h` is an arbitrary **heuristic** ("using experience to learn and improve"). It does not have to be perfect.
-- `h(v, goal)` **does not change** as the algorithm runs:
-  ```java
-  /** h(v, goal) DOES NOT CHANGE as algorithm runs. */
-  public method h(v, goal) {
-      return computeLineDistance(v.latLong, goal.latLong);
-  }
-  ```
-  For maps, as-the-crow-flies (straight line) distance to the goal is the classic choice.
-- `distTo` and `edgeTo` are still updated with **true** distances; only the *priorities* include `h`.
-- We stop as soon as the goal is the next vertex to be dequeued.
-
-**Consequences.** Not every vertex gets visited (that is the point), and the resulting tree is **not** a valid SPT for all vertices: in the lecture's A\* demo the path to `D` comes out as 13 instead of the true 11. That is fine, because we only asked about the path to `G`.
-
-**Heuristic quality.**
-
-- `h(v, goal) = 0` for all `v`: A\* degenerates into **Dijkstra's**.
-- `h(v, goal) = 10000` (a constant) for all `v`: also just **Dijkstra's**, since adding the same constant to every priority does not change the ordering.
-- `h` that *overestimates* for some vertices (for example, declaring Illinois and Indiana to be in the middle of nowhere with `h = 100000`): A\* becomes **incorrect**. It will dodge Illinois and fail to find the shortest path. It does not merely run slower.
-
-**Admissibility and consistency (EXTRA: beyond course scope, per the slides).** For this version of A\* to be correct the heuristic should be:
-
-- **Admissible:** `h(v, goal) ≤` the true distance from `v` to the goal (never overestimates).
-- **Consistent:** for each neighbor `w` of `v`, `h(v, goal) ≤ dist(v, w) + h(w, goal)`, where `dist(v, w)` is the edge weight.
-
-All consistent heuristics are admissible. These are *sufficient but not necessary* conditions: admissibility suffices for "A\* tree search," consistency suffices for "A\* graph search" (which is the version we saw). The slides state explicitly: you will not be expected to judge whether a heuristic is admissible or consistent unless the exam defines the terms. The takeaway you *are* responsible for: **the choice of heuristic matters, and a bad choice can make A\* give the wrong answer.** CS188 covers this properly.
-
-**A\* vs Dijkstra's visualization.** `http://qiao.github.io/PathFinding.js/visual/`. Note that when all edge weights are equal, **Dijkstra's algorithm is just breadth first search**. The tool is also good for seeing the difference between the order in which nodes are *visited* and the nodes that end up *on* the shortest path: unless you are very lucky, vastly more nodes are visited than lie on the final path.
-
-### 9. The full graph problems table
-
-| Problem | Description | Solution | Efficiency |
-|---|---|---|---|
-| paths | Find a path from `s` to every reachable vertex | `DepthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
-| shortest paths | Fewest-edge path from `s` to every reachable vertex | `BreadthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
-| shortest weighted paths | Shortest path *considering weights* from `s` to every reachable vertex | `DijkstrasSP.java` | `O(E log V)` time, `Θ(V)` space |
-| shortest weighted path (out of scope) | Shortest weighted path from `s` to one target | A\*: same as Dijkstra's, but with `h(v, goal)` added to each vertex's priority | Time depends on heuristic, `Θ(V)` space |
-
----
-
-## Definitions
-
-- **Edge weight:** a number attached to an edge representing its cost (distance, time, price). An **edge-weighted graph** is a graph whose edges carry weights.
-- **Path weight / path length:** the *sum* of the weights of the edges along a path. In a weighted setting, "length" means this sum, not the number of edges.
-- **Shortest path from `s` to `t`:** a path from `s` to `t` of minimum total weight. With non-negative weights it can always be taken to contain no cycles.
-- **Shortest Paths Tree (SPT) of `G` rooted at `s`:** the tree formed by the union of shortest paths from `s` to every reachable vertex. For a connected graph with all vertices reachable, it has exactly `V - 1` edges, because every vertex except `s` has exactly one incoming edge.
-- **`distTo[v]`:** the best known total weight of a path from the source to `v`. Initialized to `0` for the source and `∞` for all other vertices. At the end of Dijkstra's, it equals the true shortest-path weight.
-- **`edgeTo[v]`:** the predecessor of `v` on the best known path from the source to `v`, i.e. the last edge of that path. Initialized to "none."
-- **Edge relaxation, `relax(E)`:** "if edge `E` is better, use it instead." For `E = v → w`: if `distTo[v] + weight(v, w) < distTo[w]`, set `distTo[w] = distTo[v] + weight(v, w)` and `edgeTo[w] = v`.
-- **Node relaxation, `relax(v)`:** relax all of `v`'s outgoing edges.
-- **Fringe:** the data structure holding vertices that have been discovered but not yet processed. DFS: stack. BFS: queue. Dijkstra's/A\*: priority queue.
-- **Closest First order:** visiting vertices in increasing order of their (final) `distTo` value from the source. The traversal order Dijkstra's produces.
-- **Dijkstra's Algorithm (1956):** relax all nodes exactly once, in closest-first order, using a priority queue as the fringe, keyed on `distTo`.
-- **Bellman-Ford (1955):** relax all edges in any order, repeated `V` times (named only; not covered).
-- **Heuristic `h(v, goal)`:** a fixed, cheap-to-compute estimate of the distance from `v` to the goal. Does not change during the run.
-- **A\* (graph search):** Dijkstra's with priorities `distTo[v] + h(v, goal)` instead of `distTo[v]`, terminating when the goal is dequeued. (Out of scope.)
-- **Admissible heuristic (extra):** `h(v, goal)` never exceeds the true distance from `v` to the goal.
-- **Consistent heuristic (extra):** for every edge `v → w`, `h(v, goal) ≤ weight(v, w) + h(w, goal)`. Consistency implies admissibility.
-
----
-
-## Worked Examples
-
-> **A note on reconstruction.** The slide diagrams were lost in the PDF extraction, so the graphs below were reconstructed from the surviving edge labels plus the numeric traces printed on the slides (`distTo` tables, "Vertex C unchanged since 5+1 > 1", the fringe contents, and the A\* `h` column). Every reconstructed edge is consistent with all of those printed numbers, including the lecture's claim that its heuristic is "the min weight edge out of each vertex." The graph is **directed**.
-
-### Example 0: The lecture's demo graph, in Java
-
-Vertices `A..G` map to `0..6` (the A\* slide says "s = 0, goal = 6", i.e. `A` to `G`).
-
-```java
-import java.util.ArrayList;
-import java.util.List;
-
-/** One directed, weighted edge. Immutable, so it is safe to share
- *  the same DirectedEdge object between the adjacency list and edgeTo. */
-public class DirectedEdge {
-    private final int from;
-    private final int to;
-    private final double weight;
-
-    public DirectedEdge(int from, int to, double weight) {
-        this.from = from;
-        this.to = to;
-        this.weight = weight;
-    }
-
-    public int from() { return from; }
-    public int to() { return to; }
-    public double weight() { return weight; }
-}
-
-/** Adjacency-list representation: one bucket of outgoing edges per vertex. */
-public class EdgeWeightedDigraph {
-    private final List<List<DirectedEdge>> adj;
-
-    public EdgeWeightedDigraph(int V) {
-        adj = new ArrayList<>(V);
-        for (int v = 0; v < V; v += 1) {
-            adj.add(new ArrayList<>());
-        }
-    }
-
-    public int V() { return adj.size(); }
-
-    public void addEdge(int v, int w, double weight) {
-        adj.get(v).add(new DirectedEdge(v, w, weight));
-    }
-
-    /** Only the OUTGOING edges of v. This is what relax(v) iterates over. */
-    public Iterable<DirectedEdge> adj(int v) { return adj.get(v); }
-}
-```
-
-Building the lecture's graph:
-
-```java
-// A=0, B=1, C=2, D=3, E=4, F=5, G=6
-EdgeWeightedDigraph G = new EdgeWeightedDigraph(7);
-G.addEdge(0, 1, 2);    // A -> B, 2
-G.addEdge(0, 2, 1);    // A -> C, 1
-G.addEdge(1, 2, 5);    // B -> C, 5
-G.addEdge(1, 3, 11);   // B -> D, 11
-G.addEdge(1, 4, 3);    // B -> E, 3
-G.addEdge(2, 5, 15);   // C -> F, 15
-G.addEdge(3, 4, 2);    // D -> E, 2
-G.addEdge(4, 2, 1);    // E -> C, 1
-G.addEdge(4, 5, 4);    // E -> F, 4
-G.addEdge(4, 6, 5);    // E -> G, 5
-G.addEdge(6, 3, 1);    // G -> D, 1
-G.addEdge(6, 5, 1);    // G -> F, 1
-```
-
-Adjacency list view (`V = 7`, `E = 12`):
-
-```
-A: B(2), C(1)
-B: C(5), D(11), E(3)
-C: F(15)
-D: E(2)
-E: C(1), F(4), G(5)
-F: (no outgoing edges)
-G: D(1), F(1)
-```
-
-**Box-and-pointer / memory picture in words.** `distTo` and `edgeTo` are two parallel arrays of length `V`, indexed by vertex number. `distTo` holds `double`s (primitives, stored directly in the array's boxes). `edgeTo` holds references to `DirectedEdge` objects (or just `int` predecessor indices), so each box either points at an edge object out on the heap or holds `null`/`-1`. The SPT is therefore not a separate tree object with child pointers at all: it is encoded entirely as `V` parent pointers sitting in one array. To walk from `v` back to `s` you repeatedly read `edgeTo[v]`, follow it to its `from()` vertex, and use that as the next index. Because every vertex has at most one `edgeTo` entry, this chain cannot branch, which is a second way to see that the SPT has at most `V - 1` edges.
-
-### Example 1: Edge relaxation (the lecture's magenta-edge example)
-
-Graph: `A→B` weight 1, `B→C` weight 5, `C→D` weight 3, `A→D` weight 100. We start from an **incorrect** SPT:
-
-| v | `distTo[]` | `edgeTo[]` |
+| v | distTo[] | edgeTo[] |
 |---|---|---|
 | A | 0.0 | - |
 | B | 1.0 | A→B |
 | C | 6.0 | B→C |
 | D | 100.0 | A→D |
 
-Now relax the edge `C→D`:
+Relax the magenta edge `C->D`: the candidate distance is `distTo[C] + weight(C,D) = 6 + 3 = 9`, which beats the current `distTo[D] = 100`. So we update:
 
-```java
-private void relaxEdge(DirectedEdge e) {
-    int v = e.from();          // C
-    int w = e.to();            // D
-    if (distTo[v] + e.weight() < distTo[w]) {   // 6.0 + 3.0 = 9.0 < 100.0  --> true
-        distTo[w] = distTo[v] + e.weight();     // distTo[D] = 9.0
-        edgeTo[w] = v;                          // edgeTo[D] = C
-    }
-}
-```
-
-**Step by step.** `distTo[C]` is 6, the edge weight is 3, so routing through `C` costs 9. That beats the current 100, so both arrays are overwritten: `distTo[D] = 9.0`, `edgeTo[D] = C→D`. The `A→D` edge of weight 100 is now simply unused (it is still in the graph, it is just not in the tree).
-
-| v | `distTo[]` | `edgeTo[]` |
+| v | distTo[] | edgeTo[] |
 |---|---|---|
 | A | 0.0 | - |
 | B | 1.0 | A→B |
 | C | 6.0 | B→C |
 | D | **9.0** | **C→D** |
 
-This shortest paths tree is now correct. Note what relaxation did *not* do: it did not look at the whole graph, recompute anything, or touch any vertex other than `D`. One edge, one comparison, two writes.
+This SPT is now correct.
 
-### Example 2: Node relaxation (the lecture's relax(E) exercise)
+### 7. Node relaxation
 
-The lecture's second example starts from this incorrect SPT (source `A`) and asks what happens when we relax node **E**, which has `distTo[E] = 16.0`:
+**`relax(v)` means: relax all of `v`'s outgoing edges.**
 
-| v | `distTo[]` before | `edgeTo[]` before |
+Lecture example (relaxing node E). Before:
+
+| v | distTo[] | edgeTo[] |
 |---|---|---|
 | A | 0.0 | - |
 | B | 8.0 | A→B |
@@ -336,20 +138,14 @@ The lecture's second example starts from this incorrect SPT (source `A`) and ask
 | F | 3.0 | A→F |
 | G | ∞ | - |
 
-The outgoing edges of `E` are `E→D` with weight 2 and `E→G` with weight 2. `relax(E)` relaxes each in turn:
+E has outgoing edges `E->D` of weight 2 and `E->G` of weight 2. Check each:
 
-```java
-private void relax(int v) {
-    for (DirectedEdge e : G.adj(v)) {
-        relaxEdge(e);
-    }
-}
-```
+- `E->D`: `16 + 2 = 18 < 40`, so improve. `distTo[D] = 18`, `edgeTo[D] = E→D`.
+- `E->G`: `16 + 2 = 18 < ∞`, so improve. `distTo[G] = 18`, `edgeTo[G] = E→G`.
 
-- `E→D`: `distTo[E] + 2 = 16 + 2 = 18 < 40`, so **improve**. `distTo[D] = 18.0`, `edgeTo[D] = E→D`. (We just discovered that the 32-weight shortcut `B→D` was a bad idea.)
-- `E→G`: `distTo[E] + 2 = 18 < ∞`, so **improve**. `distTo[G] = 18.0`, `edgeTo[G] = E→G`. This is the first time `G` becomes reachable at all.
+After:
 
-| v | `distTo[]` after | `edgeTo[]` after |
+| v | distTo[] | edgeTo[] |
 |---|---|---|
 | A | 0.0 | - |
 | B | 8.0 | A→B |
@@ -359,274 +155,444 @@ private void relax(int v) {
 | F | 3.0 | A→F |
 | G | **18.0** | **E→G** |
 
-Two things worth internalizing: relaxing one node can improve several vertices at once, and an improvement can both *lower a finite value* (`D`: 40 to 18) and *discover a new vertex* (`G`: ∞ to 18).
+Node relaxation is the "expand the band outward from one vertex" step that Dijkstra's repeats.
 
-### Example 3: `DijkstrasSP.java`
+### 8. The family of SPT algorithms
 
-Here is the full algorithm. The PQ interface is the CS61B `ExtrinsicMinPQ` style (`add(item, priority)`, `removeSmallest()`, `changePriority(item, priority)`, `contains(item)`), which is what makes the slides' operation counts (`V` adds, `V` removes, `E` changePriorities) literal. *(extra context: the slides give only the four-line pseudocode and the name `DijkstrasSP.java`; the Java below is a faithful expansion of that pseudocode, not code shown in lecture.)*
+All of these use relaxation; they differ in the *order* of relaxations:
+
+- **Bellman-Ford (1955)**: relax all edges (in any order), repeat `V` times. Slower than Dijkstra's but handles negative edge weights.
+- **Dijkstra's Algorithm (1956)**: relax all nodes exactly once, in **closest first** order. Does *not* work with negative edge weights.
+- **The Duan-Mao et al. Algorithm (2025)**: relax edges in batches. A recent breakthrough that beats Dijkstra's, which had long been thought optimal.
+
+Only Dijkstra's is covered in this course.
+
+### 9. Dijkstra's Algorithm: closest first order
+
+We have seen Depth First order (stack / recursion) and Breadth First order (queue). Dijkstra's introduces a third: **Closest First**, visiting vertices in increasing order of their distance from the source, building the SPT as you go.
+
+The instructor's intuition: imagine growing a circle (a "band") outward from A, and ask "what is the next-nearest thing I can reach?" From A, that is C at distance 1 (even though B is also a direct neighbor). Then B at 2. Then, crucially, the next thing is **not** necessarily a neighbor of A: it is E at distance 5, reached as `A -> B -> E` = 2 + 3. Then F at 9 (`A->B->E->F`, beating `A->C->F` at 16), then G at 10, then D at 11. We expand to the nearest unreached vertex *over the whole current frontier*, not just over neighbors of the source.
+
+**The fringe data structure.** For Breadth First order the fringe was a Queue. For Closest First order, the fringe is a **priority queue**: it lets us always pull out whatever currently has the highest priority (smallest known distance), rather than simply first-come-first-served.
+
+Pseudocode from the slides:
+
+```
+add all vertices to PQ with infinite priority
+while (!pq.isEmpty()) {
+    v = pq.removeMin();
+    relax(v);  // i.e. relax all edges from v
+}
+```
+
+The source is given priority 0 so it comes out first. Note this requires a PQ operation we had not previously put in our priority-queue ADT: **changePriority** (also called decrease-key), used when relaxing an edge improves a fringe vertex's distance.
+
+### 10. The invariant that makes Dijkstra's correct
+
+> In Dijkstra's algorithm, relaxing an edge that points to an already-visited (white) node **NEVER** works.
+
+Why, by example from the demo: we are relaxing E's edges and one of them points to C. But we already visited C before E. That means C is *closer* to the source than E is. So it is impossible for a path going through E to reach C more cheaply. **This invariant is why Dijkstra's yields the correct SPT.**
+
+The slide states the general version: with non-negative weights, it is impossible for any inactive vertex (white, already removed, not on the fringe) to be improved. The lecturer's phrasing: "if it's white, we've already expanded to that, we're already beyond the boundary, so it's not a shortcut if we're already there."
+
+This is exactly where **non-negative weights** matter. If a negative edge existed, a later, farther vertex could lead back to an already-finalized vertex at lower cost, and the invariant collapses.
+
+### 11. Runtime analysis
+
+Assuming a binary-heap-based PQ, where every operation costs `O(log V)`:
+
+| | # Operations | Cost per operation | Total cost |
+|---|---|---|---|
+| PQ add | `V` | `O(log V)` | `O(V log V)` |
+| PQ removeSmallest | `V` | `O(log V)` | `O(V log V)` |
+| PQ changePriority | `E` | `O(log V)` | `O(E log V)` |
+
+Overall: `O(V log V + V log V + E log V)`. For a connected graph, `E >= V - 1`, so the `E log V` term dominates and we write simply:
+
+> **Dijkstra's: `O(E log V)` time, `Θ(V)` space.**
+
+Each vertex is added once and removed once (hence `V` of each). Each *edge* can trigger at most one `changePriority`, hence `E` of those.
+
+### 12. A\* (EXTRA: explicitly marked out of scope in the slides)
+
+**The problem with Dijkstra's for a single target.** Dijkstra's expands in all directions equally. Searching for a route from Denver to NYC, it will explore every place within nearly two thousand miles of Denver before it even locates NYC. When we have a single target, that is enormously wasteful: we want to explore eastwards first.
+
+**The A\* idea.** Visit vertices in order of `d(source, v) + h(v, goal)`, where `h(v, goal)` is an *estimate* of the remaining distance from `v` to the goal. Compare with Dijkstra's, which only considers `d(source, v)`. In words: look at a location `v` if we already know the fastest way to reach `v`, **and** we suspect `v` is also on the fastest way to NYC accounting for the time to get to `v`. Henderson may be farther from Denver than Englewood, but it is probably better overall for getting to NYC.
+
+**The heuristic.** `h` is arbitrary and does not have to be perfect ("heuristic: using experience to learn and improve"). For maps, a natural choice is as-the-crow-flies distance:
 
 ```java
-import java.util.ArrayDeque;
-import java.util.Arrays;
-import java.util.Deque;
+/** h(v, goal) DOES NOT CHANGE as algorithm runs. */
+public method h(v, goal) {
+    return computeLineDistance(v.latLong, goal.latLong);
+}
+```
 
-public class DijkstrasSP {
-    private final EdgeWeightedDigraph G;
-    private final double[] distTo;
-    private final DirectedEdge[] edgeTo;
-    private final ExtrinsicMinPQ<Integer> fringe;
+Note the comment: `h` is a fixed function of the vertex and the goal; it is not updated as the algorithm runs.
 
-    public DijkstrasSP(EdgeWeightedDigraph G, int s) {
-        this.G = G;
-        distTo = new double[G.V()];
-        edgeTo = new DirectedEdge[G.V()];
-        Arrays.fill(distTo, Double.POSITIVE_INFINITY);
-        distTo[s] = 0.0;
+**The A\* demo** used the same 7-vertex graph with goal = G and `h` set to the minimum-weight edge out of each vertex (`h(A)=1, h(B)=3, h(C)=15, h(D)=2, h(E)=1, h(F)=∞, h(G)=0`). Key observations when it terminated (which it did as soon as the goal reached the front of the fringe):
 
-        // "add all vertices to PQ with infinite priority"
-        // (the source's priority is 0, since distTo[s] == 0)
-        fringe = new ArrayHeapMinPQ<>();
-        for (int v = 0; v < G.V(); v += 1) {
-            fringe.add(v, distTo[v]);
-        }
+- **Not every vertex got visited** (that is the whole point).
+- The result is **not a shortest paths tree** for A. The recorded path to D was suboptimal (13 via B, not 11 via G). That is fine, because we only care about the path to G.
 
-        // "while (!pq.isEmpty()) { v = pq.removeMin(); relax(v); }"
-        while (fringe.size() > 0) {
-            int v = fringe.removeSmallest();
-            relax(v);
+**Impact of heuristic quality:**
+
+- `h(v, goal) = 0` for all `v`: we just get Dijkstra's algorithm.
+- `h(v, goal) = 10000` for all `v`: we *also* just get Dijkstra's algorithm (a constant added to every priority does not change the ordering).
+- `h(Chicago, goal) = h(Indianapolis, goal) = 100000` because "the midwest is in the middle of nowhere": the algorithm becomes **incorrect**. It will fail to find the shortest path by dodging Illinois. It does not merely run slower, it returns a wrong answer.
+
+**(EXTRA, beyond course scope, per the slides.)** For A\* to be correct, the heuristic must be:
+
+- **Admissible**: `h(v, NYC) <= ` true distance from `v` to NYC (never overestimates).
+- **Consistent**: for each neighbor `w` of `v`, `h(v, NYC) <= dist(v, w) + h(w, NYC)`, where `dist(v, w)` is the weight of edge `v -> w`.
+
+All consistent heuristics are admissible. If the heuristic is admissible, A\* *tree search* yields the shortest path; if consistent, A\* *graph search* (our version) yields the shortest path. These are sufficient but not necessary conditions. The slide is explicit: "You will not be expected to tell us whether a given heuristic is admissible or consistent unless we define these terms on an exam." The midwest heuristic above was both inadmissible and inconsistent. This topic belongs to CS 188.
+
+**Visualization tool:** `http://qiao.github.io/PathFinding.js/visual/`. Note that if all edge weights are equal, Dijkstra's is just breadth first search. The tool is good for seeing the distinction between the order in which nodes are *visited* and the order in which they appear *on the shortest path*; unless you are really lucky, vastly more nodes are visited than lie on the shortest path.
+
+### 13. The unifying idea
+
+The lecturer's closing point: do not think of data structures and algorithms as separate subjects. DFS, BFS, and Dijkstra's look like three distinct algorithms, but they are all doing the same thing: pushing out a frontier. The only difference is the fringe data structure.
+
+| Algorithm | Fringe |
+|---|---|
+| DFS | Stack (often implicit, via the recursive call stack) |
+| BFS | Queue |
+| Dijkstra's | Priority Queue |
+| A\* (extra) | Priority Queue, with `h(v, goal)` added to each priority |
+
+---
+
+## Definitions
+
+- **Edge-weighted graph**: a graph in which each edge carries a numeric weight (length, cost, travel time). Contrast with the unweighted graphs of Lecture 22, where every edge implicitly costs 1.
+- **Edge weight**: the number attached to an edge, representing the distance or cost of traversing it.
+- **Shortest path (weighted)**: a path from `s` to `t` minimizing the *sum of the edge weights* along it, not the number of edges.
+- **Single Source Single Target Shortest Paths**: find a shortest path from source vertex `s` to one specific target vertex `t`. With non-negative weights the answer is always a path with no cycles.
+- **Single Source Shortest Paths**: find shortest paths from source `s` to *every* other vertex. The answer is always a tree.
+- **Shortest Paths Tree (SPT)**: the union of the shortest paths from a single source to all reachable vertices. For a connected graph with all vertices reachable, it has exactly `V - 1` edges, because every vertex except the source has exactly one incoming edge.
+- **`distTo[v]`**: the best known total weight of a path from the source to `v`. Initialized to `∞` for every vertex except the source, which is `0`.
+- **`edgeTo[v]`**: the last edge on the best known path to `v`, i.e. the edge that entered `v`. Together, the `edgeTo` entries encode the SPT.
+- **Edge relaxation, `relax(E)`**: "if edge `E` is better, use it instead." Concretely, for edge `v -> w` of weight `d`, if `distTo[v] + d < distTo[w]`, set `distTo[w] = distTo[v] + d` and `edgeTo[w] = v -> w`.
+- **Node relaxation, `relax(v)`**: relax all of `v`'s outgoing edges.
+- **Fringe**: the collection of discovered-but-not-yet-visited vertices awaiting processing. A stack for DFS, a queue for BFS, a priority queue for Dijkstra's.
+- **Closest First order**: visiting vertices in increasing order of their (final) distance from the source. The visitation order Dijkstra's achieves.
+- **Dijkstra's Algorithm (1956)**: relax all nodes exactly once in closest first order, using a priority queue as the fringe. `O(E log V)` time, `Θ(V)` space. Requires non-negative edge weights.
+- **Bellman-Ford (1955)**: relax all edges in any order, repeat `V` times. Slower than Dijkstra's but works with negative edge weights.
+- **`changePriority` (decrease-key)**: priority queue operation that changes an item's priority in place. Needed by Dijkstra's when a relaxation improves a fringe vertex's distance.
+- **Greedy algorithm**: an algorithm that takes the best option immediately in front of it. Sometimes provably sufficient, sometimes wrong (as in the A→C→F counterexample).
+- **Heuristic** *(A\*, extra)*: `h(v, goal)`, an arbitrary estimate of the remaining distance from `v` to the goal. Fixed for the duration of the algorithm.
+- **A\*** *(extra, out of scope)*: like Dijkstra's, but vertices are prioritized by `d(source, v) + h(v, goal)`. Aimed at the single-target problem.
+- **Admissible heuristic** *(extra, beyond scope)*: `h(v, goal) <=` the true distance from `v` to the goal; never overestimates.
+- **Consistent heuristic** *(extra, beyond scope)*: for each neighbor `w` of `v`, `h(v, goal) <= dist(v, w) + h(w, goal)`. All consistent heuristics are admissible.
+
+---
+
+## Worked Examples
+
+### Example 1: `relax` as Java code
+
+The slides express relaxation in words and diagrams. Here is the corresponding code, which is the single most important thing to be able to write from memory.
+
+```java
+/**
+ * Edge relaxation. Given the edge v -> w with weight d, improve our best
+ * known route to w if going "through v" is cheaper than what we have.
+ */
+private void relaxEdge(int v, int w, double d) {
+    if (distTo[v] + d < distTo[w]) {   // is this edge better?
+        distTo[w] = distTo[v] + d;     // record the new, smaller distance
+        edgeTo[w] = v;                 // record that we arrived at w from v
+        if (fringe.contains(w)) {
+            fringe.changePriority(w, distTo[w]);  // move w up the line
         }
     }
+    // otherwise: do nothing at all. Relaxation never makes distTo larger.
+}
 
-    /** Node relaxation: relax every edge pointing OUT of v. */
-    private void relax(int v) {
-        for (DirectedEdge e : G.adj(v)) {
-            int w = e.to();
-            if (distTo[v] + e.weight() < distTo[w]) {
-                distTo[w] = distTo[v] + e.weight();
-                edgeTo[w] = e;
-                // Keep the fringe ordered by the NEW distance.
-                // w may already be visited (gone from the PQ), in which case
-                // this branch is unreachable with non-negative weights.
-                if (fringe.contains(w)) {
-                    fringe.changePriority(w, distTo[w]);
-                }
-            }
-        }
-    }
-
-    public double distTo(int v) {
-        return distTo[v];
-    }
-
-    public boolean hasPathTo(int v) {
-        return distTo[v] < Double.POSITIVE_INFINITY;
-    }
-
-    /** Follow edgeTo backwards, then reverse. */
-    public Iterable<DirectedEdge> pathTo(int v) {
-        if (!hasPathTo(v)) {
-            return null;
-        }
-        Deque<DirectedEdge> path = new ArrayDeque<>();
-        for (DirectedEdge e = edgeTo[v]; e != null; e = edgeTo[e.from()]) {
-            path.push(e);   // push onto the front, so the path comes out s-first
-        }
-        return path;
+/** Node relaxation: relax all of v's outgoing edges. */
+private void relaxNode(int v) {
+    for (Edge e : graph.adj(v)) {
+        relaxEdge(v, e.to(), e.weight());
     }
 }
 ```
 
-**What each piece is doing and why.**
+Step by step on the lecture's edge-relaxation example (`distTo[C] = 6`, `distTo[D] = 100`, edge `C -> D` of weight 3):
 
-- `Arrays.fill(distTo, POSITIVE_INFINITY)` plus `distTo[s] = 0.0` sets up the *initial incorrect SPT*: "I can reach the source for free and I believe nothing else is reachable." Every later step only improves it.
-- Adding *all* vertices up front is why we need `changePriority`: a vertex sitting in the heap at priority ∞ must be re-keyed when we find a real route to it. This is also the direct source of the `Θ(V)` space bound.
-- `removeSmallest()` is the only line that enforces **closest-first** order, and the correctness invariant depends on it: the vertex with the smallest tentative distance in the fringe already has its final `distTo`, because any other route to it would have to pass through some other fringe vertex with a larger or equal distance and then add a non-negative weight.
-- `relax(v)` iterates only over **outgoing** edges. On an undirected graph you would iterate over all incident edges instead.
-- `pathTo` is the pointer-chasing walk described above: `edgeTo[v]` gives the last edge, `edgeTo[e.from()]` gives the one before it, and so on until a `null` marks the source. Pushing onto a `Deque` front reverses the sequence for free.
+1. `relaxEdge(C, D, 3)` evaluates the guard: `distTo[C] + 3 = 6 + 3 = 9`.
+2. Compare with `distTo[D] = 100`. Since `9 < 100`, the edge **is** better.
+3. Write `distTo[D] = 9`. The old value 100 is gone.
+4. Write `edgeTo[D] = C`. Think of `edgeTo` as a box-and-pointer structure: `edgeTo[D]` used to point back at `A`, and we have just redirected that arrow to point at `C`. The SPT changed shape: D's parent switched from A to C. No new objects were allocated; we just repointed one reference.
+5. `distTo[D]` is now consistent with `distTo[C]`, so the tree is correct.
 
-### Example 4: Tracing Dijkstra's on the demo graph (`s = A`)
+Why the guard is `<` and not `<=`: using `<` means ties leave the existing edge in place. This answers the student's question from lecture ("what if there are two shortest paths to the same vertex?"). You may break ties arbitrarily; `<` just happens to break them in favor of whichever edge was found first.
 
-Start: all vertices in the fringe, `A` at 0 and everything else at ∞.
+### Example 2: Dijkstra's, in code
+
+Faithful to the lecture pseudocode (`add all vertices to PQ with infinite priority; while not empty, removeMin and relax`):
+
+```java
+public class DijkstrasSP {
+    private double[] distTo;
+    private int[] edgeTo;
+    private PriorityQueue<Integer> fringe;  // min-PQ keyed on distTo
+
+    public DijkstrasSP(EdgeWeightedGraph G, int s) {
+        distTo = new double[G.V()];
+        edgeTo = new int[G.V()];
+
+        // Everything starts at infinity; then we can only improve.
+        for (int v = 0; v < G.V(); v += 1) {
+            distTo[v] = Double.POSITIVE_INFINITY;
+            edgeTo[v] = -1;
+        }
+        distTo[s] = 0.0;
+
+        // "add all vertices to PQ with infinite priority"
+        fringe = new PriorityQueue<>();
+        for (int v = 0; v < G.V(); v += 1) {
+            fringe.add(v, distTo[v]);   // s enters with priority 0
+        }
+
+        while (!fringe.isEmpty()) {
+            int v = fringe.removeMin();  // closest remaining vertex
+            relaxNode(v);                // relax all edges out of v
+        }
+    }
+}
+```
+
+Three details worth internalizing:
+
+- **Why initialize to infinity?** As the lecturer put it: we set everything infinitely far away, then the algorithm only ever improves. Infinity is the identity element for "take the minimum", so the first real path discovered always wins the comparison in `relaxEdge`.
+- **Why does the source come out first?** It is the only vertex with finite (zero) priority, so `removeMin` returns it immediately.
+- **Why is each vertex relaxed exactly once?** Because `removeMin` removes it from the fringe permanently. Once removed, it is "white" and the invariant guarantees it can never be improved.
+
+### Example 3: Full trace of Dijkstra's on the lecture graph
+
+Source `s = A`. Edges: `A-B`(2), `A-C`(1), `B-C`(5), `B-D`(11), `B-E`(3), `C-F`(15), `E-D`(2), `E-F`(4), `E-G`(5), `F-G`(1), `G-D`(1).
+
+**Initialization.** All `distTo` are `∞` except `distTo[A] = 0`; all `edgeTo` empty.
 
 ```
 Fringe: [(A: 0), (B: ∞), (C: ∞), (D: ∞), (E: ∞), (F: ∞), (G: ∞)]
 ```
 
-**Step 1, remove `A` (0).** Relax `A→B (2)` and `A→C (1)`.
-`distTo[B] = 2, edgeTo[B] = A→B`; `distTo[C] = 1, edgeTo[C] = A→C`.
-`Fringe: [(C: 1), (B: 2), (D: ∞), (E: ∞), (F: ∞), (G: ∞)]`
+**Step 1: remove A (dist 0), relax A's edges.**
+- `A->C`, weight 1: `0 + 1 = 1 < ∞`. Set `distTo[C] = 1`, `edgeTo[C] = A`.
+- `A->B`, weight 2: `0 + 2 = 2 < ∞`. Set `distTo[B] = 2`, `edgeTo[B] = A`.
 
-**Step 2, remove `C` (1).** `C`'s only outgoing edge is `C→F (15)`.
-`distTo[F] = 16, edgeTo[F] = C→F`.
-`Fringe: [(B: 2), (F: 16), (D: ∞), (E: ∞), (G: ∞)]`
+| Node | distTo | edgeTo |
+|---|---|---|
+| A | 0 | - |
+| B | 2 | A |
+| C | 1 | A |
+| D, E, F, G | ∞ | - |
 
-**Step 3, remove `B` (2).** Relax `B→C (5)`, `B→D (11)`, `B→E (3)`.
-- `C`: `2 + 5 = 7`, **not** `< 1`. Unchanged. (The slide calls this out: "Vertex C unchanged since 2+5 > 1.")
-- `D`: `2 + 11 = 13 < ∞`. `distTo[D] = 13, edgeTo[D] = B→D`.
-- `E`: `2 + 3 = 5 < ∞`. `distTo[E] = 5, edgeTo[E] = B→E`.
-
-`Fringe: [(E: 5), (D: 13), (F: 16), (G: ∞)]`
-
-**Step 4, remove `E` (5).** Relax `E→C (1)`, `E→F (4)`, `E→G (5)`.
-- `C`: `5 + 1 = 6`, not `< 1`. Unchanged. This is the **invariant in action**: `C` was already visited, so no edge into it can ever help.
-- `F`: `5 + 4 = 9 < 16`. `distTo[F] = 9, edgeTo[F] = E→F`. (A real improvement over the `C→F` route.)
-- `G`: `5 + 5 = 10 < ∞`. `distTo[G] = 10, edgeTo[G] = E→G`.
-
-`Fringe: [(F: 9), (G: 10), (D: 13)]`
-
-**Step 5, remove `F` (9).** `F` has no outgoing edges. Nothing happens.
-`Fringe: [(G: 10), (D: 13)]`
-
-**Step 6, remove `G` (10).** Relax `G→D (1)` and `G→F (1)`.
-- `D`: `10 + 1 = 11 < 13`. `distTo[D] = 11, edgeTo[D] = G→D`. The 11-weight direct edge `B→D` loses to a four-edge detour.
-- `F`: `10 + 1 = 11`, not `< 9`. Unchanged (and `F` is already visited anyway).
-
-`Fringe: [(D: 11)]`
-
-**Step 7, remove `D` (11).** Relax `D→E (2)`: `11 + 2 = 13`, not `< 5`. Unchanged ("Vertex E unchanged since 11 + 2 > 5").
-
-`Fringe: []`. Done. Final tables match the SPT table in the Key Concepts section.
-
-**Removal order: `A, C, B, E, F, G, D`,** with distances `0, 1, 2, 5, 9, 10, 11`, monotonically increasing. That increasing sequence is the definition of closest-first order and a good self-check when you trace by hand. Observe also that `D` is removed *last* despite having a direct edge from `B`, and that the removal order is nothing like BFS order.
-
-### Example 5: A\* on the same graph (out of scope, for contrast)
-
-`s = A (0)`, `goal = G (6)`. The lecture's (arbitrary) heuristic is "the min weight edge out of each vertex":
-
-| v | A | B | C | D | E | F | G |
-|---|---|---|---|---|---|---|---|
-| `h(v, goal)` | 1 | 3 | 15 | 2 | 1 | ∞ | 0 |
-
-The only code change is in the priority:
-
-```java
-// Dijkstra's:  fringe.changePriority(w, distTo[w]);
-// A*:          fringe.changePriority(w, distTo[w] + h(w, goal));
-//
-// distTo and edgeTo still store TRUE distances. Only the ordering changes.
-while (fringe.size() > 0) {
-    int v = fringe.removeSmallest();
-    if (v == goal) {            // early exit: single target only
-        break;
-    }
-    relax(v);                   // relax uses distTo[w] + h(w, goal) as priority
-}
+```
+Fringe: [(C: 1), (B: 2), (D: ∞), (E: ∞), (F: ∞), (G: ∞)]
 ```
 
-Trace:
+**Step 2: remove C (dist 1), relax C's edges.**
+- `C->F`, weight 15: `1 + 15 = 16 < ∞`. Set `distTo[F] = 16`, `edgeTo[F] = C`.
+- Note the candidate is **16, not 15**: it is `distTo[C] + weight`, not just the weight.
 
-1. Remove `A` (priority `0 + 1 = 1`). `distTo[B] = 2` with priority `2 + 3 = 5`; `distTo[C] = 1` with priority `1 + 15 = 16`.
-   `Fringe: [(B: 5), (C: 16), (D: ∞), (E: ∞), (F: ∞), (G: ∞)]`
-   Note that `C` is nearer than `B` in true distance, but A\* deprioritizes it: `C`'s only way onward is a weight-15 edge, so it looks like a dead end.
-2. Remove `B` (5). `C`: `7 > 1`, no change. `distTo[D] = 13`, priority `13 + 2 = 15`. `distTo[E] = 5`, priority `5 + 1 = 6`.
-   `Fringe: [(E: 6), (D: 15), (C: 16), (F: ∞), (G: ∞)]`
-3. Remove `E` (6). `C`: `6 > 1`, no change. `distTo[F] = 9`, priority `9 + ∞ = ∞`. `distTo[G] = 10`, priority `10 + 0 = 10`.
-   `Fringe: [(G: 10), (D: 15), (C: 16), (F: ∞)]`
-4. The next vertex to be dequeued is `G`, our target, so **we are done.** Path: `A → B → E → G`, length 10.
+```
+Fringe: [(B: 2), (F: 16), (D: ∞), (E: ∞), (G: ∞)]
+```
 
-**Observations from the slides:** not every vertex got visited (`C`, `D`, `F` were never dequeued), and the result is **not** a correct SPT for `A` (the recorded path to `D` costs 13, but the true shortest is 11). Both are acceptable, because A\* only promises the path to the single goal.
+**Step 3: remove B (dist 2), relax B's edges.**
+- `B->E`, weight 3: `2 + 3 = 5 < ∞`. Set `distTo[E] = 5`, `edgeTo[E] = B`.
+- `B->D`, weight 11: `2 + 11 = 13 < ∞`. Set `distTo[D] = 13`, `edgeTo[D] = B`.
+- `B->C`, weight 5: `2 + 5 = 7`, but `distTo[C] = 1`. **Vertex C unchanged since 2 + 5 > 1.** C is already white (visited), so this relaxation was guaranteed to fail.
+
+| Node | distTo | edgeTo |
+|---|---|---|
+| A | 0 | - |
+| B | 2 | A |
+| C | 1 | A |
+| D | 13 | B |
+| E | 5 | B |
+| F | 16 | C |
+| G | ∞ | - |
+
+```
+Fringe: [(E: 5), (D: 13), (F: 16), (G: ∞)]
+```
+
+**Step 4: remove E (dist 5), relax E's edges.**
+- `E->F`, weight 4: `5 + 4 = 9 < 16`. Improve! `distTo[F] = 9`, `edgeTo[F] = E`. This is the moment the mountain-crossing route is abandoned.
+- `E->G`, weight 5: `5 + 5 = 10 < ∞`. Set `distTo[G] = 10`, `edgeTo[G] = E`.
+- `E->D`, weight 2: `5 + 2 = 7 < 13`. Improve to `distTo[D] = 7`, `edgeTo[D] = E`.
+- `E->C`: **unchanged since 5 + 1 > 1.**
+
+*(The slides' own trace keeps D at 13 at this point and later updates it to 11 via G. Following the slide's numbers exactly, D is 13 here; the slide's final answer is `distTo[D] = 11, edgeTo[D] = G`. Treat the slide table as authoritative for the final answer; the point of the step is the mechanics of relaxation. (extra context): with the edge weights as drawn, the `E->D` edge of weight 2 would in fact give D a distance of 7, so the printed trace and the printed final table are not fully consistent with each other. Exam questions will give you an unambiguous graph.)*
+
+```
+Fringe: [(F: 9), (G: 10), (D: 13)]
+```
+
+**Step 5: remove F (dist 9), relax F's edges.** `F->G`, weight 1: `9 + 1 = 10`, not `< 10`, so no change (a tie; leave it alone).
+
+```
+Fringe: [(G: 10), (D: 13)]
+```
+
+**Step 6: remove G (dist 10), relax G's edges.** `G->D`, weight 1: `10 + 1 = 11 < 13`. Improve! `distTo[D] = 11`, `edgeTo[D] = G`.
+
+```
+Fringe: [(D: 11)]
+```
+
+**Step 7: remove D (dist 11), relax D's edges.** `D->E`, weight 2: `11 + 2 = 13`, but `distTo[E] = 5`. **Vertex E unchanged since 11 + 2 > 5.** As the slide notes: with non-negative weights, it is impossible for any inactive vertex to be improved.
+
+```
+Fringe: []     <-- done
+```
+
+**Final result:**
+
+| v | distTo[] | edgeTo[] |
+|---|---|---|
+| A | 0.0 | - |
+| B | 2.0 | A→B |
+| C | 1.0 | A→C |
+| D | 11.0 | G→D |
+| E | 5.0 | B→E |
+| F | 9.0 | E→F |
+| G | 10.0 | E→G |
+
+Six edges for seven vertices, exactly `V - 1`, as predicted.
+
+**Reading a path out of `edgeTo`.** To recover the path to D, walk the `edgeTo` pointers backwards: `D <- G <- E <- B <- A`, then reverse: `A -> B -> E -> G -> D`. Verify: 2 + 3 + 5 + 1 = 11. This is the same backtracking you did for BFS in Lecture 22; only the contents of the arrays differ.
+
+### Example 4: A\* trace (extra, out of scope)
+
+Same graph, goal = G, with `h(A)=1, h(B)=3, h(C)=15, h(D)=2, h(E)=1, h(F)=∞, h(G)=0`.
+
+Priorities become `distTo[v] + h(v, G)`:
+
+- After relaxing A: `distTo[B] = 2` so B's priority is `2 + 3 = 5`; `distTo[C] = 1` so C's priority is `1 + 15 = 16`. Fringe: `[(B: 5), (C: 16), ...]`. **B comes out before C**, the opposite of Dijkstra's, because C's enormous heuristic marks it as a dead end.
+- Remove B, relax: `distTo[E] = 5` (priority `5 + 1 = 6`), `distTo[D] = 13` (priority `13 + 2 = 15`). Fringe: `[(E: 6), (D: 15), (C: 16), (F: ∞)]`.
+- Remove E, relax: `distTo[F] = 9`, `distTo[G] = 10` (priority `10 + 0 = 10`). Fringe: `[(G: 10), (D: 15), (C: 16), (F: ∞)]`.
+- The next vertex to be dequeued is the target G, **so we are done**.
+
+Observations: C and F were never visited; `distTo[D] = 13` is suboptimal (the true answer is 11), which is acceptable because only the path to G was ever requested.
 
 ---
 
 ## Common Pitfalls
 
-1. **Using BFS when edges have weights.** BFS minimizes hop count. The lecture's whole motivating example is a 2-hop 330 m route beating out a many-hop 130 m route. Conversely, remember the special case: if all weights are *equal*, Dijkstra's **is** BFS.
-2. **Confusing "fewest edges" with "shortest."** `A -> C -> F` has 2 edges and length 16; `A -> B -> E -> F` has 3 edges and length 9. The SPT is a tree of minimum *weight* paths, and there is no bound on how many edges a shortest path uses beyond `V - 1`.
-3. **Forgetting `distTo[s] = 0`.** If every entry including the source starts at ∞, every relaxation computes `∞ + weight` and nothing ever improves.
-4. **Forgetting `changePriority` after a successful relaxation.** The `distTo` arrays will be updated but the heap will hand you vertices in the wrong order, breaking closest-first and therefore correctness.
-5. **Relaxing a vertex more than once.** Dijkstra's relaxes each node **exactly once**. If you re-add visited vertices to the fringe you are doing extra work for nothing, since (with non-negative weights) a visited vertex can never be improved.
-6. **Expecting the direct edge to win.** In the demo, `B→D` has weight 11 and still loses to `A -> B -> E -> G -> D` at total 11... specifically, the direct route `A -> B -> D` costs 13 and loses. Do not assume a vertex's SPT parent is whatever neighbor discovered it first.
-7. **Thinking the SPT is unique.** With tied path weights there can be several valid SPTs. What *is* fixed is the number of edges (`V - 1`) and each `distTo` value.
-8. **Thinking the SPT edge count depends on `E`.** It is always `V - 1` (all vertices reachable), whether the graph is sparse or complete.
-9. **Assuming non-negative weights without saying so.** Both "shortest paths contain no cycles" and "visited vertices never improve" are stated in lecture *with the non-negative-weights caveat*. *(extra context: with a negative edge the invariant genuinely fails. Consider `A→B` weight 1, `A→C` weight 2, `C→B` weight -2. Dijkstra's dequeues `B` at 1 and finalizes it, missing the true distance of 0. That is what Bellman-Ford is for.)*
-10. **Mis-stating the runtime.** It is `O(E log V)`, not `O(V log V)` or `O(E log E)`. The `E log V` term comes from `changePriority`, not from the removals.
-11. **A\*: putting the heuristic into `distTo`.** `h` goes into the *priority* only. `distTo` and `edgeTo` must keep true distances, or the reported path lengths will be garbage.
-12. **A\*: recomputing or updating `h` during the run.** The slide is emphatic: `h(v, goal)` does not change as the algorithm runs.
-13. **A\*: assuming a bad heuristic only costs speed.** An overestimating heuristic can make A\* return a genuinely wrong path (the Illinois example). A zero or constant heuristic is the harmless case: it just reduces to Dijkstra's.
-14. **A\*: treating its output as an SPT.** It is not. It is a single path, and other vertices' recorded distances may be wrong.
+1. **Thinking BFS gives weighted shortest paths.** BFS minimizes the *number of edges*. Those are the same only when every edge has equal weight. (Correspondingly: Dijkstra's on an equal-weight graph degenerates to BFS.)
+
+2. **Relaxing with the edge weight instead of `distTo[v] + weight`.** In Step 2 above, F's new distance is 16, not 15. The candidate is always "distance to the tail, plus the edge."
+
+3. **Thinking the SPT edge count depends on `E`.** It is always `V - 1` for a connected graph with all vertices reachable, regardless of how many edges the graph has.
+
+4. **Confusing the SPT with the MST.** The lecturer caught himself saying "minimal spanning tree" and corrected to "shortest path tree." They are different objects, built by different algorithms, optimizing different things. The SPT depends on the source; the MST does not. (extra context: MSTs are the next lecture's topic.)
+
+5. **Confusing visitation order with path order.** Dijkstra's visits vastly more vertices than appear on any one shortest path. Which vertex you pop next is not the same as which vertex lies on the answer.
+
+6. **Applying Dijkstra's to graphs with negative edge weights.** The "already-visited vertices can never be improved" invariant depends on non-negativity. With a negative edge, Dijkstra's can finalize a vertex too early and return a wrong answer. Use Bellman-Ford instead.
+
+7. **Forgetting `changePriority`.** The pseudocode inserts every vertex up front at infinite priority and then *updates* priorities during relaxation. If your PQ cannot decrease a key, your runtime and your implementation both change. This operation is the source of the `E log V` term.
+
+8. **Re-relaxing a vertex after it is removed.** Each vertex is relaxed *exactly once*, when it is popped. Relaxing it again is wasted work (and on exam traces, leads to wrong tables).
+
+9. **Trying to make BFS work by subdividing weighted edges into unit edges.** It is correct but catastrophically wasteful in both time and memory, since the runtime is `O(V + E)` and you have just made `V` and `E` enormous.
+
+10. **The slide's `edgeTo[C] = A→B` typo.** On the single-source table, the lecture slide lists `edgeTo[C]` as `A→B` with `distTo[C] = 1.0`. The actual edge is `A→C` (weight 1). Do not be thrown by this; the slides carry a banner warning that they have not yet been updated for Fall 2026.
+
+11. **Assuming a bad A\* heuristic merely slows things down.** The midwest example shows that an inadmissible heuristic can make A\* return the **wrong** answer, not just a slower correct one.
+
+12. **Expecting A\* to produce an SPT.** It does not. It produces one path to one goal, and the other `distTo` entries may be suboptimal or never filled in.
 
 ---
 
 ## Likely Exam Points
 
-### 1. SPT edge count
+### 1. Trace Dijkstra's and fill in `distTo` / `edgeTo` / the fringe
 
-**Q.** If `G` is a connected edge-weighted graph with `V` vertices and `E` edges, and every vertex is reachable from `s`, how many edges are in the Shortest Paths Tree of `G`? Does the answer depend on `E`?
+The single most heavily tested item. Expect to be asked for the state after a specific number of `removeMin` operations.
 
-**A.** Exactly `V - 1`, independent of `E`. Each vertex has exactly one incoming SPT edge (the last edge of its shortest path) except the source, which has none. For the lecture's graph with `V = 7`, that is 6 edges.
+**Q.** Using the lecture graph (`A-B`=2, `A-C`=1, `B-C`=5, `B-D`=11, `B-E`=3, `C-F`=15, `E-F`=4, `E-G`=5, `F-G`=1, `G-D`=1), run Dijkstra's from A. After removing exactly three vertices from the fringe, what is `distTo[F]` and what is in the fringe?
 
-### 2. Order of removal from the priority queue
+**A.** The three removed are A (0), C (1), B (2). `distTo[F] = 16` with `edgeTo[F] = C`, since only `A->C->F` has been discovered so far. The fringe is `[(E: 5), (D: 13), (F: 16), (G: ∞)]`.
 
-**Q.** Run Dijkstra's from `A` on the lecture's graph (`A: B(2), C(1); B: C(5), D(11), E(3); C: F(15); D: E(2); E: C(1), F(4), G(5); G: D(1), F(1)`). List the vertices in the order they are removed from the fringe, with the `distTo` value at removal.
+### 2. SPT edge count
 
-**A.** `A(0), C(1), B(2), E(5), F(9), G(10), D(11)`. The values must be non-decreasing: that is the closest-first guarantee. (Note this differs from BFS order from `A`, which would be `A, B, C, D, E, ...`.)
+**Q.** A connected edge-weighted graph has `V = 100` vertices and `E = 4000` edges, with every vertex reachable from the source. How many edges are in the SPT?
 
-### 3. Filling in `distTo` / `edgeTo` after a relaxation
+**A.** 99, i.e. `V - 1`. Every vertex except the source has exactly one incoming edge in the tree. `E` is irrelevant.
 
-**Q.** Given `distTo = {A:0, B:8, C:13, D:40, E:16, F:3, G:∞}` and `edgeTo = {B: A→B, C: B→C, D: B→D, E: C→E, F: A→F}`, with `E`'s outgoing edges being `E→D (2)` and `E→G (2)`, show both arrays after `relax(E)`.
+### 3. Dijkstra's runtime, including where each term comes from
 
-**A.** `E→D`: `16 + 2 = 18 < 40`, so `distTo[D] = 18`, `edgeTo[D] = E→D`. `E→G`: `16 + 2 = 18 < ∞`, so `distTo[G] = 18`, `edgeTo[G] = E→G`. All other entries are unchanged. (`B→D` is now out of the tree.)
+**Q.** State Dijkstra's runtime with a binary-heap PQ on a connected graph, and justify each term.
 
-### 4. Runtime derivation
+**A.** `O(E log V)`. There are `V` `add` operations and `V` `removeSmallest` operations, each `O(log V)`, giving `O(V log V)` twice; and at most `E` `changePriority` operations at `O(log V)` each, giving `O(E log V)`. Since `E >= V - 1` for a connected graph, the `E log V` term dominates. Space is `Θ(V)` for `distTo` and `edgeTo`.
 
-**Q.** State Dijkstra's runtime with a binary heap PQ and justify each term.
+### 4. Why relaxing into an already-visited vertex always fails
 
-**A.** `V` `add` operations, `V` `removeSmallest` operations, and at most `E` `changePriority` operations, each `O(log V)`, giving `O(V log V + V log V + E log V)`. For a connected graph `E ≥ V - 1`, so this is `O(E log V)`. Space is `Θ(V)` for `distTo`, `edgeTo`, and the PQ. The `E` bound on `changePriority` holds because each edge is examined exactly once, when its source vertex is relaxed.
+**Q.** During Dijkstra's from A, we pop E (with `distTo[E] = 5`) and consider the edge `E -> C` of weight 1, where C was popped earlier with `distTo[C] = 1`. Without computing anything, explain why this relaxation cannot succeed.
 
-### 5. Can a finalized distance change?
+**A.** C was removed from the fringe before E, so C's final distance is at most E's: `distTo[C] <= distTo[E]`. Since edge weights are non-negative, any route through E to C costs `distTo[E] + w(E,C) >= distTo[E] >= distTo[C]`. So the candidate can never be strictly smaller. (Arithmetic check: `5 + 1 = 6 > 1`.) This invariant is the correctness argument for Dijkstra's.
 
-**Q.** True or false: in Dijkstra's on a graph with non-negative weights, `distTo[v]` can change after `v` has been removed from the priority queue. Justify.
+### 5. Why Dijkstra's needs non-negative weights
 
-**A.** False. If `v` was removed before `w`, then `distTo[v] ≤ distTo[w]`, so any edge `w → v` offers `distTo[w] + weight(w, v) ≥ distTo[w] ≥ distTo[v]`, which is never a strict improvement. This is the lecture's "relaxing an arrow pointing to an already-visited node NEVER works" invariant, and it is why Dijkstra's is correct. (It is exactly this step that requires non-negative weights.)
+**Q.** Does Dijkstra's always work on graphs with negative edge weights? What should you use instead?
 
-### 6. BFS as a special case
+**A.** No. The correctness invariant ("a vertex already removed from the fringe can never be improved") relies on non-negative weights; a negative edge can make a later-discovered vertex offer a cheaper route back to an already-finalized vertex. Use Bellman-Ford (relax all edges, repeat `V` times), which is slower but handles negative weights.
 
-**Q.** Under what condition is Dijkstra's algorithm equivalent to breadth first search?
+### 6. Edge/node relaxation mechanics
 
-**A.** When all edge weights are equal (in particular, all 1). Then "closest first" and "fewest edges first" are the same ordering, and the priority queue behaves like a FIFO queue.
+**Q.** `distTo[B] = 8`, `distTo[D] = 40` with `edgeTo[D] = B`, `distTo[E] = 16`, and there is an edge `E -> D` of weight 2. What happens when we relax node E?
 
-### 7. Structure of a shortest path
+**A.** We check all of E's outgoing edges. For `E -> D`: `distTo[E] + 2 = 18 < 40`, so we improve, setting `distTo[D] = 18` and `edgeTo[D] = E→D`. (Each of E's other outgoing edges is tested the same way; this is exactly the lecture's node-relaxation example.)
 
-**Q.** True or false, with non-negative weights: a shortest path may contain a cycle.
+### 7. BFS vs. Dijkstra's vs. weighted shortest paths
 
-**A.** False (or more precisely, there is always a shortest path without one). Removing a cycle from a path leaves a valid path whose weight is no larger, so a simple path always achieves the minimum. This is why the solution to the single-source problem is a *tree*.
+**Q.** Give a graph where BFS from `s` returns a path to `t` that is not a weighted shortest path, and explain why.
 
-### 8. Relaxation semantics
+**A.** The lecture's Hearst Mining example: a 2-edge route of 260 m + 70 m = 330 m versus a many-edge route totaling ~130 m. BFS minimizes edge count, which ignores weights entirely. Any graph where a short hop-count route uses expensive edges works.
 
-**Q.** Define `relax(E)` and `relax(v)` in one line each.
+### 8. Reconstructing a path from `edgeTo`
 
-**A.** `relax(E)`: if edge `E = v→w` is better, use it instead, i.e. if `distTo[v] + weight(v,w) < distTo[w]`, update `distTo[w]` and `edgeTo[w]`. `relax(v)`: relax all of `v`'s outgoing edges.
+**Q.** Given `edgeTo[D] = G`, `edgeTo[G] = E`, `edgeTo[E] = B`, `edgeTo[B] = A`, `edgeTo[A] = -`, what is the shortest path from A to D?
 
-### 9. Fringe data structures
+**A.** Walk backwards from D: `D, G, E, B, A`, then reverse: `A -> B -> E -> G -> D`. Its length is `distTo[D]`.
 
-**Q.** DFS, BFS, and Dijkstra's are the same traversal skeleton with different fringes. Name the fringe for each and the resulting visit order.
+### 9. Fringe data structures across traversals
 
-**A.** DFS: stack (implicit, via recursion), depth first order. BFS: queue, breadth first order. Dijkstra's: priority queue keyed on `distTo`, closest first order.
+**Q.** Fill in the fringe data structure for DFS, BFS, and Dijkstra's.
 
-### 10. A\* heuristic quality (flagged out of scope, but the slides define the terms, and they say you may be asked if the exam defines them)
+**A.** DFS: stack (usually implicit via recursion on the call stack). BFS: queue. Dijkstra's: priority queue. All three are the same frontier-expansion algorithm with a different fringe.
 
-**Q.** For A\* searching Denver to NYC, describe what happens if (a) `h(v, goal) = 0` for all `v`, (b) `h(v, goal) = 10000` for all `v`, (c) `h(Chicago, goal) = h(Indianapolis, goal) = 100000` while other estimates are accurate.
+### 10. A\* heuristic behavior (extra, flagged out of scope; include only if the exam defines the terms)
 
-**A.** (a) A\* degenerates to Dijkstra's: priorities are just `distTo`. (b) Also Dijkstra's: adding the same constant to every priority does not change the relative ordering. (c) **Incorrect output.** The heuristic grossly overestimates (it is inadmissible and inconsistent), so A\* dodges Illinois and Indiana and may return a non-shortest route. A bad heuristic is a correctness problem, not just a speed problem.
+**Q.** What happens to A\* if `h(v, goal) = 0` for every `v`? What if `h(v, goal) = 10000` for every `v`?
 
-### 11. Single-target behavior
-
-**Q.** Why is Dijkstra's a poor choice for a single-source single-target navigation app, and what does A\* give up in exchange for speed?
-
-**A.** Dijkstra's explores in uniform expanding rings, so going Denver to NYC it examines nearly everything within thousands of miles of Denver before reaching the target. A\* biases the search toward the goal using `h`, stopping when the goal is dequeued. In exchange, it no longer produces a correct SPT for the other vertices (in the demo, `distTo[D]` ends up at 13 instead of 11), and its correctness now depends on the heuristic being well behaved.
+**A.** Both reduce to Dijkstra's algorithm. With `h = 0` the priority is just `distTo`. With a constant `h`, every priority is shifted by the same amount, so the relative ordering, and therefore the visitation order, is unchanged.
 
 ---
 
 ## Summary
 
-- **BFS is the wrong algorithm for weighted graphs.** It minimizes number of edges, not total weight. Mapping example: BFS returns ~330 m where ~130 m exists.
-- **DFS vs BFS recap:** both correct and both `O(V+E)` time; BFS additionally guarantees fewest edges; DFS is bad on spindly graphs (deep call stack), BFS is bad on bushy graphs (huge queue); both are `Θ(V)` space anyway because of `distTo` and `edgeTo`.
-- **The goal is the Shortest Paths Tree (SPT)**, the union of the shortest paths from `s` to every vertex. With non-negative weights, shortest paths have no cycles, the solution is always a tree, and it has exactly **`V - 1` edges** (one incoming edge per vertex, none for the source).
-- **Representation:** `distTo[v]` (best known weight, init `0` for `s` and `∞` elsewhere) and `edgeTo[v]` (predecessor). Following `edgeTo` backwards reconstructs the path.
-- **Relaxation is the universal improvement step.** `relax(E)`: if the edge is better, use it. `relax(v)`: relax all outgoing edges of `v`. Algorithms start from an incorrect SPT and relax until it is correct (Bellman-Ford 1955, Dijkstra 1956, Duan-Mao et al. 2025).
-- **Dijkstra's algorithm** = BFS with a **priority queue** fringe: add all vertices at priority ∞ (source at 0), then repeatedly `removeMin()` and relax that node. Each node is relaxed exactly once, in **closest-first** order.
-- **Correctness invariant:** once a vertex leaves the PQ, its `distTo` is final, because any edge into an already-visited vertex satisfies `distTo[v] + weight ≥ distTo[v] ≥ distTo[w]` when weights are non-negative.
-- **Runtime:** `V` adds + `V` removeSmallests + `E` changePriorities, each `O(log V)`, so **`O(E log V)`** time and `Θ(V)` space for a connected graph.
-- **Demo takeaways:** removal order `A, C, B, E, F, G, D` with non-decreasing distances; a direct heavy edge (`B→D`, 11) can lose to a long light detour (`A -> B -> E -> G -> D`, 11 total); and relaxations into visited vertices (`2+5 > 1`, `5+1 > 1`, `11+2 > 5`) always fail.
-- **A\* (out of scope):** order by `distTo[v] + h(v, goal)` and stop when the goal is dequeued. Faster for single-target queries, visits fewer vertices, but produces only one correct path, not an SPT. `h` is fixed during the run; `h = 0` or any constant reduces A\* to Dijkstra's; an overestimating heuristic can make A\* **wrong**. Admissibility and consistency are the sufficient conditions (CS188 material).
-- If all edge weights are equal, **Dijkstra's is just BFS**.
+- **BFS finds fewest-edge paths, not shortest-weight paths.** On an edge-weighted graph (Google Maps style) that gives wrong routes, e.g. 330 m instead of 130 m. Subdividing edges into unit edges "works" but blows up `V` and `E`.
+- **Single source, single target**: with non-negative weights, the answer is always a simple path (no cycles).
+- **Single source, all targets**: the answer is always a **Shortest Paths Tree**, with exactly **`V - 1` edges** (one incoming edge per vertex, none for the source). Shortest paths share prefixes, which is why the solution is a tree and not a tangle.
+- **Represent the answer** with two arrays: `distTo[v]` (best known total weight) and `edgeTo[v]` (last edge into `v`).
+- **Edge relaxation** `relax(E)`: if `distTo[v] + weight < distTo[w]`, update `distTo[w]` and `edgeTo[w]`. **Node relaxation** `relax(v)`: relax all of `v`'s outgoing edges.
+- **General recipe**: start from an incorrect SPT, relax until correct. Bellman-Ford (1955) relaxes all edges `V` times, handles negative weights. Dijkstra's (1956) relaxes each node once in closest-first order. Duan-Mao et al. (2025) relaxes in batches.
+- **Dijkstra's**: add all vertices to a PQ with infinite priority (source at 0); repeatedly `removeMin` and relax that node. The PQ is the fringe that produces **Closest First** order.
+- **Correctness invariant**: with non-negative weights, relaxing into an already-removed (white) vertex can never succeed, because that vertex was already closer. This fails with negative weights, which is why Dijkstra's requires non-negative weights.
+- **Runtime**: `V` adds + `V` removeMins + `E` changePrioritys, each `O(log V)` with a binary heap, giving `O(E log V)` on a connected graph, `Θ(V)` space.
+- **DFS / BFS / Dijkstra's are the same frontier algorithm** with a stack / queue / priority queue respectively.
+- **A\* (extra, out of scope)**: prioritize by `distTo[v] + h(v, goal)` to attack the single-target problem. Visits far fewer vertices, does not produce a valid SPT, and a bad heuristic makes it *wrong*, not just slow. Constant or zero heuristics reduce it to Dijkstra's. Admissibility and consistency (CS 188 topics) are sufficient conditions for correctness.
+
+| Problem | Solution | Efficiency |
+|---|---|---|
+| paths | `DepthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
+| shortest paths (fewest edges) | `BreadthFirstPaths.java` | `O(V+E)` time, `Θ(V)` space |
+| shortest weighted paths, all targets | `DijkstrasSP.java` | `O(E log V)` time, `Θ(V)` space |
+| shortest weighted path, single target *(out of scope)* | A\*: Dijkstra's with `h(v, goal)` added to each priority | depends on heuristic; `Θ(V)` space |
