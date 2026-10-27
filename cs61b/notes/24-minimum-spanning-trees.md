@@ -1,238 +1,280 @@
-<!-- Wed, Oct 21, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Wed, Oct 21, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 24: Minimum Spanning Trees
 
-This lecture shifts from shortest paths (one source, cheapest route to everything) to a source-free problem: given an undirected, edge-weighted graph, find the cheapest set of edges that keeps every vertex connected. That object is a *minimum spanning tree* (MST). The central theoretical tool is the **cut property**: for any way of splitting the vertices into two non-empty groups, the minimum-weight edge crossing between them must belong to the MST. From that single fact you get a generic MST algorithm (repeatedly find a cut with no MST edges crossing it, add the cheapest crossing edge, stop at V-1 edges), and both algorithms in this lecture are just clever ways of choosing those cuts. **Prim's algorithm** grows one tree outward from an arbitrary start vertex, always absorbing the cheapest edge leaving the tree, and is implementationally almost identical to Dijkstra's (O(E log V) with a binary-heap priority queue). **Kruskal's algorithm** instead sorts all edges and greedily adds any edge that does not create a cycle, using a weighted quick union with path compression to test for cycles, giving O(E log E), or O(E log* V) if the edges arrive pre-sorted. The lecture also carefully separates MSTs from shortest paths trees: an SPT depends on a start vertex, an MST does not, and there are graphs where no vertex's SPT is an MST.
+## Overview
+
+This lecture moves from shortest paths to a different graph optimization problem: given a connected, undirected, weighted graph, find the cheapest set of edges that keeps everything connected. That object is a **minimum spanning tree (MST)**: a subgraph that is connected, acyclic, and touches every vertex, with minimum total edge weight. The entire lecture is built on one idea, the **cut property**: for any split of the vertices into two non-empty sets, the minimum-weight edge crossing that split must be in the MST. From the cut property we get a generic (but impractical) MST algorithm, and then two efficient specializations of it: **Prim's algorithm**, which grows a single tree outward and is essentially Dijkstra's with "distance from the tree" replacing "distance from the source" (O(E log V) with a priority queue), and **Kruskal's algorithm**, which sorts all edges and greedily adds any edge that does not create a cycle, using a weighted quick union with path compression to detect cycles (O(E log E), or O(E log* V) if the edges arrive pre-sorted). The lecture opens with a warm-up on cycle detection, which is exactly the subroutine Kruskal's needs.
 
 ---
 
 ## Key Concepts
 
-### Warm-up: cycle detection in an undirected graph
+### 1. Warm-up: detecting a cycle in an undirected graph
 
-Before MSTs, the lecture warms up with: given an undirected graph, does it contain a cycle? Two approaches, both reusing machinery from earlier in the course.
+Before MSTs, the lecture asks: given a connected undirected graph, how do you tell whether it contains a cycle? Two answers, both using tools already covered in the course.
 
-**Approach 1: DFS.** Start a DFS from an arbitrary vertex and keep going until you reach a vertex that is already marked. If you reach a marked vertex, you have found a second route to it, i.e. a cycle.
+**Approach 1: DFS with marking.** Do DFS from an arbitrary vertex. If you ever reach a vertex that is already marked, you have found a cycle. There is one subtlety the lecture flags explicitly: when DFS is at `B` and looks back at its parent `A`, `A` is marked, but that is not a cycle. The fix is to not count the node you came from.
 
-The subtlety: in an *undirected* graph, every edge looks like a 2-cycle. If you walk A to B, then from B you immediately see A, which is marked, and you would wrongly declare a cycle. The fix is simple: **do not count the node you came from.** Track the parent of each DFS call and skip it.
+Runtime: DFS is O(V + E) in general, but here we can tighten it to **O(V)**. The reasoning given in lecture: a tree (connected, acyclic) has exactly V - 1 edges, and there is no graph with V or more edges that is acyclic. So we never need to examine more than V edges before either finishing or finding a cycle. E is bounded by V for this procedure, so O(V + E) collapses to O(V).
 
-Runtime: O(V + E) in the worst case. The slides note a tighter bound of O(V): if the graph has more than V-1 edges it must already contain a cycle, so you can stop after examining at most V edges. Hence the number of edges you actually inspect is O(V), and O(V + E) collapses to O(V).
+**Approach 2: WeightedQuickUnionUF (disjoint sets).** Start with every vertex in its own set. For each edge `v-w`:
+- If `connected(v, w)` is already true, then `v` and `w` are already joined through other edges, so adding this edge closes a cycle: return true.
+- Otherwise, `union(v, w)`.
 
-*(extra context)* Precisely: a connected acyclic graph on V vertices has exactly V-1 edges, so once the count of examined edges reaches V you can return `true` immediately without looking further.
+The crucial distinction the lecture hammers on: "connected" here does **not** mean "there is an edge between them in the graph." It means "we have already unioned them into the same set." An edge can exist in the graph while its endpoints are still separate islands in the disjoint-set structure.
 
-**Approach 2: Disjoint sets (`WeightedQuickUnionUF`).** Walk through the edges one at a time. For each edge v-w:
-- if `connected(v, w)` is already true, then v and w were joined by some earlier path, so adding this edge closes a cycle: return `true`;
-- otherwise `union(v, w)` and continue.
+Walking the lecture's example graph (vertices A, B, C, D, E, F, G): check A-C (not yet unioned, so union them); check E-F (not unioned, union); check F-G (G is new to the component, union, so now {E, F, G} are one set); check E-G (already in the same set, so return true: cycle).
 
-Runtime: O(V + E·α(V)) with path compression, where α is the inverse Ackermann function from the disjoint sets lecture. By the same edge-counting argument, this simplifies to O(V·α(V)).
+Runtime: O(V + E·α(V)) with path compression, where α is the inverse Ackermann function from the Disjoint Sets lecture, simplifying to O(V·α(V)) by the same V - 1 edge argument.
 
-This second approach is worth internalizing, because **it is exactly the cycle test inside Kruskal's algorithm.**
+**Why bother with the slower one?** The lecture answers this at the very end. DFS is faster for a one-shot cycle check on a single fixed graph. But Kruskal's algorithm needs to repeatedly ask "would adding this edge create a cycle?" as a growing collection of components merges. Rerunning DFS from scratch every time is wasteful; the disjoint-set structure *remembers* the component structure across queries. That is why WQU, not DFS, is the subroutine inside Kruskal's.
 
-### Spanning trees
+### 2. Spanning trees and minimum spanning trees
 
-Given an undirected graph G, a subgraph T is a **spanning tree** when three things hold:
+Informally: a spanning tree is a subgraph that is a tree and that touches every single vertex. A minimum spanning tree is the spanning tree whose edge weights sum to the smallest possible total.
 
-1. T is connected,
-2. T is acyclic (1 and 2 together make it a *tree*),
-3. T includes all of G's vertices (this makes it *spanning*).
+The lecture builds this up by rejecting candidates. Three properties must all hold, and each failure mode was demonstrated:
 
-A **minimum spanning tree** is a spanning tree of minimum total weight (sum of its edge weights). The motivating example on the slides: a network of power lines connecting a set of buildings. You need every building reachable (spanning, connected), you gain nothing from redundant loops (acyclic), and you want to minimize total cable laid (minimum weight).
+- **Includes all vertices (spanning).** A candidate that left out vertex F was rejected: "it's not even spanning." How close to minimum it is becomes irrelevant.
+- **Acyclic.** A candidate containing the cycle A-B-E-C was rejected: trees do not have cycles.
+- **Connected.** A candidate that split into pieces was rejected.
+- **Minimum weight.** A candidate that was a genuine spanning tree but used the weight-15 and weight-11 edges was rejected for not being minimum. The lecture noted these were "pretty serious options," meaning the tree was valid but expensive.
 
-Two consequences worth keeping in your head:
-- A spanning tree on V vertices always has exactly **V-1 edges.** This is why every algorithm below has "repeat until V-1 edges" as its stopping condition.
-- A spanning tree exists only if G is connected. *(extra context)* If G is disconnected you instead get a minimum spanning *forest*, one tree per connected component; the lecture's algorithms both naturally produce this if you let them run out of usable edges.
+The clicker question (three candidate subgraphs, answer: only #3) tested exactly these three rejections: #1 fails connectedness, #2 contains a cycle, #3 is a spanning tree.
 
-A common error is to call a subgraph a spanning tree when it misses a vertex, or when it is a tree but leaves the graph disconnected. The "Which are Spanning Trees?" poll on the slides is testing exactly this: check all three properties, every time.
+### 3. Intuition for greed: the lightest edge at a vertex
 
-### Applications
+Before the formal cut property, the lecture asked: looking at vertex F, which edge do we know belongs in the MST? Answer: the weight-1 edge F-G, the lightest edge touching F.
 
-The slides mention old-school handwriting recognition and medical imaging (for example, characterizing the arrangement of nuclei in cancer cells), and point at Eppstein's MST applications page (`http://www.ics.uci.edu/~eppstein/gina/mst.html`) for more.
+The informal argument given: F has to be connected somehow. If a spanning tree reached F only through the heavier edges, you could delete one of those heavier edges and substitute the weight-1 edge, which still connects F, producing a cheaper spanning tree. So greed works here. The cut property generalizes this from "edges at a single vertex" to "edges crossing any split at all."
 
-### MST vs. shortest paths tree (SPT)
+### 4. The cut property
 
-*(The slides mark this section as "covered in the web videos, but we won't cover them live." It is still fair game conceptually, and it is a classic exam trap, so study it.)*
+**A cut** is an assignment of a graph's nodes to two non-empty sets. The lecture stressed that a cut is *just a coloring*: the two sets do **not** have to be geometrically grouped, left/right, or contiguous in any way. Any partition into two non-empty groups is a legal cut.
 
-The structural difference:
+**A crossing edge** is an edge connecting a node in one set to a node in the other.
 
-- A **shortest paths tree depends on the start vertex**, because its job is to tell you how to get from *that source* to everything else. Change the source, change the tree.
-- An **MST has no source.** It is a property of the graph alone.
+**Cut property:** given any cut, the minimum-weight crossing edge is in the MST. The lecture added the stronger statement: if there are multiple MSTs, that minimum crossing edge is in *every* one of them. For the rest of the lecture, assume edge weights are unique (this makes the MST unique and the argument clean; the lecture noted non-unique weights appear in practice and are fine, just messier to reason about).
 
-So the two are different kinds of object. Nonetheless, an MST sometimes *happens* to coincide with the SPT of some particular vertex.
+### 5. Cut property in action
 
-The lecture's small example is a 4-vertex graph with edges A-B (weight 2), B-C (weight 2), C-D (weight 2), and A-D (weight 3). The MST takes the three weight-2 edges (total 6) and drops A-D. Is that tree an SPT?
-
-- From **D**: it does not work. In the tree, D must reach A via D-C-B-A for cost 6, but the direct edge A-D costs 3. An SPT rooted at D would use A-D.
-- From **B**: it does work, and the SPT from B is exactly the MST.
-- From A, from C: those SPTs include the A-D edge, so they differ from the MST.
-
-The deeper point is captured by the second example: the "ladder" graph with two weight-2 rungs in the middle and weight-1 edges elsewhere (two hub vertices labeled 0 on the far left and far right, with parallel top and bottom chains). Here the answer is **no vertex's SPT is the MST**:
-
-- the MST needs only **2** of the weight-2 edges,
-- but any SPT includes **at least 3** of the weight-2 edges.
-
-Why, intuitively: the MST only has to connect the two halves of the ladder, and crossing the weight-2 middle region cheaply once (plus whatever is forced) suffices. An SPT must give *every* vertex its own shortest route back to the source, and vertices on the far side of the middle each demand an individually short crossing, which forces extra weight-2 edges into the tree. So minimizing *total* weight and minimizing *each individual distance to a source* are genuinely different objectives.
-
-### The cut property (the key tool)
-
-Two definitions first:
-
-- A **cut** is an assignment of a graph's nodes to two non-empty sets.
-- A **crossing edge** is an edge connecting a node in one set to a node in the other.
-
-> **Cut property:** Given any cut, the minimum-weight crossing edge is in the MST.
-
-For the rest of the lecture, **edge weights are assumed unique.** This makes "the MST" well defined and makes "the minimum crossing edge" unambiguous.
-
-**Worked instance from the slides.** Take the standard 8-vertex weighted graph with edge list:
+The lecture's clicker example: a graph on vertices 0-7 with a sorted edge list, cut = {2, 3, 5, 6} versus {0, 1, 4, 7}.
 
 ```
-0-7 0.16    5-7 0.28    4-5 0.35    6-2 0.40
-2-3 0.17    1-3 0.29    1-2 0.36    3-6 0.52
-1-7 0.19    1-5 0.32    4-7 0.37    6-0 0.58
-0-2 0.26    2-7 0.34    0-4 0.38    6-4 0.93
+0-7  0.16     5-7  0.28     4-5  0.35     6-2  0.40
+2-3  0.17     1-3  0.29     1-2  0.36     3-6  0.52
+1-7  0.19     1-5  0.32     4-7  0.37     6-0  0.58
+0-2  0.26     2-7  0.34     0-4  0.38     6-4  0.93
 ```
 
-Consider the cut that puts {2, 3, 5, 6} on one side and {0, 1, 4, 7} on the other. The crossing edges are those with exactly one endpoint in {2,3,5,6}: 0-2 (0.26), 5-7 (0.28), 1-3 (0.29), 1-5 (0.32), 2-7 (0.34), 1-2 (0.36), 4-5 (0.35), 6-2 is internal (both 6 and 2 are inside, so not crossing), 2-3 internal, 3-6 internal, 6-0 (0.58), 6-4 (0.93), 0-4 is internal to the other side, 0-7 internal, 1-7 internal, 4-7 internal.
+Scan the sorted list top to bottom and take the first edge that actually crosses:
+- `0-7` (0.16): both 0 and 7 are in the second set. Does not cross. (The lecture used this to make the point that the globally lightest edge need not cross a given cut.)
+- `2-3` (0.17): both in {2,3,5,6}. Does not cross.
+- `1-7` (0.19): both in the second set. Does not cross.
+- `0-2` (0.26): 0 is outside, 2 is inside. **Crosses.**
 
-The minimum crossing edge is **0-2 at 0.26**, so **0-2 must be part of the MST.** Note how to do this mechanically: scan the edge list in increasing weight order and return the first edge whose two endpoints land on opposite sides of the cut. Since the list is already sorted, 0-7 (both outside) fails, 2-3 (both inside) fails, 1-7 (both outside) fails, 0-2 succeeds. Done.
+Answer: **0-2**, and because the list is sorted, 0-2 is the minimum-weight crossing edge, so it must be in the MST.
 
-**Proof of the cut property (exchange argument).** Let X be the MST, and suppose the minimum crossing edge e is *not* in X.
+### 6. Why the cut property is true (proof by contradiction)
 
-1. X is a spanning tree, so it already connects e's two endpoints. Adding e to X therefore creates a cycle.
-2. That cycle starts on one side of the cut and returns, so some *other* edge f in X on that cycle must also be a crossing edge.
-3. Since e is the *minimum* crossing edge and weights are unique, weight(e) < weight(f). Remove f and add e: you still have a spanning tree (removing an edge from a cycle cannot disconnect anything), and its total weight is strictly lower.
-4. That contradicts X being minimum. Contradiction, so e is in the MST. ∎
+Let X be an MST. Suppose the minimum-weight crossing edge `e` for some cut is **not** in X.
 
-Note where uniqueness is used: step 3 needs a *strict* inequality. *(extra context)* With ties, the honest statement is that the minimum crossing edge is in *some* MST, and both Prim's and Kruskal's still produce a valid MST; they just may produce different ones depending on tie-breaking.
+1. Adding `e` to X creates a cycle (X is spanning and connected, so there is already a path between `e`'s endpoints).
+2. Since `e`'s endpoints are on opposite sides of the cut, that cycle must cross the cut again. So some other edge `f` in X is also a crossing edge and lies on the cycle.
+3. Because `e` is the *minimum* crossing edge and weights are unique, weight(`e`) < weight(`f`).
+4. Remove `f`, add `e`. The result is still spanning (removing `f` from the cycle cannot disconnect anything; `e` still bridges the two sides) and has strictly lower total weight.
+5. That contradicts X being minimum.
 
-### The generic MST algorithm
+The lecture's informal gloss: "if F costs more than E, then remove F, and E still connects the two sides." Same substitution argument as the single-vertex intuition, generalized.
 
-The cut property immediately yields a template:
+### 7. Generic MST algorithm (and why it is impractical)
 
 ```
 Start with no edges in the MST.
-  - Find a cut that has no crossing edges currently in the MST.
-  - Add the smallest crossing edge of that cut to the MST.
-  - Repeat until V-1 edges.
+Repeat until V - 1 edges:
+    Find a cut that has no crossing edges currently in the MST.
+    Add the smallest crossing edge of that cut to the MST.
 ```
 
-The "no crossing edges in the MST yet" condition matters: it guarantees the cheapest crossing edge is a *new* edge you have not already committed to, and that adding it cannot create a cycle.
+This is correct, but it needs a way to *find* a useful cut. Picking cuts randomly is a bad idea: with V vertices there are on the order of 2^V cuts, exponentially many, and you would keep rediscovering edges you already have. Prim's and Kruskal's are both this generic algorithm with a clever, cheap rule for choosing the cut.
 
-The slides are blunt about the catch: this works, but **we need some way of finding such a cut, and picking randomly is not a good idea.** Prim's and Kruskal's are two systematic answers to "which cut?", and that is precisely why each one's correctness argument is just "it is a special case of the generic algorithm."
-
-### Prim's algorithm
-
-**Conceptual version:**
+### 8. Prim's algorithm (conceptual version)
 
 ```
 Start from some arbitrary start node.
-  - Repeatedly add the shortest edge that has exactly one node inside
+Repeatedly add the shortest edge that has exactly one endpoint inside
     the MST under construction.
-  - Repeat until V-1 edges.
+Repeat until V - 1 edges.
 ```
 
-**Why it works, via the cut property.** At every step, define the cut as:
-- one side: everything currently connected to the start vertex (the tree so far, "white" vertices on the slides),
-- other side: everything not yet connected to the start ("green" vertices).
+**Why it is correct:** it is the generic algorithm with the cut always chosen as *(vertices already in the tree) vs. (everything else)*. In the lecture's coloring, white vertices are everything connected to the start so far and green vertices are everything not yet connected. Every step adds the minimum-weight white-to-green edge, which is the minimum crossing edge of that cut, so the cut property guarantees it belongs in the MST. No crossing edge is already in the tree, by construction, so the cut is always a legal choice for the generic algorithm.
 
-No MST edge crosses this cut by construction (every committed edge has both endpoints in the tree). Prim's always adds the smallest-weight edge connecting white to green, which is exactly the minimum crossing edge of that cut. By the cut property it belongs to the MST. So Prim's is a special case of the generic algorithm.
+**The lecture's trace** on the graph with start A (edges: A-B 2, A-C 1, B-C 3, B-D 11, B-E 5, C-E 1, C-F 15, D-E 2, D-G 1, E-F 4, E-G 3, F-G 1):
 
-**Why the naive implementation is slow.** The conceptual version says "look at all edges leaving the tree and pick the smallest." Re-scanning all of those edges from scratch on every one of the V-1 iterations is wasteful: most of them were already examined and already lost. The lecture's example graph for this (start vertex A):
+| Step | Tree so far | Candidate crossing edges | Chosen |
+|---|---|---|---|
+| 1 | {A} | A-B (2), A-C (1) | **A-C (1)** |
+| 2 | {A, C} | A-B (2), B-C (3), C-E (1), C-F (15) | **C-E (1)** |
+| 3 | {A, C, E} | A-B (2), B-C (3), B-E (5), D-E (2), E-F (4), E-G (3), C-F (15) | tie at 2: **A-B** or **D-E** (lecture took A-B; "it doesn't matter, any of them could work") |
+| 4 | {A, B, C, E} | includes B-D (11), D-E (2), E-G (3), ... | **D-E (2)** |
+| 5 | {A, B, C, D, E} | D-G (1), E-G (3), E-F (4), F-G (1), ... | **D-G (1)** |
+| 6 | {A, B, C, D, E, G} | F-G (1), E-F (4), C-F (15) | **F-G (1)** |
 
-```
-A-B 2, A-C 1, B-C 3 (or similar middle structure), B-D 11, B-E 5,
-C-E 1, C-F 15, D-E 2, D-G 1, E-F 4, E-G 3, F-G 1
-```
+Six edges for seven vertices: V - 1, done. The lecture explicitly flagged the tie in step 3 as a real tie with two valid choices (a consequence of weights not being unique in this particular example).
 
-(The exact edge set is partly obscured by the PDF extraction; the edge weights visible on the slide are 11, 1, 2, 2, 3, 5, 2, 3, 1, 1, 4, 1, 15. Use the structure, not the precise layout.)
+**Why the naive version is slow:** at each step you iterate over *all* edges leaving the tree (the "magenta" edges in the slides). As the tree grows, that set approaches the whole edge set, and you re-examine the same edges over and over. The lecture: "at some point we almost get the entire graph... that's a lot of edges to just loop through."
 
-**Optimized version:** maintain a priority queue of vertices, keyed by the *best known edge weight connecting that vertex to the tree*. The slides describe it as "very similar to Dijkstra's," and that is the single most useful thing to remember.
+### 9. Optimized Prim's: Prim's is Dijkstra's with a different distance
 
-### Prim's vs. Dijkstra's
+This is the central comparison of the lecture.
 
-> Prim's and Dijkstra's algorithms are exactly the same, except Dijkstra's considers "distance from the source" and Prim's considers "distance from the tree."
+> **Prim's and Dijkstra's are exactly the same algorithm, except Dijkstra's considers "distance from the source" and Prim's considers "distance from the tree."**
 
-Side by side:
+- **Visit order.** Dijkstra's visits vertices in order of distance from the source. Prim's visits vertices in order of distance from the MST under construction.
+- **Relaxation.** Dijkstra's relaxation judges an edge by the resulting distance *to the source*. Prim's judges an edge by its own weight, that is, the distance *to the tree*.
 
-| | Dijkstra's | Prim's |
-|---|---|---|
-| Visit order | vertices in order of distance from the source | vertices in order of distance from the MST under construction |
-| Relaxation test | is this edge better *based on distance to source*? i.e. `distTo[v] + e.weight() < distTo[w]` | is this edge better *based on distance to tree*? i.e. `e.weight() < distTo[w]` |
-| `distTo[w]` means | length of best known path from s to w | weight of best known single edge from the tree to w |
-| Output | shortest paths tree from s | minimum spanning tree |
+Concretely: `distTo[w]` in Dijkstra's is `distTo[v] + e.weight()`. In Prim's it is just `e.weight()`. The lecture made this vivid with the C-F edge of weight 15, reached from C which is at distance 1 from A: Dijkstra's would record **16** for F (1 + 15), while Prim's records **15**, because Prim's does not care about any particular source, only "how far is this vertex from the tree."
 
-Everything else (the fringe as a priority queue of vertices, `delMin`, `marked[]`, `edgeTo[]`, `decreasePriority`) is identical. In Dijkstra's the relaxation accumulates path length; in Prim's it does not accumulate at all, because "distance to the tree" is just the weight of one edge.
+**The lecture's optimized trace** (same graph, start A):
 
-### Kruskal's algorithm
+1. Set `distTo[A] = 0`, every other `distTo = infinity`, insert all vertices into the PQ. A is at the front.
+2. **delMin A.** Scan A's edges: `distTo[B] = 2`, `edgeTo[B] = A-B`; `distTo[C] = 1`, `edgeTo[C] = A-C`. C jumps the queue. Nothing is committed yet; commitment happens only on delMin.
+3. **delMin C.** Commit A-C. Scan C's edges: B-C has weight 3, but `distTo[B]` is already 2, so no update ("B is in the queue, so we don't need to update its priority": this is exactly where the optimized version saves work over naive Prim's, which would re-examine that edge every round). Then `distTo[E] = 1` via C-E, and `distTo[F] = 15` via C-F.
+4. **delMin E.** Commit C-E. Scan E's edges: `distTo[D] = 2` (D-E), `distTo[G] = 3` (E-G), `distTo[F] = 4` (E-F, which beats the previous 15, so update). B-E has weight 5, worse than B's current 2, so no update.
+5. Continue delMin-ing. The next minimum is a 2 (either A-B or D-E). The lecture noted that the PQ version happened to pop a different one of the tied edges than the hand-run version did, which is fine: both produce a valid MST.
+6. Keep going until the fringe is empty. `edgeTo[]` holds the MST.
 
-```
-Initially mark all edges gray.
-  - Consider edges in increasing order of weight.
-  - Add edge to MST (mark black) unless doing so creates a cycle.
-  - Repeat until V-1 edges.
-```
+The payoff: instead of re-scanning a growing cloud of crossing edges, each vertex keeps a single best-known distance to the tree, and each edge is only considered when one of its endpoints is popped.
 
-**Why it works, via the cut property.** Suppose Kruskal's is about to add edge e = v-w. Define the cut as:
-- side 1: all vertices currently connected to v (in the partial MST),
-- side 2: everything else (which contains w, otherwise e would create a cycle and we would skip it).
+### 10. Prim's runtime
 
-Then:
-- **No crossing edge is already black**, because any black crossing edge would have put w's component on side 1.
-- **No crossing edge has lower weight than e**, because we process edges in increasing weight order, so every cheaper edge has already been considered and either added or rejected.
+Assuming a binary-heap PQ where all operations are O(log V):
 
-So e is the minimum crossing edge of this cut, and by the cut property it is in the MST. Again, a special case of the generic algorithm.
-
-**Basic vs. optimized Kruskal's.** The slides reference separate demos for each. The basic version needs a way to answer "would adding v-w create a cycle?" The optimized version answers it with a **weighted quick union with path compression**, exactly as in the warm-up problem: v-w creates a cycle iff `connected(v, w)` is already true. Each accepted edge triggers a `union`.
-
-### Prim's vs. Kruskal's (the visual intuition)
-
-The slides show side-by-side animations. The qualitative difference:
-
-- **Prim's** always has *one* connected tree, which grows outward from the start vertex like a blob. At every moment the partial result is a single connected subtree.
-- **Kruskal's** scatters edges all over the graph, maintaining a *forest* of many disconnected fragments that gradually merge. Only at the very end does it become one tree.
-
-Both end at the same MST (with unique weights).
-
-### Runtimes
-
-**Prim's**, assuming a binary-heap-based priority queue with O(log V) operations:
-
-| | # Operations | Cost per operation | Total cost |
+| Operation | # Operations | Cost per operation | Total |
 |---|---|---|---|
 | PQ add | V | O(log V) | O(V log V) |
 | PQ delMin | V | O(log V) | O(V log V) |
 | PQ decreasePriority | O(E) | O(log V) | O(E log V) |
 
-Overall: O(V log V + V log V + E log V). Assuming E > V, this is **O(E log V)**, same as Dijkstra's.
+Overall: O(V log V + V log V + E log V). Assuming E > V (which holds for connected graphs), this is **O(E log V)**, the same as Dijkstra's. Every vertex is inserted once and deleted once; every edge can in the worst case trigger one decreasePriority, and edges dominate.
 
-Reasoning for the counts: each vertex is inserted exactly once and deleted exactly once, so V of each. `decreasePriority` can fire at most once per edge examination, and across the whole run each edge is examined from each endpoint, so O(E) times.
+The lecture noted that `decreasePriority` was not itself implemented in lecture, but can be made to run in O(log V).
 
-**Kruskal's**, with a `MinPQ<Edge>` and `WeightedQuickUnionPC`:
+### 11. Kruskal's algorithm
 
-| Operation | Number of times | Time per operation | Total time |
+```
+Initially mark all edges gray.
+Consider edges in increasing order of weight.
+Add edge to MST (mark black) unless doing so creates a cycle.
+Repeat until V - 1 edges.
+```
+
+Pure greed over a sorted edge list, with a cycle check as the only veto.
+
+**Why it is correct:** also a special case of the generic algorithm. Suppose we are about to add edge `e = v-w`. Define the cut as *(all vertices currently connected to v)* versus *(everything else)*. Then:
+- No crossing edge of this cut is already in the MST, because if one were, `w`'s side would already be joined to `v`'s side, and `v`'s side is by definition everything connected to `v`.
+- No crossing edge has lower weight than `e`, because we are processing edges in increasing weight order, so every lighter edge has already been considered.
+
+So `e` is the minimum crossing edge of a cut with no crossing edges in the tree: exactly what the generic algorithm asks for.
+
+**The lecture's basic trace** (same graph): sorted, the weight-1 edges come first.
+- A-C: no cycle, add.
+- C-E: no cycle, add.
+- D-G: no cycle, add.
+- F-G: no cycle, add.
+- A-B (weight 2): no cycle, add.
+- B-E (weight 5, reached later in sorted order): A, C, E, B are all already connected, so this **would** create a cycle. Skip ("leave that on the table").
+- Continue until V - 1 = 6 edges are collected.
+
+Notice the components grow in several places at once, not from a single seed.
+
+### 12. Optimized Kruskal's: getting the cycle check and the sort right
+
+Two implementation choices, both from material already covered:
+
+**Sorting the edges.** Either sort them up front, or dump them all into a `MinPQ` and `delMin` repeatedly, which yields them in increasing weight order. A student asked about this directly; the lecture gave both options.
+
+**Cycle detection.** Use the warm-up's Approach 2, `WeightedQuickUnionPC` (weighted quick union with path compression). For each candidate edge `v-w`:
+- If `uf.connected(v, w)`, then `v` and `w` are already in the same component, so this edge closes a cycle: skip it.
+- Otherwise `uf.union(v, w)` and add the edge to the MST.
+
+The lecture re-emphasized the distinction from the warm-up: `connected(v, w)` asks "have we already unioned these?", not "is there an edge between them?" There is obviously an edge between them, that is why we are looking at this edge at all.
+
+Tracing the disjoint-set state alongside the MST:
+- A-C: not connected, union. Sets: {A, C}.
+- C-E: not connected, union. Sets: {A, C, E}. ("Now realize that these are not edges... this is the combined set of elements A, C, and E.")
+- D-G: not connected, union. Sets: {A, C, E}, {D, G}.
+- F-G: F is not in {D, G}, union. Sets: {A, C, E}, {D, G, F}.
+- A-B: B is not yet in any union with A, union. Sets: {A, C, E, B}, {D, G, F}.
+- B-E: **connected already** (both in {A, B, C, E}), so skip: this is the cycle.
+- Continue; the next edge joining the two big components is accepted, and once V - 1 edges are in hand we stop.
+
+### 13. Kruskal's vs. Prim's (visual character)
+
+The lecture contrasted the animations:
+
+- **Prim's** grows exactly one tree. It starts from a single seed and expands, always attaching the vertex nearest to the current tree. That nearest vertex can be anywhere along the tree's frontier, so the growth looks like a sprawling transit network spreading out from one place. (Compared against Dijkstra's, which grows in neat expanding radial rings from the source.)
+- **Kruskal's** looks completely different. It scatters tiny edges all over the graph at once, creating many small connected components (so small they look like dots at first). As it proceeds, these components merge, and merges that would close a cycle get rejected. Eventually everything coalesces into one tree.
+
+Same output (the MST, unique if weights are unique), very different process.
+
+### 14. Kruskal's runtime
+
+| Operation | Number of times | Time per operation | Total |
 |---|---|---|---|
-| Insert | E | O(log E) | O(E log E) |
+| Insert (into PQ) | E | O(log E) | O(E log E) |
 | Delete minimum | O(E) | O(log E) | O(E log E) |
-| union | O(V) | O(log* V) | O(V log* V) |
-| isConnected | O(E) | O(log* V) | O(E log* V) |
+| `union` | O(V) | O(log* V) | O(V log* V) |
+| `isConnected` | O(E) | O(log* V) | O(E log* V) |
 
-Overall: **O(E log E)**.
+Overall: **O(E log E)**, dominated by the priority queue work.
 
 Two important notes from the slides:
 
-- **Note 1 (pre-sorted edges):** if you already have a sorted list of edges instead of a PQ, you just iterate through it in O(E) time, so the total becomes O(E + V log\* V + E log\* V) = **O(E log\* V)**. This is asymptotically better than O(E log V).
-- **Note 2 (E log E vs. E log V):** E < V², so log E < log V² = 2 log V, hence **O(E log E) = O(E log V)**. So although Kruskal's with an unsorted edge set is slower than Prim's in practice on worst-case input, it is *not asymptotically slower*.
-- *(Fun fact from the slides)* The E-insertions step can be done in O(E) via "bottom-up heapification," covered in the HeapSort lecture.
+- **Note 1:** with a **pre-sorted** list of edges instead of a PQ, you just iterate through the list in O(E) time, so the total becomes O(E + V log* V + E log* V) = **O(E log\* V)**, which is very nearly linear.
+- **Note 2:** E < V², so log E < log V² = 2 log V, hence **O(E log E) = O(E log V)**. So Kruskal's on unsorted edges is slower than Prim's in practice on worst-case input, but **not asymptotically slower**.
 
-**Summary table:**
+(The slides also mention, as a forward reference to the HeapSort lecture, that building the heap of E edges can be done in O(E) via bottom-up heapification.)
+
+### 15. Summary table of shortest-path and MST algorithms
 
 | Problem | Algorithm | Runtime (if E > V) | Notes |
 |---|---|---|---|
-| Shortest Paths | Dijkstra's | O(E log V) | Fails for negative weight edges. |
-| MST | Prim's | O(E log V) | Analogous to Dijkstra's. |
-| MST | Kruskal's | O(E log E) | Uses WQUPC. |
-| MST | Kruskal's with pre-sorted edges | O(E log* V) | Uses WQUPC. |
+| Shortest Paths | Dijkstra's | O(E log V) | Fails for negative weight edges |
+| MST | Prim's | O(E log V) | Analogous to Dijkstra's |
+| MST | Kruskal's | O(E log E) | Uses WQUPC |
+| MST | Kruskal's with pre-sorted edges | O(E log* V) | Uses WQUPC |
 
-**Can we do better than O(E log V)?** Yes. From the (clearly labeled bonus / "170 spoiler") history slide:
+### 16. MST applications
+
+The lecture and slides mention: networks of power lines connecting buildings, telephone lines, transit systems like BART, old-school handwriting recognition, and medical imaging (for example, the arrangement of nuclei in cancer cells).
+
+The lecture also spent time on a slime mold that reproduces the Tokyo rail map when sugar cubes are placed at station locations: it expands radially in all directions, then prunes itself back to efficient paths. Important caveat the lecturer gave: that result is technically a **Steiner tree**, a generalization of the MST where the structure is allowed to create its own extra junction points/vertices. If instead you confine the mold to a fixed graph (a maze with edges) with food at the vertices, it will find the MST itself.
+
+### 17. Extra (covered in the web videos, not covered live): MST vs. SPT
+
+The slides include a section the lecture explicitly skipped in person but which exists in the web videos.
+
+Graph: A-B 2, B-C 2, C-D 2, A-D 3.
+
+The MST is {A-B, B-C, C-D} (total 6), dropping A-D (3) rather than one of the 2s.
+
+Is that MST also a shortest paths tree? It depends on the source:
+- From **D**: no. The SPT from D would use D-A (3) directly rather than the length-6 path D-C-B-A.
+- From **B**: yes. The MST is exactly the SPT from B.
+- From A: the SPT uses A-B and A-D, which is not the MST.
+- From C: not the MST either.
+
+The takeaways stated on the slides:
+- A shortest paths tree **depends on the start vertex**, because it tells you how to get from a source to EVERYTHING.
+- There is **no source** for an MST.
+- Nonetheless, the MST sometimes happens to be an SPT for a specific vertex.
+
+The slides also give a graph where **no** vertex's SPT equals the MST: a ladder-shaped graph with two weight-2 rungs in the middle and weight-1 edges elsewhere. The MST includes only 2 of the weight-2 edges, but any SPT must include at least 3 of them, so no source works. Answer to "Is there a node whose SPT is also the MST?": **No.**
+
+### 18. Extra (web videos only): state of the art
+
+Can we beat O(E log V)? History of compare-based MST algorithms:
 
 | Year | Worst case | Discovered by |
 |---|---|---|
@@ -241,66 +283,125 @@ Two important notes from the slides:
 | 1986 | E log(log* V) | Gabow-Galil-Spencer-Tarjan |
 | 1997 | E α(V) log α(V) | Chazelle |
 | 2000 | E α(V) | Chazelle |
-| 2002 | optimal | Pettie-Ramachandran |
-| ??? | E ??? | ??? |
-
-A linear-time comparison-based MST algorithm is still an open problem: Pettie-Ramachandran gives an algorithm that is provably optimal, but nobody knows what that optimum's asymptotic form actually is.
+| 2002 | optimal (but the complexity of that optimum is unknown) | Pettie-Ramachandran |
 
 ---
 
 ## Definitions
 
-- **Spanning tree:** Given an undirected graph G, a subgraph T that is (1) connected, (2) acyclic, and (3) includes all of G's vertices. Properties (1) and (2) make it a tree; (3) makes it spanning.
-- **Minimum spanning tree (MST):** A spanning tree of minimum total weight, where total weight is the sum of the weights of its edges.
-- **Cut:** An assignment of a graph's nodes to two non-empty sets.
-- **Crossing edge:** An edge that connects a node in one set of a cut to a node in the other set.
-- **Cut property:** Given any cut, the minimum-weight crossing edge is in the MST. (Stated under the assumption of unique edge weights.)
-- **Prim's algorithm:** Starting from an arbitrary vertex, repeatedly add the shortest edge with exactly one endpoint inside the MST under construction, until V-1 edges have been added.
-- **Kruskal's algorithm:** Consider edges in increasing order of weight, adding each to the MST unless doing so creates a cycle, until V-1 edges have been added.
-- **Shortest paths tree (SPT):** A tree encoding shortest paths from one designated source vertex to every other vertex. Depends on the choice of source; an MST does not.
-- **Scan (a vertex):** To consider all of a vertex's outgoing edges (terminology from the Prim's pseudocode).
-- **Relaxation (in Prim's):** Updating `distTo[w]` and `edgeTo[w]` when an edge offers a cheaper connection from the current tree to w. Contrast with Dijkstra's, where relaxation measures distance to the source.
-- **α(V):** The inverse Ackermann function, from the disjoint sets lecture; grows extraordinarily slowly.
-- **log\* V:** The iterated logarithm, the WQU-with-path-compression bound used in the Kruskal's analysis.
+**Spanning tree:** given an undirected graph G, a subgraph T of G that (1) is connected, (2) is acyclic, and (3) includes all of the vertices of G. Properties (1) and (2) make it a tree; property (3) makes it spanning.
+
+**Minimum spanning tree (MST):** a spanning tree of minimum total edge weight, that is, the spanning tree minimizing the sum of its edge weights.
+
+**Tree (as used here):** a connected, acyclic graph. (One of several equivalent definitions; the equivalences are proved in CS 70.) A tree on V vertices has exactly V - 1 edges.
+
+**Cut:** an assignment of a graph's nodes to two non-empty sets. The two sets need not be contiguous or geometrically grouped; any 2-coloring of the vertices with both colors used is a cut.
+
+**Crossing edge:** an edge that connects a node in one set of a cut to a node in the other set.
+
+**Cut property:** given any cut of a graph, the minimum-weight crossing edge is in the MST. (With unique edge weights; and such an edge is in every MST if there are several.)
+
+**Prim's algorithm:** starting from an arbitrary node, repeatedly add the minimum-weight edge with exactly one endpoint in the tree built so far, until V - 1 edges are added.
+
+**Kruskal's algorithm:** consider all edges in increasing order of weight; add each edge to the MST unless doing so creates a cycle; stop at V - 1 edges.
+
+**Scan (in Prim's):** to consider all of a vertex's outgoing edges, relaxing them against the current best-known distances to the tree, and marking the vertex as visited.
+
+**Relaxation (Prim's version):** given edge `e` to vertex `w`, if `e.weight() < distTo[w]`, update `distTo[w] = e.weight()`, `edgeTo[w] = e`, and decrease `w`'s priority in the fringe.
+
+**α(V):** the inverse Ackermann function, the (effectively constant) cost factor for weighted quick union with path compression, from the Disjoint Sets lecture.
+
+**log\* V:** iterated logarithm, the number of times you must apply log before reaching 1; also an effectively constant factor, used in the slides' WQUPC bound.
+
+**Steiner tree (extra context, mentioned in lecture):** a generalization of the MST in which new vertices (junction points) not present in the original vertex set may be introduced to reduce total weight.
 
 ---
 
 ## Worked Examples
 
-### Example 1: Cycle detection with disjoint sets (the warm-up, Approach 2)
+### Example 1: Cycle detection via DFS (the warm-up, Approach 1)
 
-This is the lecture's Approach 2 written out. It is worth coding because it *is* the heart of Kruskal's.
+```java
+public class CycleDetector {
+    private boolean[] marked;
+    private boolean hasCycle;
+    private Graph G;
+
+    public CycleDetector(Graph G) {
+        this.G = G;
+        marked = new boolean[G.V()];
+        hasCycle = false;
+        dfs(0, -1);   // start at vertex 0; -1 means "no parent"
+    }
+
+    /* v is the vertex we're exploring; parent is where we came from. */
+    private void dfs(int v, int parent) {
+        marked[v] = true;
+        for (int w : G.adj(v)) {
+            if (w == parent) {
+                continue;        // don't count the node we came from
+            }
+            if (marked[w]) {
+                hasCycle = true; // reached an already-seen vertex: cycle
+                return;
+            }
+            dfs(w, v);
+        }
+    }
+
+    public boolean hasCycle() {
+        return hasCycle;
+    }
+}
+```
+
+**What it does and why.** `marked` records which vertices the search has already reached. The recursion dives as deep as possible, backtracks, and dives again. In a tree, this always bottoms out at leaves and never revisits anything, so `hasCycle` stays false. If a cycle exists, some edge eventually leads to a vertex already on the marked set, and we detect it.
+
+**The parent check is the whole subtlety.** In an undirected graph, every edge appears in both adjacency lists. When DFS moves from A to B, B's adjacency list contains A, and A is marked. Without `if (w == parent) continue;`, this two-vertex back-glance would be reported as a cycle in every graph with at least one edge. The lecture: "we can just make sure that the parent object, we don't think of as something we've already seen... and we ignore it."
+
+**Environment reasoning (in words).** Each nested `dfs` call creates its own frame holding its own `v` and `parent`; `marked` and `hasCycle` live on the `CycleDetector` instance, shared by all frames. So the frames form a stack tracking the current root-to-current-vertex path, while the shared `marked` array accumulates knowledge across all branches, including branches that have already returned. That split (per-frame path, shared global seen-set) is what makes "already marked" mean "seen anywhere before," not "seen on this path."
+
+**Runtime.** O(V + E) in general. Here, because an acyclic graph has at most V - 1 edges, we examine at most V edges before concluding, so O(V).
+
+### Example 2: Cycle detection via disjoint sets (the warm-up, Approach 2)
 
 ```java
 public static boolean hasCycle(EdgeWeightedGraph G) {
-    WeightedQuickUnionUF uf = new WeightedQuickUnionUF(G.V());
+    WeightedQuickUnionPC uf = new WeightedQuickUnionPC(G.V());
     for (Edge e : G.edges()) {
         int v = e.from();
         int w = e.to();
         if (uf.connected(v, w)) {
-            return true;      // v and w were already joined: this edge closes a cycle
+            return true;      // already joined: this edge closes a cycle
         }
-        uf.union(v, w);       // otherwise merge their components and keep going
+        uf.union(v, w);
     }
     return false;
 }
 ```
 
-**Step by step on the warm-up graph** (edges A-B, A-C, B-C, B-D, D-E, E-G, E-F, with A through G mapped to 0 through 6):
+**Step by step on the lecture's graph.**
 
-- Start: seven singleton sets, `{A} {B} {C} {D} {E} {F} {G}`. In box-and-pointer terms, the WQU's `parent` array has every slot pointing at itself (each entry stores its own index, or a negative size sentinel depending on the implementation).
-- Edge A-B: `connected(A, B)` is false (different roots). `union` makes one root point at the other. Sets: `{A,B} {C} {D} {E} {F} {G}`.
-- Edge A-C: false. Union. `{A,B,C} {D} {E} {F} {G}`.
-- Edge B-C: `connected(B, C)`: follow B's parent pointers up to the root, follow C's parent pointers up to the root, **same root**. Return `true`: cycle found (A-B-C-A).
+| Edge considered | `connected(v, w)`? | Action | Sets afterward |
+|---|---|---|---|
+| A-C | no | union | {A, C} |
+| E-F | no | union | {A, C}, {E, F} |
+| F-G | no (G is alone) | union | {A, C}, {E, F, G} |
+| E-G | **yes** (both in {E, F, G}) | return true | cycle found |
 
-**Why it works:** the disjoint sets structure answers "are these two already in the same connected component?" An edge whose endpoints are already connected adds a second route between them, which is the definition of a cycle.
+**Why `connected` is not "is there an edge".** The lecture leaned on this repeatedly. When we ask `connected(A, C)`, there obviously *is* an edge A-C, that is why we are examining it. The question is whether A and C were already joined *through other, previously processed edges*. If yes, this edge adds a second route between them, hence a cycle.
 
-**Runtime:** O(V + E·α(V)) with path compression, which tightens to O(V·α(V)) because you can bail out after examining at most V edges (more than V-1 edges in a graph forces a cycle).
+**Runtime.** O(V + E·α(V)) with path compression, simplifying to O(V·α(V)) by the same at-most-V-edges argument. Slightly slower than DFS for a one-shot check, but it persists component information across many queries, which is exactly what Kruskal's needs.
 
-### Example 2: Prim's algorithm pseudocode (from the slides)
+### Example 3: Prim's algorithm (lecture pseudocode)
 
 ```java
 public class PrimMST {
+    private Edge[] edgeTo;
+    private double[] distTo;
+    private boolean[] marked;
+    private SpecialPQ<Double> fringe;
+
     public PrimMST(EdgeWeightedGraph G) {
         edgeTo = new Edge[G.V()];
         distTo = new double[G.V()];
@@ -319,42 +420,42 @@ public class PrimMST {
     }
 
     private void scan(EdgeWeightedGraph G, int v) {
-        marked[v] = true;
+        marked[v] = true;                       // v is closest, add to MST
         for (Edge e : G.adj(v)) {
             int w = e.other(v);
-            if (marked[w]) { continue; }
-            if (e.weight() < distTo[w]) {
+            if (marked[w]) { continue; }        // already in MST, skip
+            if (e.weight() < distTo[w]) {       // better edge to tree found
                 distTo[w] = e.weight();
                 edgeTo[w] = e;
-                pq.decreasePriority(w, distTo[w]);
+                fringe.decreasePriority(w, distTo[w]);
             }
         }
     }
 }
 ```
 
-**Reading it line by line:**
+**Line-by-line reasoning.**
 
-- `edgeTo[w]`: the cheapest known edge connecting w to the tree. At termination, the V-1 non-null entries of `edgeTo` *are* the MST.
-- `distTo[w]`: the weight of that edge, i.e. w's current best known distance to the tree. Initialized to infinity for every vertex except s, which gets 0.0 so that `delMin` pulls it out first.
-- `marked[w]`: true once w has been removed from the fringe and scanned, meaning w is committed to the tree.
-- `fringe`: the slide annotation is important: *"Fringe is ordered by distTo tree. Must be a specialPQ like Dijkstra's."* It needs `decreasePriority`, which a plain `MinPQ` does not support, hence `SpecialPQ`. All V vertices are inserted up front.
-- The main loop: `delMin()` gets the unvisited vertex closest to the tree. `scan` means "consider all of a vertex's outgoing edges."
-- Inside `scan`: mark v (it is closest, so add it to the MST), then for each neighbor w, skip w if it is already in the MST (`continue`), otherwise test `e.weight() < distTo[w]`. If this edge is a better way to attach w to the tree, update `distTo[w]`, record `edgeTo[w] = e`, and bubble w up in the fringe with `decreasePriority`.
+- `distTo[w]` means **"the weight of the cheapest known edge connecting w to the current tree,"** not "distance from the source." That single reinterpretation is the entire difference from Dijkstra's.
+- `edgeTo[w]` remembers *which* edge achieves that, so that when `w` is finally popped, we know which edge to commit to the MST. At the end, `edgeTo[]` holds the MST's edges.
+- `distTo[s] = 0.0` and everything else infinity, then all V vertices go into the fringe. The source has top priority, so it pops first.
+- The fringe is a `SpecialPQ`, the same kind as Dijkstra's needs: one supporting `decreasePriority`, since priorities drop as better edges are discovered.
+- `while (!fringe.isEmpty())`: the important invariant is that the fringe is ordered by *current best known distance from the tree*. Popping the min gives the unvisited vertex closest to the tree, which is precisely the generic algorithm's minimum crossing edge for the cut (tree) vs. (not tree).
+- Inside `scan`: `marked[v] = true` commits v (and `edgeTo[v]`) to the MST. **Nothing is committed until delMin.** Until then, an entry in the fringe is only a tentative best candidate.
+- `if (marked[w]) continue;` skips edges leading back into the tree. These are the edges that would create cycles.
+- `if (e.weight() < distTo[w])`: relaxation. Note the right-hand side is just `e.weight()`, **not** `distTo[v] + e.weight()`. That is the Prim's/Dijkstra's fork in the road.
 
-**The one line to stare at** is `if (e.weight() < distTo[w])`. In Dijkstra's this would be `if (distTo[v] + e.weight() < distTo[w])`. That single difference is the whole difference between SPT and MST: Prim's compares a bare edge weight ("how cheaply can w attach to the tree?"), Dijkstra's compares an accumulated path length ("how cheaply can w be reached from s?").
+**Where the savings come from.** In naive Prim's, every round re-enumerates all edges crossing the frontier. Here, each vertex stores one number (its best distance to the tree), and each edge is examined only when one of its endpoints is popped. The lecture's step 3 illustrated this: when C was popped, edge B-C (weight 3) was examined and immediately discarded because `distTo[B]` was already 2; B stayed in the queue at priority 2, and B-C never needs to be looked at again.
 
-**Environment / box-and-pointer reasoning in words.** Think of three parallel arrays indexed by vertex number, laid out side by side. `distTo` is a row of doubles, all `Infinity` except `distTo[s] = 0.0`. `marked` is a row of `false`. `edgeTo` is a row of `null` references. The fringe holds V vertex ids whose ordering is determined by reading into `distTo`.
+**The distance-semantics checkpoint.** When C (at `distTo` 1 from A) is scanned and we look at edge C-F of weight 15:
+- Dijkstra's would set `distTo[F] = distTo[C] + 15 = 16`.
+- Prim's sets `distTo[F] = 15`, since F is 15 away from the *tree*.
 
-Running on the lecture's example graph starting at A:
-1. All of A, B, C, D, E, F, G sit in the fringe. `distTo[A] = 0.0`, everything else `Infinity`.
-2. `delMin` returns A. `marked[A] = true`. Scan A's edges: A-C with weight 1 beats `distTo[C] = Infinity`, so `distTo[C] = 1` and `edgeTo[C]` now points at the A-C `Edge` object (the array slot is overwritten to reference that object; no copy is made, the `Edge` lives on the heap and both the graph's adjacency list and `edgeTo[C]` point at the same one). Similarly A-B with weight 2 sets `distTo[B] = 2`, `edgeTo[B]` to the A-B edge.
-3. `delMin` returns C (`distTo[C] = 1`, the smallest). `marked[C] = true`. Scan C: for edge C-E of weight 1, `1 < distTo[E] = Infinity`, so `distTo[E] = 1`, `edgeTo[E]` points at C-E. For C-B, if its weight exceeds the current `distTo[B] = 2`, the test fails and **nothing is written**. That failed test is the efficiency win over naive Prim's: a losing edge is dismissed in constant time and never looked at again.
-4. Continue: `delMin` next yields E, then its neighbors get relaxed, and so on, until the fringe empties after V `delMin` calls and `edgeTo` holds V-1 edges forming the MST.
+Later, scanning E finds edge E-F of weight 4. Since 4 < 15, F is updated to 4 with `edgeTo[F] = E-F`.
 
-Key invariant, stated on the slide: **the fringe must be ordered by current best known distance from the tree.** This is why `decreasePriority` exists; mutating `distTo[w]` without telling the PQ would corrupt the heap ordering.
+**Runtime.** V inserts, V delMins, O(E) decreasePriority calls, each O(log V): O(V log V + V log V + E log V) = **O(E log V)** when E > V.
 
-### Example 3: Kruskal's algorithm pseudocode (from the slides)
+### Example 4: Kruskal's algorithm (lecture pseudocode)
 
 ```java
 public class KruskalMST {
@@ -365,8 +466,7 @@ public class KruskalMST {
         for (Edge e : G.edges()) {
             pq.insert(e);
         }
-        WeightedQuickUnionPC uf =
-                 new WeightedQuickUnionPC(G.V());
+        WeightedQuickUnionPC uf = new WeightedQuickUnionPC(G.V());
         while (!pq.isEmpty() && mst.size() < G.V() - 1) {
             Edge e = pq.delMin();
             int v = e.from();
@@ -380,144 +480,135 @@ public class KruskalMST {
 }
 ```
 
-**Reading it line by line:**
+**Line-by-line reasoning.**
 
-- `mst`: an `ArrayList<Edge>` accumulating the answer. Note that Kruskal's naturally produces a *list of edges*, whereas Prim's produces an `edgeTo` array indexed by vertex.
-- `MinPQ<Edge>`: all E edges are inserted. Note this PQ is over **edges**, keyed by weight, not over vertices. `delMin` therefore yields edges in increasing order of weight, which is exactly the "consider edges in increasing order of weight" step. A plain `MinPQ` suffices; no `decreasePriority` is needed, because edge weights never change.
-- `WeightedQuickUnionPC uf = new WeightedQuickUnionPC(G.V())`: V singleton components, one per vertex. This is the cycle detector from Example 1.
-- Loop condition `!pq.isEmpty() && mst.size() < G.V() - 1`: stop early once V-1 edges are in (the tree is complete) or once edges run out. *(extra context)* The `!pq.isEmpty()` half is what keeps the loop safe on a disconnected graph, where you can never reach V-1 edges and instead end with a minimum spanning forest.
-- `if (!uf.connected(v, w))`: "would adding this edge create a cycle?" If v and w are in different components, no cycle, so `union` them and commit the edge. If they are already connected, the edge is silently discarded.
+- Insert all E edges into a `MinPQ`. Repeated `delMin` then hands them back in increasing weight order; the PQ is being used purely as a sorter. (Equivalently, quicksort the edge array up front, as the lecture mentioned when asked.)
+- `WeightedQuickUnionPC uf = new WeightedQuickUnionPC(G.V())`: every vertex starts as its own singleton component. The disjoint-set structure tracks which vertices are joined *so far by accepted MST edges*, which is exactly the cycle test from the warm-up.
+- The loop condition has two parts. `!pq.isEmpty()` guards against running out of edges; `mst.size() < G.V() - 1` stops as soon as we have V - 1 edges, since a spanning tree on V vertices has exactly V - 1 edges and there is nothing left to do.
+- `if (!uf.connected(v, w))`: if v and w are in different components, this edge joins two components and cannot create a cycle, so accept it: `union` them and add the edge. If they are already in the same component, adding the edge would close a cycle, so skip it entirely (note there is no `else`: the edge is simply dropped).
 
-**Step by step** on the 8-vertex graph from the cut property example (edges already listed in increasing order):
+**Box-and-pointer-style reasoning in words.** It is tempting to picture the disjoint-set structure as holding edges. It does not. After accepting A-C and C-E, `uf` does not know "A-C and C-E are edges"; it knows "A, C, E are one set." The lecture made this correction explicitly: "realize that these are not edges... this is the combined set of elements A, C, and E." Internally, WQU stores a parent array, so each set is a tree of parent pointers with one root; `connected(v, w)` walks both to their roots and compares, and path compression flattens those walks so future queries are nearly constant. The MST edges themselves live only in the separate `mst` list.
 
-1. `0-7 (0.16)`: 0 and 7 in different components. Add. Components: `{0,7}` plus singletons. MST size 1.
-2. `2-3 (0.17)`: different. Add. `{0,7} {2,3}`. Size 2.
-3. `1-7 (0.19)`: 1 and 7 differ. Add, `union` merges. `{0,1,7} {2,3}`. Size 3.
-4. `0-2 (0.26)`: 0 is in `{0,1,7}`, 2 is in `{2,3}`. Different. Add. `{0,1,2,3,7}`. Size 4. (Notice: this is the same edge the cut property analysis forced into the MST.)
-5. `5-7 (0.28)`: different. Add. `{0,1,2,3,5,7}`. Size 5.
-6. `1-3 (0.29)`: `connected(1, 3)` is **true** (both in the big component). Skip, it would create a cycle.
-7. `1-5 (0.32)`: connected. Skip.
-8. `2-7 (0.34)`: connected. Skip.
-9. `4-5 (0.35)`: 4 is still a singleton. Different. Add. `{0,1,2,3,4,5,7}`. Size 6.
-10. `1-2 (0.36)`, `4-7 (0.37)`, `0-4 (0.38)`: all connected. Skip, skip, skip.
-11. `6-2 (0.40)`: 6 is a singleton. Add. `{0,...,7}`. Size 7 = V-1. **Loop exits.**
+**The cycle rejection, concretely.** When B-E comes up, the accepted edges so far have already built the component {A, B, C, E} (via A-C, C-E, A-B). So `uf.connected(B, E)` is true, and B-E is discarded: B and E are already reachable from each other, so an edge between them would be a second route, hence a cycle.
 
-MST edges: 0-7, 2-3, 1-7, 0-2, 5-7, 4-5, 6-2. Total weight 0.16+0.17+0.19+0.26+0.28+0.35+0.40 = 1.81. Observe the Kruskal's signature: the partial result was a scattered forest (`{0,7}` and `{2,3}` were separate islands for several steps) that only became one tree at the very end.
-
-### Example 4: Finding an MST by hand on the 4-vertex example
-
-Graph: A-B (2), B-C (2), C-D (2), A-D (3).
-
-Via Kruskal's: the three weight-2 edges come first. A-B: add. B-C: add. C-D: add, now 3 = V-1 edges, stop. A-D (3) is never even considered. MST weight = 6.
-
-Via Prim's from A: fringe gives A first. Scan A: `distTo[B] = 2`, `distTo[D] = 3`. `delMin` gives B (2). Scan B: C gets `distTo[C] = 2`. `delMin` gives C (2, tie with nothing smaller). Scan C: edge C-D has weight 2, and `2 < distTo[D] = 3`, so `distTo[D]` drops to 2 and `edgeTo[D]` is overwritten from A-D to C-D. `delMin` gives D. Result: A-B, B-C, C-D, weight 6.
-
-That overwrite of `edgeTo[D]` is worth noticing: Prim's tentatively planned to attach D via A-D and later found a better attachment. This is relaxation in action.
+**Runtime.** E inserts and O(E) delMins at O(log E) each dominate: **O(E log E)**. With pre-sorted edges the PQ work becomes O(E) and the total drops to O(E + V log* V + E log* V) = **O(E log\* V)**. And since E < V², O(E log E) = O(E log V), so Kruskal's is not asymptotically worse than Prim's.
 
 ---
 
 ## Common Pitfalls
 
-1. **Forgetting the "don't count the parent" fix in undirected DFS cycle detection.** Every undirected edge trivially looks like a cycle of length 2. Track the vertex you came from and skip it.
+**1. Forgetting the parent check in DFS cycle detection.** In an undirected graph, the parent is always already marked. Without skipping it, you report a cycle on every edge.
 
-2. **Using Dijkstra's relaxation condition in Prim's.** Writing `distTo[v] + e.weight() < distTo[w]` turns Prim's back into Dijkstra's and gives you an SPT, not an MST. Prim's condition is `e.weight() < distTo[w]`: no accumulation.
+**2. Reading `connected(v, w)` as "is there an edge between v and w."** The lecture corrected this several times. In the disjoint-set cycle test, `connected` means "have these already been unioned by previously accepted edges." Of course there is an edge, that is the edge you are testing.
 
-3. **Thinking an MST is an SPT, or that an SPT is an MST.** An SPT depends on a start vertex; an MST does not. The ladder graph on the slides is a counterexample where *no* vertex's SPT is the MST. They can coincide (vertex B in the 4-cycle example), but that is a coincidence, not a rule.
+**3. Thinking a cut must be a contiguous or left/right split.** A cut is just a 2-coloring of the vertices with both colors non-empty. The lecture's clicker on this had many students unsure, and the answer was that the scattered-looking coloring was a perfectly valid cut.
 
-4. **Misapplying the cut property's quantifier.** The property says: for *every* cut, the minimum crossing edge is in the MST. It does **not** say the minimum edge incident to a vertex set is the only MST edge crossing it, and it does **not** say the *maximum* crossing edge is excluded in general. Also note that an internal edge (both endpoints on the same side) is not a crossing edge at all, so it is irrelevant to that cut.
+**4. Assuming the globally lightest edge crosses every cut.** In the 0-7 example, `0-7` (0.16) is the lightest edge in the whole graph but does not cross the cut {2,3,5,6}, because both endpoints are on the same side. You must scan down the sorted list for the first edge that actually crosses.
 
-5. **Forgetting that a cut requires both sets to be non-empty.** "All vertices on one side" is not a cut and has no crossing edges.
+**5. Using `distTo[v] + e.weight()` in Prim's.** That is Dijkstra's relaxation. Prim's compares `e.weight()` alone against `distTo[w]`, because "distance" in Prim's means distance to the tree, not to a source.
 
-6. **Checking only two of the three spanning tree properties.** Connected, acyclic, *and* includes all vertices. A subgraph can be a perfectly good tree while omitting a vertex, in which case it is not spanning.
+**6. Expecting an MST to be a shortest paths tree.** (Extra material.) There is no source for an MST; SPTs depend on the source. The MST may coincide with the SPT from some particular vertex, but it need not, and in the ladder graph *no* vertex's SPT equals the MST.
 
-7. **Using a plain `MinPQ` for Prim's fringe.** Prim's needs `decreasePriority` because a vertex's key changes as cheaper connecting edges are discovered. The slides call this a `SpecialPQ`, same as Dijkstra's. Kruskal's, by contrast, is fine with a plain `MinPQ<Edge>` since edge weights never change.
+**7. Committing to a vertex in Prim's when you insert/update it rather than when you pop it.** Fringe entries are tentative. A vertex's `distTo` and `edgeTo` can improve several times before it is popped; only `delMin` (which triggers `marked[v] = true`) commits it.
 
-8. **Mixing up what is in the priority queue.** Prim's PQ holds **vertices** keyed by distance to the tree (size V). Kruskal's PQ holds **edges** keyed by weight (size E).
+**8. Forgetting the stopping condition.** Both algorithms finish at V - 1 edges, because that is exactly how many edges a tree on V vertices has. Kruskal's needs this in the loop condition so it does not keep churning through heavy edges after the tree is complete.
 
-9. **Claiming Kruskal's is asymptotically slower than Prim's.** It is not: E < V², so O(E log E) = O(E log V). It can be slower in practice on unsorted input, but the asymptotics match.
+**9. Rerunning DFS inside Kruskal's for every cycle check.** Technically correct but wasteful; the whole reason the course covers weighted quick union is that it remembers component structure across the many queries Kruskal's makes.
 
-10. **Forgetting the pre-sorted optimization and what it buys.** With pre-sorted edges Kruskal's is O(E log\* V), beating O(E log V). The savings come from skipping the PQ entirely, not from a faster union-find.
+**10. Claiming Kruskal's is asymptotically worse than Prim's.** It is not. Because E < V², O(E log E) = O(E log V). It may be slower in practice on unsorted edges, but not asymptotically.
 
-11. **Assuming unique MSTs in general.** The lecture assumes unique edge weights specifically so that "the MST" is well defined. With ties, multiple distinct MSTs can exist (all with the same total weight).
-
-12. **Dropping the `mst.size() < G.V() - 1` early-stop or the `!pq.isEmpty()` guard in Kruskal's.** Without the second guard a disconnected graph loops forever or crashes on an empty PQ.
+**11. Dropping the unique-weights assumption without noticing.** With ties, there can be several MSTs, and a given minimum crossing edge is in *some* MST rather than provably in a unique one. The lecture's own Prim's trace hit a genuine tie at weight 2 and noted that either choice works.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Apply the cut property to a given cut
+### 1. Identify valid spanning trees / MSTs
 
-**Q:** Using the edge list from lecture (0-7 0.16, 2-3 0.17, 1-7 0.19, 0-2 0.26, 5-7 0.28, 1-3 0.29, 1-5 0.32, 2-7 0.34, 4-5 0.35, 1-2 0.36, 4-7 0.37, 0-4 0.38, 6-2 0.40, 3-6 0.52, 6-0 0.58, 6-4 0.93), which edge is the minimum-weight edge crossing the cut {2, 3, 5, 6}, and what can you conclude?
+Commonly tested as "which of these subgraphs is a spanning tree?" with distractors that fail connectedness, acyclicity, or coverage.
 
-**A:** Scan in increasing weight order and take the first edge with exactly one endpoint in {2,3,5,6}. 0-7: both outside, no. 2-3: both inside, no. 1-7: both outside, no. 0-2: 0 outside, 2 inside, **yes**. So the answer is **0-2 (weight 0.26)**, and by the cut property it **must be part of the MST**.
+**Practice:** A connected undirected graph has 9 vertices. A candidate subgraph uses 9 edges, touches all 9 vertices, and is connected. Can it be a spanning tree?
 
-### 2. Prove or state the cut property
+**Answer:** No. A spanning tree on 9 vertices has exactly 9 - 1 = 8 edges. With 9 edges and 9 vertices it must contain a cycle, so it is not a tree.
 
-**Q:** State the cut property and sketch its proof.
+### 2. Apply the cut property to a sorted edge list
 
-**A:** *Statement:* given any cut of the graph, the minimum-weight crossing edge is in the MST (assuming unique edge weights). *Proof:* let X be the MST and suppose the minimum crossing edge e is not in X. Since X spans the graph, adding e to X creates a cycle. That cycle crosses the cut and must come back, so it contains another crossing edge f in X. Because e is the minimum crossing edge, weight(e) < weight(f). Swapping (remove f, add e) yields a spanning tree of strictly lower weight, contradicting the minimality of X. Hence e is in X.
+**Practice:** Using the lecture's edge list, which edge is the minimum-weight edge crossing the cut {1, 3} vs. {0, 2, 4, 5, 6, 7}, and what does that tell you?
 
-### 3. Prim's vs. Dijkstra's: the one-line difference
+**Answer:** Scan the sorted list for the first crossing edge. `0-7` (both outside), `2-3` crosses (2 outside, 3 inside) at weight **0.17**. Earlier edge `0-7` (0.16) does not cross. So `2-3` is the minimum crossing edge and must therefore be in the MST, by the cut property.
 
-**Q:** You are handed working Dijkstra's code. What is the minimal change that turns it into Prim's, and why does that change work?
+### 3. Run Prim's by hand and give the visit order
 
-**A:** Change the relaxation condition from `distTo[v] + e.weight() < distTo[w]` to `e.weight() < distTo[w]` (and set the initial source distance to 0 as before). Dijkstra's keys each vertex by distance from the *source*, so it accumulates path weight; Prim's keys each vertex by distance from the *tree under construction*, which is just the weight of a single connecting edge. Consequently Dijkstra's visits vertices in order of distance from the source and Prim's visits them in order of distance from the MST under construction.
+**Practice:** On the lecture graph (A-B 2, A-C 1, B-C 3, B-E 5, B-D 11, C-E 1, C-F 15, D-E 2, D-G 1, E-F 4, E-G 3, F-G 1), run Prim's from A. List the MST edges in the order added and the total weight.
 
-### 4. Trace Kruskal's and/or Prim's
+**Answer:** A-C (1), C-E (1), then a tie at 2 between A-B and D-E (either order is valid), then D-G (1), then F-G (1). One valid sequence: A-C, C-E, A-B, D-E, D-G, F-G. That is 6 edges for 7 vertices, total weight 1 + 1 + 2 + 2 + 1 + 1 = **8**.
 
-**Q:** On the graph A-B (2), B-C (2), C-D (2), A-D (3), give the MST and its weight. Then say which vertex's SPT, if any, equals that MST.
+### 4. Run Kruskal's by hand, including identifying the rejected edges
 
-**A:** MST = {A-B, B-C, C-D}, weight 6 (A-D is excluded). The SPT from **B** equals this MST. It fails for D (D would reach A directly via A-D at cost 3 rather than 6 around the tree), and the SPTs from A and C also include A-D.
+**Practice:** On the same graph, run Kruskal's. Which edge does the lecture point to as the first one rejected for creating a cycle, and why?
 
-### 5. Is the MST ever an SPT? (the ladder graph)
+**Answer:** The weight-1 edges go in first (A-C, C-E, D-G, F-G), then A-B at weight 2. When B-E (weight 5) is reached, the accepted edges have already placed A, B, C, E in one component, so `connected(B, E)` is true and B-E is skipped: adding it would close the cycle through A-B, A-C, C-E.
 
-**Q:** For the "ladder" graph with two weight-2 rungs in the middle and weight-1 edges everywhere else, is there a vertex whose SPT equals the MST? Justify.
+### 5. Prim's vs. Dijkstra's: state the one difference
 
-**A:** **No.** The MST includes only **2** of the weight-2 edges, but any SPT includes at **least 3** of them. Since the edge sets differ, no SPT can equal the MST. The general reason: an MST minimizes total weight, while an SPT must minimize each vertex's individual distance to the source, and those objectives force different edges here.
+A classic short-answer question.
 
-### 6. Runtime of Prim's with a binary heap
+**Practice:** In one sentence, how does Prim's relaxation differ from Dijkstra's? Then: scanning vertex C (where `distTo[C] = 1`) across edge C-F of weight 15, what value does each algorithm store for F?
 
-**Q:** Give the runtime of Prim's, assuming all PQ operations are O(log V), and justify each term.
+**Answer:** Dijkstra's judges an edge by the resulting distance to the **source**, so it stores `distTo[C] + 15 = 16`; Prim's judges an edge by the distance to the **tree**, so it stores just `15`. Equivalently, Dijkstra's relaxes with `distTo[v] + e.weight()` and Prim's with `e.weight()`.
 
-**A:** V inserts at O(log V) = O(V log V); V `delMin`s at O(log V) = O(V log V); O(E) `decreasePriority` calls at O(log V) = O(E log V). Total O(V log V + V log V + E log V), which for E > V is **O(E log V)**, the same as Dijkstra's. The `decreasePriority` count is O(E) because each edge can trigger at most a constant number of successful relaxations across the run.
+### 6. Runtime derivation with an operation-count table
 
-### 7. Runtime of Kruskal's, including both variants
+**Practice:** Derive Prim's runtime assuming a binary-heap PQ with O(log V) operations, and explain which term dominates.
 
-**Q:** Give Kruskal's runtime with a `MinPQ`, and with a pre-sorted edge list. Is Kruskal's asymptotically slower than Prim's?
+**Answer:** V inserts at O(log V) gives O(V log V); V delMins at O(log V) gives O(V log V); up to O(E) `decreasePriority` calls at O(log V) gives O(E log V). Total O(V log V + V log V + E log V). For a connected graph E >= V - 1, and assuming E > V, the **E log V** term dominates: **O(E log V)**, the same as Dijkstra's.
 
-**A:** With a `MinPQ`: E inserts and O(E) `delMin`s at O(log E) each, O(V) `union`s and O(E) `connected`s at O(log\* V) each, total **O(E log E)**. With pre-sorted edges you skip the PQ and iterate in O(E), giving O(E + V log\* V + E log\* V) = **O(E log\* V)**. Kruskal's is **not** asymptotically slower than Prim's: E < V², so log E < 2 log V, hence O(E log E) = O(E log V). It can be slower in practice on worst-case unsorted input.
+### 7. Kruskal's runtime and the pre-sorted variant
 
-### 8. Identify valid spanning trees
+**Practice:** Kruskal's with a MinPQ is O(E log E). Why does it drop to O(E log* V) with pre-sorted edges, and why is O(E log E) not asymptotically worse than O(E log V)?
 
-**Q:** Which of the three subgraphs shown is a spanning tree? What do you check?
+**Answer:** With pre-sorted edges you skip the PQ entirely and just iterate the list in O(E), leaving O(E) + O(V log* V) for the unions + O(E log* V) for the connected-checks = O(E log* V). And since E < V², log E < log V² = 2 log V, so O(E log E) = O(E log V): the same asymptotic class as Prim's, even if slower in practice.
 
-**A:** Check all three properties: connected, acyclic, includes every vertex of G. A subgraph with a cycle fails, a subgraph that leaves some vertex unreachable fails (either disconnected or not spanning), and only one that satisfies all three qualifies. A quick sanity check: a spanning tree of a V-vertex graph has exactly V-1 edges, so any candidate with a different edge count is immediately out.
+### 8. Why does Prim's / Kruskal's work?
 
-### 9. Why does Prim's/Kruskal's work?
+Proof-sketch questions asking you to connect each algorithm to the generic cut-property algorithm.
 
-**Q:** Explain why Kruskal's algorithm produces an MST, referring to the cut property.
+**Practice:** State the cut used by Kruskal's when it adds edge `e = v-w`, and verify the two conditions the generic algorithm requires.
 
-**A:** It is a special case of the generic MST algorithm. When Kruskal's adds edge e = v-w, take the cut whose side 1 is all vertices currently connected to v and whose side 2 is everything else (containing w). No crossing edge is already in the MST under construction, because such an edge would have merged w's component into side 1. No crossing edge has lower weight than e, because edges are considered in increasing weight order and all lighter edges were already handled. So e is the minimum crossing edge of that cut and belongs to the MST by the cut property. (For Prim's, the cut is "everything connected to the start vertex" versus "everything else," and Prim's by definition adds the lightest edge crossing it.)
+**Answer:** The cut is (all vertices currently connected to v) vs. (everything else). (i) No crossing edge is already in the MST, since v's side is by definition everything already connected to v. (ii) No crossing edge is lighter than `e`, since edges are processed in increasing weight order, so every lighter edge has already been considered. Hence `e` is the minimum crossing edge of a cut with no crossing edges in the tree, and the cut property guarantees it is in the MST.
 
-### 10. Cycle detection (the warm-up)
+### 9. Prove the cut property
 
-**Q:** Give two ways to test an undirected graph for a cycle, with runtimes.
+**Practice:** Prove that for any cut, the minimum-weight crossing edge `e` is in the MST (assume unique weights).
 
-**A:** (a) DFS from an arbitrary vertex until you encounter a marked vertex, taking care not to count the vertex you came from: O(V + E), tightenable to O(V) since you need examine at most V edges. (b) Walk the edges with a `WeightedQuickUnionUF`: for each edge v-w, if `connected(v, w)` return true, else `union(v, w)`. O(V + E·α(V)) with path compression, tightenable to O(V·α(V)).
+**Answer:** By contradiction. Let X be an MST and suppose `e` is not in X. Adding `e` to X creates a cycle; because `e`'s endpoints lie on opposite sides of the cut, that cycle must cross the cut again at some edge `f` in X. Since `e` is the minimum crossing edge, weight(`e`) < weight(`f`). Removing `f` and adding `e` yields a spanning tree (still connected, still V - 1 edges) of strictly lower weight, contradicting the minimality of X.
+
+### 10. MST vs. SPT (extra material, from the web videos)
+
+**Practice:** For the graph A-B 2, B-C 2, C-D 2, A-D 3, the MST is {A-B, B-C, C-D}. Is it a shortest paths tree, and if so from which source?
+
+**Answer:** Yes, from **B**. It is not the SPT from D (the SPT from D would use the direct D-A edge of weight 3 instead of the weight-6 path D-C-B-A), nor from A or C. In general, an SPT depends on its source while an MST has no source, so they need not coincide, though sometimes they do.
+
+### 11. Cycle detection runtimes
+
+**Practice:** Why is DFS cycle detection on a connected undirected graph O(V) rather than O(V + E)?
+
+**Answer:** An acyclic graph has at most V - 1 edges, so after examining V edges we are guaranteed to have found a cycle. The number of edges we actually check is bounded by V, so O(V + E) collapses to O(V).
 
 ---
 
 ## Summary
 
-- A **spanning tree** is a subgraph that is connected, acyclic, and includes all vertices; an **MST** is one of minimum total weight. A spanning tree on V vertices has exactly V-1 edges.
-- **Warm-up (cycle detection in an undirected graph):** DFS until you hit a marked vertex, ignoring the vertex you came from, in O(V + E) (tightenable to O(V)); or disjoint sets, adding each edge unless its endpoints are already `connected`, in O(V + E·α(V)) (tightenable to O(V·α(V))). The second method is the cycle test inside Kruskal's.
-- **MST is not an SPT.** An SPT depends on a start vertex; an MST has no source. Sometimes an MST coincides with the SPT of a particular vertex (vertex B in the 4-cycle example), and sometimes no vertex works at all (the ladder graph, where the MST uses 2 weight-2 edges but every SPT uses at least 3).
-- A **cut** assigns the vertices to two non-empty sets; a **crossing edge** has one endpoint in each. **Cut property:** the minimum-weight crossing edge of any cut is in the MST. Proved by an exchange argument: adding the minimum crossing edge to the MST creates a cycle containing another crossing edge of larger weight, and swapping them gives a lighter spanning tree, a contradiction. Assumes unique edge weights.
-- **Generic MST algorithm:** repeatedly find a cut with no MST edges crossing it, add its smallest crossing edge, stop at V-1 edges. The hard part is choosing the cut.
-- **Prim's:** from an arbitrary start, repeatedly add the shortest edge with exactly one endpoint in the tree so far, until V-1 edges. Correct because the cut is (connected to start) vs. (not connected to start). The optimized version is Dijkstra's with the relaxation condition changed from `distTo[v] + e.weight() < distTo[w]` to `e.weight() < distTo[w]`; it needs a PQ of **vertices** supporting `decreasePriority`. **O(E log V)** for E > V.
-- **Kruskal's:** consider edges in increasing weight order, adding each unless it creates a cycle, until V-1 edges. Correct because the cut is (connected to v) vs. (everything else): no crossing edge is black and none is lighter. Uses a `MinPQ` of **edges** plus `WeightedQuickUnionPC` for the cycle test. **O(E log E)**, or **O(E log\* V)** with pre-sorted edges.
-- Prim's maintains one growing connected tree; Kruskal's maintains a scattered forest that merges into a tree only at the end. Both produce the same MST under unique weights.
-- Since E < V², O(E log E) = O(E log V), so Kruskal's is not *asymptotically* slower than Prim's even though it can lose in practice on unsorted input.
-- **Reference table:** Dijkstra's O(E log V) (fails on negative weights); Prim's O(E log V); Kruskal's O(E log E); Kruskal's with pre-sorted edges O(E log\* V).
-- *(Bonus, CS 170 territory)* Faster MST algorithms exist (Yao 1975 through Chazelle's O(E α(V)) in 2000), and Pettie-Ramachandran 2002 is provably optimal, though the optimal asymptotic form is still unknown.
+- A **spanning tree** is a connected, acyclic subgraph containing all vertices; an **MST** is one of minimum total edge weight. On V vertices it has exactly **V - 1** edges.
+- **Cut:** any assignment of vertices to two non-empty sets (no contiguity required). **Crossing edge:** one with endpoints in different sets.
+- **Cut property:** for any cut, the minimum-weight crossing edge is in the MST (and in every MST if several exist). Proof: adding that edge to a supposed MST that lacks it creates a cycle that re-crosses the cut at a heavier edge; swap them for a cheaper spanning tree, a contradiction.
+- **Generic MST algorithm:** repeatedly find a cut with no crossing edges in the tree, add its minimum crossing edge, until V - 1 edges. Correct but impractical: there are ~2^V cuts.
+- **Prim's:** start anywhere, repeatedly add the lightest edge with exactly one endpoint in the tree. The implicit cut is (in tree) vs. (not in tree).
+- **Prim's = Dijkstra's with "distance from the tree" instead of "distance from the source."** Relaxation compares `e.weight()` to `distTo[w]`, not `distTo[v] + e.weight()`. Visit order is by distance from the growing tree.
+- **Prim's runtime:** V inserts + V delMins + O(E) decreasePriority, all O(log V), giving **O(E log V)** when E > V.
+- **Kruskal's:** process edges in increasing weight order, adding each unless it creates a cycle, until V - 1 edges. The implicit cut is (everything connected to v) vs. (the rest).
+- Cycle detection in Kruskal's uses **weighted quick union with path compression**; `connected(v, w)` means "already unioned," not "there is an edge." WQU is used instead of DFS because it remembers component structure across many queries.
+- **Kruskal's runtime:** **O(E log E)** with a MinPQ, **O(E log\* V)** with pre-sorted edges. Since E < V², O(E log E) = O(E log V), so it is not asymptotically worse than Prim's.
+- **Visual character:** Prim's grows one tree outward from a seed; Kruskal's scatters many tiny components across the graph that gradually merge.
+- Warm-up takeaway: cycles in an undirected graph can be found by DFS with marking (O(V) here, remembering to skip the parent) or by disjoint sets (O(V·α(V))).
+- **Extra:** MST has no source; SPT does. The MST may coincide with the SPT from some vertex, but for some graphs no vertex works. State of the art for compare-based MST is Pettie-Ramachandran (2002), optimal but of unknown complexity.
