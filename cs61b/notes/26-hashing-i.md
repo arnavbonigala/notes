@@ -1,190 +1,179 @@
-<!-- Mon, Oct 26, 2026 | sources: slides + textbook (no transcript available) -->
+<!-- Mon, Oct 26, 2026 | sources: slides + YouTube auto-transcript + textbook -->
 # Lecture 26: Hashing I
 
-This lecture builds the hash table from scratch, starting from a plain unordered linked-list set and asking how to beat the two limitations of search-tree sets: the requirement that items be `Comparable`, and the Θ(log N) ceiling on `contains` and `add`. The derivation proceeds in stages: split one list into several lists ("buckets") and use modulus to decide which bucket an item belongs to (`ArrayOfListsSet`, giving an M-fold speedup but still Θ(N)); then make the number of buckets M grow with the number of items N so that the average bucket length stays constant (`DynamicArrayOfListsSet`, giving Θ(1) average operations); then handle non-integer data by first converting it to an integer ("integerization"), treating a string as a number in some base; then confront the fact that Java `int`s are fixed-precision, so overflow makes uniqueness impossible and our integerization function becomes a *hash code*, a projection from a huge (possibly infinite) set onto a fixed finite set. The result is the hash table: `data → hashCode() → hash code → reduce (floorMod) → bucket index`. The lecture closes with Java's actual `String.hashCode()` (base 31, with overflow-induced collisions), `Math.floorMod` for negative hash codes, the two warnings (never store mutable objects in a `HashSet`/`HashMap`; never override `equals` without `hashCode`), and a careful accounting of performance including the Θ(N) cost of a resize.
+## Overview
+
+Up to this point, every Set/Map implementation we have built (ArraySet, BST, 2-3 tree, LLRB) has required items to be **comparable**, and the best of them topped out at Θ(log N) for `contains` and `add`. This lecture asks whether we can do better on both counts, and the answer is yes. The idea is to stop storing items in one long list and instead split them across M "buckets," using a cheap arithmetic rule (modulus) to compute which bucket an item belongs to. If items spread out evenly across buckets, each bucket holds about N/M items, giving an M-fold speedup; if we then let M grow with N (resizing when the load factor N/M exceeds a constant like 1.5), each bucket holds a constant number of items and operations become Θ(1) on average. To handle non-integer data such as Strings, we first "integerize" it by treating the characters as digits of a number in some base (base 26 for lowercase English, base 126 for ASCII, larger for Unicode), which overflows Java's fixed-precision `int` and therefore produces a value in a *fixed* finite range: that is exactly what makes it a **hash code**. The resulting data structure, an array of linked lists indexed by a reduced hash code, is a **hash table** with **separate chaining**, which is how `java.util.HashMap` and `HashSet` work and which relies on every Java object having a `.hashCode()` method.
+
+---
 
 ## Key Concepts
 
-### Why we want something other than a search tree
+### 1. Why search trees are not the end of the story
 
-Every set/map implementation seen so far has a weakness:
+Our tree-based sets have two limitations:
 
-| Implementation | `contains(x)` | `add(x)` | Notes |
-|---|---|---|---|
-| `ArraySet` | Θ(N) | Θ(N) | |
-| BST | Θ(N) | Θ(N) | Random trees are Θ(log N) |
-| 2-3 Tree | Θ(log N) | Θ(log N) | Beautiful idea, very hard to implement |
-| LLRB | Θ(log N) | Θ(log N) | Maintains bijection with 2-3 tree, hard to implement |
+- **They require comparability.** A BST needs to answer "is X < Y?" at every node. Not all types have a natural order, and inventing one is sometimes artificial.
+- **Θ(log N), while excellent, may not be optimal.** The lecture is explicit that log N is already very good (1 billion items means height ~30, and log is exponentially better than linear), but constant time is better still, and "there is nothing better than constant time."
 
-Two complaints drive the lecture:
+Hashing addresses both: it needs only a way to turn an object into an integer, not a way to order objects.
 
-1. **Comparability.** Search trees need to ask "is X < Y?" That question is not meaningful for all types. Can we build a set that does not require items to be comparable?
-2. **Speed.** Θ(log N) is already amazing (a billion items is height ~30), but can we do better?
+### 2. From one list to many lists (separate chaining)
 
-The answer to both is yes.
+Start with an unordered `LinkedListSet<Integer>`. Both `contains` and `add` are Θ(N) because you must scan from the front. We previously improved this two ways, both of which required **sorted order**: express lanes (skip lists, out of scope) and tree-shaped restructuring (BSTs and relatives).
 
-### Multiple lists: the separate chaining idea
+The new idea needs no order at all. Split the single list into two: one for even items, one for odd. To check whether 7 is present, you only look in the odd list, so you have halved your work. Generalize: use 10 lists and send each integer to list `x % 10`, which is the same as "look at the last digit." The lecture's analogy is picking up a Snackpass order at TP Tea: you find your drink by reading the last digit of your order number.
 
-Start with a `LinkedListSet<Integer>` with no particular order: `contains` and `add` are Θ(N) because you must scan. Previous improvements (skip lists, BSTs and their cousins) both required *sorted* data. The new approach will not.
+Each list is called a **bucket**. When two or more items land in the same bucket, that is a **collision**. This whole paradigm, where each bucket is a chain (linked list) of items, is called **separate chaining**.
 
-Key move: split the single list into two lists, one holding the even items and one holding the odd items. If items are evenly distributed, `add` and `contains` are now twice as fast, because you only scan the one list where the item could possibly be.
+Example from lecture, inserting `[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]` with M = 10:
 
-Generalize to 10 lists. Which list does an integer go in? The lecture's analogy: when you order from TP Tea on Snackpass, you find your drink by **looking at the last digit** of your order number, which is exactly **modulus by 10**.
+| Bucket | Contents |
+|---|---|
+| 0 | 10 |
+| 1 | 11 |
+| 2 | 12 |
+| 3 | 3, 13 |
+| 4 | 4, 14 |
+| 5 | 5, 15 |
+| 6 | 6 |
+| 7 | 7 |
+| 8 | 8 |
+| 9 | 9 |
 
-This paradigm, where each slot in an array holds a list (a "chain") of items, is called **separate chaining**.
+Most buckets hold one item; buckets 3, 4, 5 have collisions.
 
-### Modulus as a reduction
+### 3. Modulus as a reduction function
 
-Taking an integer mod M gives the remainder on division by M:
-- `13 % 10 = 3`
-- `7 % 10 = 7`
-- `1000 % 10 = 0`
-
-Think of this as a **reduction** from the space of all integers down to the integers in `[0, M)`. Modulus is described in the slides as the most natural and best reduction function.
-
-With M = 10 and the data `[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]`, items land as:
-
-```
-0: 10
-1: 11
-2: 12
-3: 3, 13
-4: 4, 14
-5: 5, 15
-6: 6
-7: 7
-8: 8
-9: 9
-```
-
-When a single bucket holds more than one item, we call that a **collision**. Collisions are not an error, they are just a slower bucket.
-
-### `ArrayOfListsSet` and why it is still Θ(N)
-
-Generalize to any number of buckets M. With N items **evenly distributed** (minimizing collisions), each bucket has length about N/M, giving up to an M-fold speedup: with M = 10, all operations are up to 10 times faster.
-
-But asymptotically this is no win: Θ(N / 10) = Θ(N). A constant factor of 10 vanishes in the asymptotics.
-
-### `DynamicArrayOfListsSet`: make M depend on N
-
-The fix is to stop treating M as a constant. Let M be a constant multiple of N, i.e. M = Nk for a constant k. Since `contains` runs in Θ(N / M), substituting M = Nk gives:
-
-$$\Theta(N/M) = \Theta(N/(Nk)) = \Theta(1/k)$$
-
-which is constant. Larger k means faster `contains` (more buckets, shorter chains), which matches intuition, but larger k also means more memory. So we pick a k that is a happy medium.
-
-Equivalently stated in terms of the **load factor** N/M: keep N/M below some constant, and when it exceeds that constant, **double M** and redistribute everything.
-
-If N items are evenly distributed over M = Nk buckets, each list has length ~k, which is constant asymptotically, so operations are constant *on average*.
-
-### Resizing, step by step (the lecture's k = 1.5 example)
-
-Rule: when N/M ≥ 1.5, double M. Start with M = 4, N = 0.
-
-| Operation | N | M | N/M | Table (bucket: contents) |
-|---|---|---|---|---|
-| start | 0 | 4 | 0 | all empty |
-| `add(7)` | 1 | 4 | 0.25 | 3: 7 |
-| `add(16)` | 2 | 4 | 0.5 | 0: 16 / 3: 7 |
-| `add(3)` | 3 | 4 | 0.75 | 0: 16 / 3: 7, 3 |
-| `add(11)` | 4 | 4 | 1.0 | 0: 16 / 3: 7, 3, 11 |
-| `add(20)` | 5 | 4 | 1.25 | 0: 16, 20 / 3: 7, 3, 11 |
-| `add(13)` | 6 | 4 | 1.5 | 0: 16, 20 / 1: 13 / 3: 7, 3, 11 → **resize** |
-
-After doubling to M = 8, every item's index is recomputed with `% 8`:
+Taking `x % M` gives the remainder of dividing x by M. It is a **reduction** from the infinite set of all integers down to the finite index range `[0, M)`:
 
 ```
-0: 16        (16 % 8 = 0)
-1:
-2:
-3: 3, 11     (3 % 8 = 3, 11 % 8 = 3)
-4: 20        (20 % 8 = 4)
-5: 13        (13 % 8 = 5)
-6:
-7: 7         (7 % 8 = 7)
+All Integers  --% 10-->  [0, 10)
 ```
 
-N = 6, M = 8, N/M = 0.75. Notice that items **move**: 16 and 20 were both in bucket 0 under `% 4` but separate under `% 8`; 11 stays with 3. This is the crucial point: the bucket index is a function of both the item and the current table size, so resizing requires rehashing (or at least re-reducing) every item.
+The lecture stresses how cheap and total this is: hand the class a number like 1,973,200,529 and everyone can instantly say "bucket 9," because only the last digit matters. Modulus is described as "the most natural and best reduction function."
 
-### Integerization: storing strings
+### 4. The central picture: large set to small set
 
-Modulus is natural on integers. For other data we need a function `data → integer` first. The lecture calls this the **integerization function**.
+The transcript's framing, carried over from the warm-up: a hash function takes a set with very many (possibly infinitely many) members and maps it into a set with a fixed, smaller number of members. The warm-up asked how to map n-bit strings into 2 bins (take the least significant bit, take the most significant bit, take the parity, or trivially map everything to 0, which is legal but useless) and then into 2^k bins (take the first k bits, the last k bits, etc.). More bins preserve more information and cause fewer collisions, but cost more space. That trade-off is the whole lecture in miniature.
 
-**Bad first idea:** use the alphabet position of the first letter (a = 1, ..., z = 26), so "cat" → bucket 3. Problems the lecture lists:
-- Terrible worst case: a dataset of words all starting with "a" puts everything in one bucket.
-- Only the first 26 buckets ever get used.
+The lecture also notes the **pigeonhole principle** (CS 70): mapping a large set into a smaller one makes collisions unavoidable. The goal is never zero collisions, only *few* collisions. (The transcript also mentions that hash functions appear in many other guises, e.g. cryptographic hashes, SHA-256, Git commit hashes, pairwise-independent hashes, all unified by this same "big set to small set" picture; those are out of scope here.)
+
+### 5. ArrayOfListsSet: an M-fold speedup that is still Θ(N)
+
+Generalizing to M buckets gives `ArrayOfListsSet`. With N items **evenly distributed**, each bucket holds about N/M items, so operations are up to M times faster. With M = 10, everything is 10x faster.
+
+But asymptotically this is nothing: Θ(N/10) = Θ(N), because 10 is a constant and Θ ignores constants. We need a smarter choice of M.
+
+### 6. Choosing M: make it depend on N
+
+Two extremes:
+
+- **M = 10 (fixed):** constant-factor speedup only, still Θ(N).
+- **M = number of possible integers:** every integer gets its own bucket, so `contains` is a single array lookup, Θ(1). But Java has exactly 4,294,967,296 ints, so you would need an array of over 4 billion slots. Far too much memory. The lecture's analogy: if your apartment is nothing but labeled baskets, you have no room left for anything else.
+
+The happy medium: **let M depend on N.** Specifically pick M = Nk for a constant k. Since `contains` runs in Θ(N/M), substituting gives Θ(N/(Nk)) = Θ(1/k), which is constant.
+
+Reading the bound: larger k means more buckets and faster `contains`, matching intuition. But larger k also means more memory. So pick a k that is a reasonable compromise. (The transcript also fielded student suggestions of M = √N, M = log N, and M = N^(1/3); these are not constant-factor-of-N and would not give Θ(1), though they would beat a fixed M.)
+
+### 7. The load factor and resizing
+
+Rather than recompute M on every insertion, we do what we did for `ArrayList`: keep M fixed, and when it gets too crowded, double it. The crowding measure is the **load factor**:
+
+```
+load factor = N / M = items / buckets
+```
+
+The lecture's worked rule is k = 1.5: when N/M ≥ 1.5, double M. (Java's `HashMap` typically uses 0.75, mentioned in the Summary slide.)
+
+Crucially, doubling M changes the modulus, so **every item must be rehashed and reinserted**. An item that was in bucket `x % 4` now belongs in bucket `x % 8`. The transcript's analogy: it is a spring cleaning, you are changing your whole organization system, so everything must be re-filed. This resize is a Θ(N) operation, but it happens rarely enough to amortize away.
+
+### 8. Storing non-integers: integerization
+
+Modulus is defined on integers, so to store Strings we first convert them to integers.
+
+**Bad first idea:** use the alphabet position of the first letter ("cat" → 3). Problems raised in lecture:
+- Terrible worst case: a dataset of words all starting with "a" dumps everything into one bucket.
+- Only 26 buckets ever get used, so we can never grow M.
+- English letter frequencies are very uneven, so bucket "a" would be huge and bucket "z" nearly empty.
 - Some strings do not start with a letter at all, e.g. "1a2b3c".
 
-**Better idea:** treat the string as a number in base 26 (assuming only lowercase English letters). Use *all* the digits by multiplying each by a power of 26:
+**Better idea:** treat the whole string as a number in base 26, which uses every character.
 
-- `cat` = (3 × 26²) + (1 × 26¹) + (20 × 26⁰) = 2074
-- `bee` = (2 × 26²) + (5 × 26¹) + (5 × 26⁰) = 1487
+Review of decimal first: base 10 has 10 digits, and longer numbers are sequences of digits weighted by powers of 10:
 
-This mirrors decimal: 7091 = (7 × 10³) + (0 × 10²) + (9 × 10¹) + (1 × 10⁰), using 10 digits 0 through 9. One difference: in decimal, `000` is the same as `0`, but as strings `aaa` differs from `a`. To deal with this we simply have no zero digit: `a` is 1, not 0.
+```
+7091₁₀ = (7 × 10³) + (0 × 10²) + (9 × 10¹) + (1 × 10⁰)
+```
 
-**Uniqueness:** as long as the base is ≥ 26, this gives every lowercase English word a *unique* number. Using base 26, no other word maps to 1487.
+Do the same with letters, mapping a = 1, b = 2, ..., z = 26:
 
-### Beyond lowercase: ASCII and Unicode
+```
+cat₂₆ = (3 × 26²) + (1 × 26¹) + (20 × 26⁰) = 2074
+bee₂₆ = (2 × 26²) + (5 × 26¹) + (5 × 26⁰) = 1487
+```
 
-Lowercase-only is too restrictive; we want "2pac" and "eGg!" too. Each character needs a number, and **ASCII** already provides one: every ASCII character gets a value from 0 to 127, with 33 through 126 being the printable ones. `char c = 'D'` is equivalent to `char c = 68`. (Fun fact from the slides: character comparison in Java uses these values, e.g. `'a'` = 97 < `'b'` = 98.)
+One difference from decimal: in decimal, `000` equals `0`, but the strings `"aaa"` and `"a"` are different. We avoid this by **having no zero digit**: `a` is 1, not 0. As long as the base is ≥ 26, this gives every lowercase English word a **unique** number.
 
-The biggest printable ASCII value is 126, so base 126 gives unique values for all such strings:
-- `bee` = (98 × 126²) + (101 × 126¹) + (101 × 126⁰) = 1,568,675
-- `2pac` = (50 × 126³) + (112 × 126²) + (97 × 126¹) + (99 × 126⁰) = 101,809,233
-- `eGg!` = (98 × 126³) + (71 × 126²) + (98 × 126¹) + (33 × 126⁰) = 203,178,213
+### 9. ASCII, Unicode, and bigger bases
 
-Java `char`s go further: this encoding is **Unicode**, and the table is too big to list.
-- `char c = '☂'` is equivalent to `char c = 9730`
-- `char c = '鳌'` is equivalent to `char c = 40140`
-- `char c = '혜'` is equivalent to `char c = 54812`
+Lowercase-only is too restrictive; we want "2pac" and "eGg!" too. ASCII assigns every character a value in 0-127, with 33-126 printable. `char c = 'D'` is equivalent to `char c = 68`; lowercase `'a'` is 97, `'b'` is 98 (so Java's character comparison is just comparing these codes), `'!'` is 33, and the digit character `'2'` is 50.
 
-For Chinese characters the largest value is 40,959, so base 40,959 would be needed for uniqueness:
-- `守门员` = (23432 × 40959²) + (38376 × 40959¹) + (21592 × 40959⁰) = 39,312,024,869,368
+Using 126 as the base covers all printable English text:
 
-### Integer overflow kills uniqueness
+```
+bee₁₂₆  = (98 × 126²) + (101 × 126¹) + (101 × 126⁰) = 1,568,675
+2pac₁₂₆ = (50 × 126³) + (112 × 126²) + (97 × 126¹) + (99 × 126⁰) = 101,809,233
+eGg!₁₂₆ = (98 × 126³) + (71 × 126²) + (98 × 126¹) + (33 × 126⁰) = 203,178,213
+```
 
-Can we map every possible string to a unique integer? **No.** In Java there are only finitely many `int`s: exactly 4,294,967,296 of them. This is **fixed precision**. (Some languages such as Python support arbitrary precision, where the number of integers is limited by memory instead of by a fixed bit count.)
+Java `char` also supports **Unicode**, which covers far more: `'☂'` is 9730, `'鳌'` is 40140, `'혜'` is 54812. For Chinese characters the largest value is 40,959, so a unique encoding of all Chinese strings needs base 40959:
 
-The number 39,312,024,869,368 does not exist as a Java `int`. The largest Java `int` is 2,147,483,647, and going past it **overflows**, wrapping around to the smallest, -2,147,483,648:
+```
+守门员₄₀₉₅₉ = (23432 × 40959²) + (38376 × 40959¹) + (21592 × 40959⁰) = 39,312,024,869,368
+```
+
+### 10. Integer overflow, and why it is fine
+
+That number does not exist as a Java `int`. Java integers are **fixed precision**: there are exactly 4,294,967,296 of them, from -2,147,483,648 to 2,147,483,647. Going past the max **overflows** and wraps to the min: the number after 2,147,483,647 is -2,147,483,648. (Some languages, e.g. Python, support arbitrary precision instead, limited only by memory.)
+
+Overflow strikes even short strings: `omens₁₂₆` = 28,196,917,171 mathematically, but `asciiToInt("omens")` returns -1,867,853,901 in Java.
+
+So we **cannot** map every possible string to a unique integer. The lecture's point is that this is acceptable: we were going to reduce into M buckets anyway, so losing information is already part of the plan. Java's wraparound is just "a built-in bucket that gives you the modulus whether you like it or not." All we need is a map from a big set to a small set.
+
+### 11. Hash codes and the hash table
+
+The official name for the integer we compute is a **hash code**. Our integerization function qualifies as a hash code precisely because its target set is *fixed* in size (the 4,294,967,296 Java ints).
+
+A DynamicArrayOfLists with a finite integerization function is a **hash table**:
+
+1. `data` → **hash function** (`hashCode()`) → **hash code** in [-2147483648, 2147483647]
+2. hash code → **reduce** (modulus / `Math.floorMod`) → **index** in [0, M)
+3. store data in the bucket at that index
+
+Example from the slides: `"抱抱".hashCode()` is 1034854400, and `1034854400 % 10 = 0`, so it goes in bucket 0 alongside "hug", "포옹", and "守门员".
+
+Many other hash table flavors exist (linear probing, quadratic probing, cuckoo hashing, buckets that are not linked lists). In 61B we use separate chaining.
+
+### 12. Hash tables in Java
+
+Hash tables are the most popular Set/Map implementation: great performance in practice, no comparability requirement, relatively simple to implement. Python dictionaries are hash tables in disguise. Java provides `java.util.HashMap` and `java.util.HashSet`.
+
+How does a `HashMap` get an object's hash code? **Not** via an interface like "implements Hashable." Instead, `hashCode()` is a method on `Object`, so *every* Java object has one:
 
 ```java
-int x = 2147483647;
-System.out.println(x);      // 2147483647
-System.out.println(x + 1);  // -2147483648
+String toString()
+boolean equals(Object obj)
+int hashCode()          // this is where Java implements hash codes
+Class<?> getClass()
+protected Object clone()
+protected void finalize()
+void notify() / notifyAll() / wait(...)   // not discussed in 61B
 ```
 
-With base 126 we overflow on even short strings: `omens` in base 126 is 28,196,917,171, far above the maximum `int`, and `asciiToInt("omens")` actually returns -1,867,853,901 in Java.
+The default `hashCode()` implementation uses the object's **memory address**.
 
-So we cannot have uniqueness. We give it up.
-
-### Hash codes
-
-The official term for the number we compute is a **hash code**. Quoting Wolfram|Alpha via the slides, a hash code "projects a value from a set with many (or even an infinite number of) members to a value from a set with a fixed number of (fewer) members." Here the target set is the set of Java integers, of size 4,294,967,296. Our integerization function *is* a hash code precisely because the set it projects onto is fixed and finite.
-
-A `DynamicArrayOfLists` with a finite integerization function is called a **hash table**. The pipeline:
-
-```
-data  --hash function (hashCode())-->  hash code  --reduce (floorMod)-->  index
-```
-
-for example `2348762878 % 10 = 8`. Java hash codes must lie in [-2,147,483,648, 2,147,483,647].
-
-The version used in 61B is an array of lists, i.e. separate chaining, where each bucket is a separate chain of items. Many more exotic alternatives exist: linear probing, cuckoo hashing, using something other than linked lists for buckets, and so on.
-
-### Hash tables in Java
-
-Hash tables are the most popular implementation of sets and maps: great performance in practice, no need for items to be comparable, and implementations are often relatively simple. Python dictionaries are hash tables in disguise. In Java they are `java.util.HashMap` and `java.util.HashSet`.
-
-How does a `HashMap` know an object's hash code? Not through an interface like `implements Hashable`. Instead, **every** object in Java has a `.hashCode()` method, because `Object` declares one:
-
-- `String toString()`
-- `boolean equals(Object obj)`
-- `int hashCode()`  ← this is where Java implements hash codes
-- `Class<?> getClass()`, `protected Object clone()`, `protected void finalize()`, `void notify()`, `void notifyAll()`, `void wait(...)` (the last several are not discussed or used in 61B)
-
-The **default implementation of `hashCode` uses the memory address**.
-
-Java's actual `String.hashCode()` uses **base 31** rather than 126 (cleaned-up version from the slides):
+Java's actual String `hashCode` uses **base 31**, not 126:
 
 ```java
 public int hashCode(String s) {
@@ -197,204 +186,152 @@ public int hashCode(String s) {
 }
 ```
 
-Because of overflow, distinct strings collide. Both `"守门员".hashCode()` and `"孡㜹ቘ஝஝俎".hashCode()` return 23,729,400. Other real values:
+Because of overflow, distinct strings can collide: both `"守门员".hashCode()` and `"孡㜹ቘ஝஝俎".hashCode()` return 23,729,400. Real examples printed in lecture:
 
-```java
-System.out.println("a".hashCode());                 // 97
-System.out.println("bee".hashCode());               // 97410
-System.out.println("포옹".hashCode());               // 1732557
-System.out.println("kamala lifefully".hashCode());  // 1732557
-System.out.println("đậu hũ".hashCode());            // -2108180664
+```
+"a"                 →  97
+"bee"               →  97410
+"포옹"              →  1732557
+"kamala lifefully"  →  1732557       // collision!
+"đậu hũ"            →  -2108180664
 ```
 
-Note `"포옹"` and `"kamala lifefully"` collide outright. Also note `"bee".hashCode()` is 97410 in base 31, not the 1487 we computed in base 26 or the 1,568,675 we computed in base 126: the base and the character values both matter.
+### 13. Negative hash codes and `Math.floorMod`
 
-### Negative hash codes and `Math.floorMod`
-
-Hash codes can be negative, so plain `%` is not safe for computing an index. Suppose an item's hash code is -1 and M = 4. Conceptually we want it to loop around to bucket 3, like negative indexing in Python. But in Java, `-1 % 4 = -1`, which would cause an index error. Use `Math.floorMod` instead:
+Hash codes can be negative, as `"đậu hũ"` shows. Conceptually, a hash code of -1 with M = 4 should wrap around to index 3, like negative indexing in Python. But Java's `%` does not do that:
 
 ```java
-public class ModTest {
-    public static void main(String[] args) {
-        System.out.println(-1 % 4);               // -1
-        System.out.println(Math.floorMod(-1, 4)); // 3
-    }
-}
+System.out.println(-1 % 4);                  // -1   → ArrayIndexOutOfBoundsException!
+System.out.println(Math.floorMod(-1, 4));    // 3    → correct
 ```
 
-So the Java pipeline is: data → `hashCode()` → hash code → `Math.floorMod(hashCode, buckets.length)` → index. For `"đậu hũ"`, `hashCode()` is -2,108,180,664 and `Math.floorMod(-2108180664, 4)` gives 0.
+So the reduce step in Java must use `Math.floorMod(hashCode, M)`, not `%`. This is the "caveat" the slides promised to revisit.
 
-### Two important warnings
+### 14. Performance
 
-**Warning #1: never store objects that can change in a `HashSet` or `HashMap`.** Such objects are called *mutable*. You would never want a `HashSet<List<Integer>>`. If an object's variables change, its `hashCode` changes, so it reduces to a different bucket than the one it is sitting in, and items get lost.
+**Hash table with no resizing: Θ(N).** N changes but M stays constant, so buckets hold Θ(N/M) = Θ(N) items even with perfect distribution (treating M as a constant: if M = 4, Θ(N/4) = Θ(N)).
 
-**Warning #2: never override `equals` without also overriding `hashCode`.** This also leads to lost items and generally weird behavior. `HashMap` and `HashSet` use `equals` to decide whether an item already exists within a particular bucket, so the two methods must agree.
+**Hash table with resizing: Θ(1) on average.** M grows with N, so buckets hold Θ(N/M) = Θ(1) items under even distribution.
 
-### Performance, carefully
+Why "on average," and why the caveats?
+- A **resize** costs Θ(N).
+- An **uneven distribution** degrades to Θ(N): if every item lands in one bucket, you traverse a linked list of length N.
 
-**Hash table with no resizing: Θ(N).** N changes, M stays constant, so buckets contain Θ(N/M) items, and treating M as a constant this is Θ(N). The slides illustrate with four buckets each holding five names.
-
-**Hash table with resizing: Θ(1) on average.** N changes and M changes with it, so buckets contain Θ(N/M) → Θ(1) items *if the distribution is even*.
-
-Why "on average"? Two things can break it:
-- A resize is needed: Θ(N).
-- The distribution is not even: Θ(N) (one bucket could hold everything).
-
-**What makes a resize Θ(N)?**
+Breakdown of the Θ(N) resize cost:
 
 | Step | Cost |
 |---|---|
-| Double the number of buckets | Θ(M) |
+| Allocate double the buckets | Θ(M) |
 | Iterate through M buckets | Θ(M) |
 | Iterate through N items | Θ(N) |
-| &nbsp;&nbsp;per item: recompute hash code and new index | Θ(1) |
-| &nbsp;&nbsp;per item: re-insert into the new buckets | Θ(1)* |
+| ...per item: recompute hash code and new index | Θ(1) |
+| ...per item: re-insert into new buckets | Θ(1) (with head insertion) |
 
-\* Θ(1) assuming insertion at a known index of the linked list, such as head insertion.
+Since M = Θ(N): Θ(M) + Θ(M) + Θ(N)·(Θ(1) + Θ(1)) = **Θ(N)**.
 
-Since M = Θ(N), total = Θ(M) + Θ(M) + Θ(N) × (Θ(1) + Θ(1)) = **Θ(N)**.
+The per-item Θ(1) re-insertion assumes insertion at a known position in the chain, e.g. **head insertion** into a sentinel-headed linked list: point the new node's `next` at the sentinel's old `next`, then point the sentinel at the new node. No traversal, so Θ(1). (The slides note that in practice Java uses a mix of tail insertion and red-black trees, which is Hashing II material, and that you may ignore the real-world details here.)
 
-The head-insertion detail matters: to re-insert into a chain in Θ(1) you insert at the head, right after the sentinel, so you never traverse the chain. (The slides note that in reality Java uses a mix of tail insertion and red-black trees, which is the subject of Hashing II, and that the exact in-practice chaining mechanism is out of scope.)
+**Even distribution matters independently of load factor.** Two tables can both have load factor N/M = 0.75 and have wildly different performance:
 
-**Even distribution is required, not optional.** Two tables can have the identical load factor N/M = 0.75 and wildly different performance: if all three items sit in one bucket, `contains(String x)` is Θ(N) because you traverse that linked list; if the three items sit in three different buckets, it is Θ(1). The load factor alone does not guarantee speed.
+```
+Bad:                            Good:
+0                               0  "Isabel"
+1                               1
+2                               2  "Ryan"
+3  "Marcus" → "Ryan" → "Isabel" 3  "Marcus"
+```
 
-How do we get an even distribution? Both inputs to `index = hashcode % buckets.length` matter: the **hash code** and the **table size** (number of buckets).
+Left is Θ(N) for `contains`, right is Θ(1). How do we get an even distribution? Since `index = hashCode % buckets.length`, it depends on both the **hash code** and the **table size (number of buckets)**.
 
-### Final summary table from the slides
+Summary table:
 
-| | `contains(x)` | `add(x)` |
+| Implementation | `contains(x)` | `add(x)` |
 |---|---|---|
-| Bushy BSTs | Θ(log N) | Θ(log N) |
-| Separate chaining hash table, **no** resizing | Θ(N) | Θ(N)† |
-| ... **with** resizing | Θ(1)† | Θ(1)\*† |
+| Bushy BSTs (2-3, LLRB) | Θ(log N) | Θ(log N) |
+| Separate chaining hash table, **no** resizing | Θ(N) † | Θ(N) † |
+| Separate chaining hash table, **with** resizing | Θ(1) † | Θ(1) * † |
 
 \* on average &nbsp;&nbsp; † assuming items are evenly spread
 
-### Creating a good hash code (marked "extra" in the lecture)
-
-Goal: a `hashCode` that spreads real data out nicely.
-- **Example #1 (bad):** `return 0`. Everything collides.
-- **Example #2 (bad):** return the first character, "cat" → 3. Terrible worst cases, few buckets used.
-- **Example #3 (bad):** add the chars together. "ab" collides with "ba".
-- **Example #4 (good):** treat the string as a base-B number.
-
-The hashbrowns analogy: you do not make hashbrowns by chopping a potato into nice predictable segments. Adding up characters is not nearly "random" enough. Multiplying data by powers of some base scrambles everything together into a seemingly random integer. Writing a good `hashCode()` is tricky.
-
-Java 8's `String.hashCode()` has two differences from our version:
-1. It uses base **31** (a small base). Real hash codes do not care about uniqueness.
-2. It **caches** the computed value so future `hashCode` calls are faster.
-
-```java
-@Override
-public int hashCode() {
-    int h = cachedHashValue;
-    if (h == 0 && this.length() > 0) {
-        for (int i = 0; i < this.length(); i++) {
-            h = 31 * h + this.charAt(i);
-        }
-        cachedHashValue = h;
-    }
-    return h;
-}
-```
-
-**Why 31 and not 126?** It seems like 126 is better, since ignoring overflow it gives unique representations for all ASCII strings. But overflow is a *particularly bad* problem for base 126. All of these return hash code 634199182:
-
-- `"geocronite is the best thing on the earth."`
-- `"flan is the best thing on the earth."`
-- `"treachery is the best thing on the earth."`
-- `"Brazil is the best thing on the earth."`
-
-Any string ending in the same last 32 characters gets the same base-126 hash code, because 126³² = 126³³ = 126³⁴ = ... = 0 under overflow, so the upper characters are all multiplied by zero. (See CS61C for more.)
-
-**Typical base: a small prime.**
-- Prime: never even, which avoids the overflow-to-zero issue above, and lowers the chance of the resulting hash code having a bad relationship with the number of buckets.
-- Small: cheaper to compute.
-
-A full treatment of good hash codes is well beyond the scope of 61B.
-
-**Hashing a collection.** Lists are a lot like strings, a collection of items each with its own `hashCode`:
-
-```java
-@Override
-public int hashCode() {
-    int hashCode = 1;
-    for (Object o : this) {
-        hashCode = hashCode * 31;        // elevate/smear the current hash code
-        hashCode = hashCode + o.hashCode();  // add new item's hash code
-    }
-    return hashCode;
-}
-```
-
-To save time, you may look at only the first few items: higher chance of collisions, but things still work.
-
-**Hashing a recursive data structure** involves recursive computation, e.g. a binary tree with sentinel leaves:
-
-```java
-@Override
-public int hashCode() {
-    if (this.value == null) {
-        return 0;
-    }
-    return this.value.hashCode() +
-    31 * this.left.hashCode() +
-    31 * 31 * this.right.hashCode();
-}
-```
-
-### Open addressing / linear probing (marked "extra" in the lecture)
-
-Instead of linked lists, an alternate and more exotic strategy is **open addressing**: the set is stored as an array of *items*, and the index tells you where to put the item. If the target location is already occupied, use a different location:
-- **Linear probing:** use the next address, and if that is occupied, keep scanning one by one.
-- **Quadratic probing:** try the next address, then 4 ahead, then 9 ahead, then 16 ahead, ...
-- Many more possibilities exist (see the optional reading for the lecture, or CS170).
-
-In 61B we use separate chaining with linked lists.
+---
 
 ## Definitions
 
-**Bucket:** one of the M slots of a hash table; in separate chaining, each bucket is a list that may hold any number of items.
+- **Bucket:** one slot of the hash table's backing array; in separate chaining it holds a list of zero or more items. "Buckets" and "the backing array" refer to the same thing.
+- **Collision:** when two or more distinct items are assigned to the same bucket. Unavoidable in general, by the pigeonhole principle.
+- **Separate chaining:** the hash table disambiguation strategy used in 61B, where each bucket is a separate chain (linked list) of items.
+- **Reduction function:** the function mapping an integer (hash code) to a valid bucket index in [0, M). Modulus is the most natural and best choice; in Java use `Math.floorMod`.
+- **Integerization function:** a function converting arbitrary data into an integer representation, e.g. `lowerCaseToInt`, `englishToInt`, `asciiToInt`.
+- **Hash code:** an integer produced by projecting a value from a set with many (or infinitely many) members into a set with a fixed, smaller number of members. In Java, hash codes are `int`s, so they lie in [-2,147,483,648, 2,147,483,647].
+- **Hash function:** the function that computes a hash code from data; in Java, the `hashCode()` method, which every `Object` has.
+- **Hash table:** a DynamicArrayOfLists combined with a finite integerization function. Data is hashed to a hash code, the hash code is reduced to an index, and the data is stored in the bucket at that index.
+- **N:** the number of items in the hash table.
+- **M:** the number of buckets in the hash table.
+- **Load factor:** N/M, items divided by buckets. The table resizes when this exceeds a chosen constant (1.5 in the lecture's running example, 0.75 in the Summary slide and in Java's `HashMap`).
+- **Integer overflow:** in a fixed-precision integer type, exceeding the maximum value wraps around to the minimum value. In Java, `2147483647 + 1 == -2147483648`.
+- **Fixed precision:** an integer representation using a fixed number of bits, hence a finite set of representable values (contrast with arbitrary precision, as in Python, where the limit is memory).
+- **Hash set:** an implementation of the Set ADT using a hash table as its engine.
+- **Hash map:** an implementation of the Map ADT using a hash table as its engine.
+- **Open addressing (extra):** an alternative to separate chaining where the set is stored as a plain array of items and a collision is resolved by probing for a different index (linear probing: scan forward one at a time; quadratic probing: try +4, +9, +16, ...).
 
-**Separate chaining:** the hash table design in which the backing array holds M lists, each a separate "chain" of the items that reduced to that index. This is the version used in 61B.
-
-**Collision:** the situation where two or more items land in the same bucket. Not an error, just a longer chain to scan.
-
-**Reduction function:** a function mapping an integer into the valid index range [0, M). Modulus is the most natural and best reduction function; in Java use `Math.floorMod` so negative hash codes work.
-
-**Integerization function:** a function converting arbitrary data into an integer representation, e.g. `lowerCaseToInt("cat") = 2074`.
-
-**Hash code:** the integer produced by a hash function. Formally, it projects a value from a set with many (possibly infinitely many) members onto a value from a set with a fixed, smaller number of members. In Java, hash codes are `int`s, in [-2,147,483,648, 2,147,483,647], so there are exactly 4,294,967,296 possible hash codes.
-
-**Hash function:** the function computing a hash code; in Java, the `hashCode()` method inherited from `Object`.
-
-**Hash table:** a `DynamicArrayOfLists` with a finite integerization function. Data is converted by a hash function into a hash code, the hash code is reduced to a valid index, and the data is stored in the bucket at that index.
-
-**Hash set:** an implementation of the Set ADT using a hash table as its engine (`java.util.HashSet`).
-
-**Hash map:** an implementation of the Map ADT using a hash table as its engine (`java.util.HashMap`).
-
-**Load factor:** N/M, i.e. items divided by buckets. The hash table resizes when the load factor exceeds some constant (usually 0.75 in the lecture's summary; the resizing walkthrough uses 1.5).
-
-**Backing array:** the array of buckets. "Buckets are the same thing as the backing array."
-
-**Fixed precision:** the property that a numeric type has a finite set of representable values, as Java's `int` does. Contrast arbitrary precision (e.g. Python), where the number of representable integers is limited by memory rather than by a fixed number of bits.
-
-**Integer overflow:** what happens when an `int` computation exceeds 2,147,483,647: it wraps around to -2,147,483,648 and continues from there.
-
-**ASCII:** the most basic character set used by most computers; each character is assigned a value between 0 and 127, with 33 through 126 printable.
-
-**Unicode:** the larger character encoding Java `char`s support, covering other languages and symbols (e.g. `'☂'` = 9730).
-
-**Mutable object:** an object whose variables can change. Must never be stored in a `HashSet` or `HashMap`.
-
-**Open addressing (extra):** a non-chaining strategy where the table stores items directly and a collision is resolved by probing for a different index (linear probing, quadratic probing, cuckoo hashing, etc.).
+---
 
 ## Worked Examples
 
-### Example 1: `englishToInt`, base 26 integerization
+### Example 1: Resizing walkthrough (the lecture's own example, k = 1.5)
 
-The lecture's optional exercise is to write a function converting lowercase English strings to integers via powers of 26, with `a: 1`, `z: 26`, `aa: 27`, `bee: 1487`, `cat: 2074`.
+Rule: when N/M ≥ 1.5, double M. Start with M = 4, N = 0.
+
+```
+add(7):   7 % 4 = 3
+          N = 1, M = 4, N/M = 0.25
+          bucket 0:,      bucket 1:,      bucket 2:,      bucket 3: 7
+
+add(16):  16 % 4 = 0
+          N = 2, M = 4, N/M = 0.5
+          bucket 0: 16     bucket 1:,      bucket 2:,      bucket 3: 7
+
+add(3):   3 % 4 = 3                                    (collision with 7)
+          N = 3, M = 4, N/M = 0.75
+          bucket 0: 16     bucket 1:,      bucket 2:,      bucket 3: 7, 3
+
+add(11):  11 % 4 = 3     (4 goes into 11 twice → 8, remainder 3)
+          N = 4, M = 4, N/M = 1.0
+          bucket 0: 16     bucket 1:,      bucket 2:,      bucket 3: 7, 3, 11
+
+add(20):  20 % 4 = 0
+          N = 5, M = 4, N/M = 1.25
+          bucket 0: 16, 20 bucket 1:,      bucket 2:,      bucket 3: 7, 3, 11
+
+add(13):  13 % 4 = 1
+          N = 6, M = 4, N/M = 1.5  ← threshold reached, RESIZE
+          bucket 0: 16, 20 bucket 1: 13     bucket 2:,      bucket 3: 7, 3, 11
+```
+
+Now double M from 4 to 8 and **rehash every item** against the new modulus:
+
+- 16 % 8 = 0
+- 20 % 8 = 4
+- 13 % 8 = 5
+- 7 % 8 = 7
+- 3 % 8 = 3
+- 11 % 8 = 3 (8 goes into 11 once, remainder 3)
+
+```
+N = 6, M = 8, N/M = 0.75
+bucket 0: 16
+bucket 1: , 
+bucket 2: , 
+bucket 3: 3, 11
+bucket 4: 20
+bucket 5: 13
+bucket 6: , 
+bucket 7: 7
+```
+
+The load factor dropped back to 0.75, and the longest chain shrank from 3 to 2. The common wrong answer, flagged in the transcript as splitting the room, is putting 11 in bucket 7 because the array's last index is 7; the modulus is the **array length** (8), not the largest index, and `11 % 8 = 3`.
+
+### Example 2: `englishToInt`, base 26 integerization
 
 ```java
 /** Converts ith character of String to a letter number.
@@ -416,23 +353,24 @@ public static int englishToInt(String s) {
 }
 ```
 
-**What `letterNum` does.** `s.charAt(i)` returns a `char`, which is assigned to an `int` variable `ithChar`. This is where the character silently becomes its numeric code point: `'c'` becomes 99. The guard rejects anything outside `'a'` through `'z'` by comparing code points (97 through 122). Then `ithChar - 'a' + 1` shifts the range so that `'a'` → 97 - 97 + 1 = 1 and `'z'` → 122 - 97 + 1 = 26.
+**What it does, line by line.** `letterNum` reads character `i` into an `int`. Because a `char` holds its Unicode/ASCII code, `s.charAt(i)` widens silently to that number: `'c'` becomes 99. The guard rejects anything outside `'a'`..`'z'` (i.e. 97..122). Then `ithChar - 'a' + 1` is 99 - 97 + 1 = 3, converting the raw code into the 1-indexed alphabet position. The `+ 1` is what removes zero from our digit set so that `"a"` and `"aa"` differ.
 
-**What `englishToInt` does: the loop is Horner's method.** Rather than computing powers of 26 explicitly, each iteration multiplies the accumulated value by 26 (shifting every previously-added digit one place left in base 26) and then adds the new digit. Tracing `englishToInt("cat")`:
+`englishToInt` is Horner's method. Each iteration does two things: `intRep * 26` shifts every digit already accumulated one place left in base 26, and `+ letterNum(s, i)` drops the new digit into the ones place.
 
-| i | char | `letterNum` | `intRep` before | `intRep * 26` | `intRep` after |
-|---|---|---|---|---|---|
-| 0 | `'c'` | 3 | 0 | 0 | 3 |
-| 1 | `'a'` | 1 | 3 | 78 | 79 |
-| 2 | `'t'` | 20 | 79 | 2054 | 2074 |
+**Trace of `englishToInt("cat")`:**
 
-Result 2074, matching (3 × 26²) + (1 × 26¹) + (20 × 26⁰). The reason this works: after processing "c" we hold 3; multiplying by 26 twice over the two remaining iterations turns that 3 into 3 × 26², exactly the place value it needs.
+| i | char | letterNum | `intRep * 26` | `intRep` after add |
+|---|---|---|---|---|
+| start | | | | 0 |
+| 0 | 'c' | 3 | 0 × 26 = 0 | 0 + 3 = **3** |
+| 1 | 'a' | 1 | 3 × 26 = 78 | 78 + 1 = **79** |
+| 2 | 't' | 20 | 79 × 26 = 2054 | 2054 + 20 = **2074** |
 
-Tracing `englishToInt("bee")`: 0 → 2 → (2×26 + 5) = 57 → (57×26 + 5) = 1487. ✓
+Result 2074, matching `(3 × 26²) + (1 × 26¹) + (20 × 26⁰)`. The multiply-then-add loop is exactly the expanded polynomial: `c` was multiplied by 26 twice (once per subsequent character), `a` once, `t` zero times.
 
-**Environment reasoning.** `intRep` and `ithChar` are local `int` variables, each a primitive box holding a value directly, not a reference. `s` is a reference to a `String` object on the heap; `charAt` does not copy the string, it just reads one character out of it. No new objects are created anywhere in either method except the exception on the error path, so this is pure arithmetic on primitives.
+Lecture's expected outputs: `a` → 1, `z` → 26, `aa` → 27, `bee` → 1487, `cat` → 2074. (`dog` and `potato` were left as exercises.)
 
-### Example 2: `asciiToInt`, base 126 integerization and overflow
+### Example 3: `asciiToInt`, base 126, and overflow
 
 ```java
 public static int asciiToInt(String s) {
@@ -445,50 +383,24 @@ public static int asciiToInt(String s) {
 }
 ```
 
-Structurally identical to `englishToInt`, with two changes: the base is 126 instead of 26, and `s.charAt(i)` is used *directly* as the digit instead of being shifted into 1..26. The `char` is implicitly widened to `int`, so `'b'` contributes 98, not 2. This is what makes the function work on any string, including `"2pac"` and `"eGg!"`, since every character already has a numeric value.
+Structurally identical to `englishToInt`, with two changes: base 126 instead of 26, and it uses the raw `s.charAt(i)` code as the digit rather than remapping to 1-26. That means it accepts any character, so `"2pac"` and `"eGg!"` work, and it no longer needs the `letterNum` guard.
 
-Tracing `asciiToInt("bee")` (`'b'` = 98, `'e'` = 101):
+**Why it overflows.** `"omens"` as a base-126 number is 28,196,917,171, far beyond `Integer.MAX_VALUE` = 2,147,483,647. Each `intRep * 126` silently wraps, so the function returns -1,867,853,901. The value is a perfectly usable hash code; it is just not unique and not the mathematical value.
 
-| i | char value | `intRep * 126` | `intRep` after |
-|---|---|---|---|
-| 0 | 98 | 0 | 98 |
-| 1 | 101 | 12,348 | 12,449 |
-| 2 | 101 | 1,568,574 | 1,568,675 |
-
-Result 1,568,675, matching (98 × 126²) + (101 × 126¹) + (101 × 126⁰). ✓
-
-**Now the failure.** `asciiToInt("omens")`: mathematically this is 28,196,917,171, but Java's maximum `int` is 2,147,483,647. The multiplications overflow, and the function returns **-1,867,853,901** instead. Nothing in the code detects this; overflow in Java is silent wraparound. This is exactly why we must abandon uniqueness and accept hash codes: the base-126 "unique representation" is a mathematical fact about integers that Java's fixed-precision `int` cannot honor.
-
-The pathology is specific and severe. Because 126 is even, repeated multiplication by 126 eventually drives the accumulated value's low bits all the way out of the 32-bit word: 126³² = 126³³ = 126³⁴ = ... = 0 in `int` arithmetic. Any character more than 32 positions from the end gets multiplied by zero and contributes nothing, which is why the four very different "... is the best thing on the earth." strings all hash to 634199182.
-
-### Example 3: Java's real `String.hashCode()`
+### Example 4: Negative hash code reduction
 
 ```java
-public int hashCode(String s) {
-    int intRep = 0;
-    for (int i = 0; i < s.length(); i += 1) {
-        intRep = intRep * 31;
-        intRep = intRep + s.charAt(i);
-    }
-    return intRep;
+public class ModTest {
+  public static void main(String[] args) {
+    System.out.println(-1 % 4);                 // prints -1
+    System.out.println(Math.floorMod(-1, 4));   // prints 3
+  }
 }
 ```
 
-Same Horner loop, base 31. Tracing `"bee".hashCode()`:
+Suppose an item's hash code is -1 and M = 4. The conceptual answer is bucket 3 (wrapping backward from the end). Java's `%` returns -1, which as an array index throws an exception. `Math.floorMod(-1, 4)` returns 3. Concretely, for `"đậu hũ"` with hash code -2108180664, `Math.floorMod(-2108180664, 4)` gives index 0.
 
-| i | char value | `intRep * 31` | `intRep` after |
-|---|---|---|---|
-| 0 | 98 (`'b'`) | 0 | 98 |
-| 1 | 101 (`'e'`) | 3,038 | 3,139 |
-| 2 | 101 (`'e'`) | 97,309 | 97,410 |
-
-Returns 97,410, which is exactly what `"bee".hashCode()` prints in Java. ✓
-
-And `"a".hashCode()` is 0 × 31 + 97 = 97. ✓
-
-**Why 31 beats 126 here.** 31 is prime, hence odd, so multiplying by 31 repeatedly never collapses to zero the way powers of 126 do. Every character keeps influencing the result no matter how long the string, which is what the "scramble the potato" intuition is about. Collisions still exist (`"포옹"` and `"kamala lifefully"` both give 1,732,557; `"守门员"` and `"孡㜹ቘ஝஝俎"` both give 23,729,400), and that is fine: a hash code need not be unique, only well spread.
-
-The Java 8 version additionally caches:
+### Example 5: Java's real String `hashCode` (cached, base 31) (slide material, under "extra")
 
 ```java
 @Override
@@ -504,68 +416,25 @@ public int hashCode() {
 }
 ```
 
-The guard `h == 0 && this.length() > 0` means: recompute only if we have not already stored a nonzero value and the string is nonempty. Since `String` is immutable, the cached value can never go stale. (A mutable class could not safely cache like this, which connects back to Warning #1.)
+Two differences from our `asciiToInt`. First, base **31** rather than 126. Second, the result is **cached** in an instance field, so repeated `hashCode()` calls on the same String are Θ(1) after the first. The `h == 0 && length() > 0` condition means "not yet computed," which is why an empty string short-circuits to 0.
 
-### Example 4: `Math.floorMod` versus `%` on a negative hash code
-
-```java
-public class ModTest {
-    public static void main(String[] args) {
-        System.out.println(-1 % 4);               // -1
-        System.out.println(Math.floorMod(-1, 4)); // 3
-    }
-}
-```
-
-Java's `%` takes the sign of the dividend, so `-1 % 4` is -1, and `buckets[-1]` throws. `Math.floorMod(-1, 4)` rounds toward negative infinity, producing a result with the sign of the divisor, so it gives 3, which is a legal index and matches the "loop back around" intuition (like negative indexing in Python).
-
-This is not a rare edge case: `"đậu hũ".hashCode()` is -2,108,180,664, a perfectly ordinary string with a negative hash code. The correct reduction is:
-
-```java
-int index = Math.floorMod(item.hashCode(), buckets.length);
-// Math.floorMod(-2108180664, 4) == 0
-```
-
-### Example 5: tracing an insertion end to end
-
-Consider a 4-bucket Java-style hash table and `insert("đậu hũ")`:
-
-1. **Hash.** Call `"đậu hũ".hashCode()`, which runs the base-31 Horner loop and returns -2,108,180,664.
-2. **Reduce.** `Math.floorMod(-2108180664, 4)` = 0.
-3. **Check for duplicates.** Walk the chain at bucket 0, calling `equals` on each item, because a set must not store duplicates. (This is exactly the dependency behind Warning #2: if `equals` says two objects are equal but `hashCode` sends them to different buckets, this check never even looks in the right place.)
-4. **Insert.** Not found, so insert into bucket 0's list, at the head, which is Θ(1).
-5. **Check the load factor.** If N/M now exceeds the threshold, resize.
-
-With `"a"` (97), `"포옹"` (1,732,557), and `"kamala lifefully"` (1,732,557) also inserted into the same 4-bucket table, the slides show the resulting layout:
-
-```
-0: đậu hũ
-1: a, 포옹, kamala lifefully
-2: bee
-3:
-```
-
-(`97 % 4 = 1`, `1732557 % 4 = 1`, `97410 % 4 = 2`.) Note `"포옹"` and `"kamala lifefully"` are in bucket 1 both because of a genuine hash-code collision and because 1,732,557 mod 4 = 1. These are two independent sources of collision: equal hash codes, and distinct hash codes that reduce to the same index.
-
-### Example 6: hashing a collection, and why "ab" vs "ba" matters
+### Example 6: Hashing a collection (extra slide material)
 
 ```java
 @Override
 public int hashCode() {
     int hashCode = 1;
     for (Object o : this) {
-        hashCode = hashCode * 31;              // elevate/smear the current hash code
-        hashCode = hashCode + o.hashCode();    // add new item's hash code
+        hashCode = hashCode * 31;      // elevate/smear the current hash code
+        hashCode = hashCode + o.hashCode();   // add new item's hash code
     }
     return hashCode;
 }
 ```
 
-Same Horner structure, but the "digits" are now the elements' own hash codes rather than characters. The `* 31` step is what makes order matter: without it (just summing element hash codes) `[x, y]` and `[y, x]` would collide, exactly the "adding chars together is bad, 'ab' collides with 'ba'" failure from the hash-code-quality discussion. Starting at 1 rather than 0 means an empty collection and a collection of one zero-hash item do not both produce 0.
+A List is like a String: a collection of items each with its own hash code. Same Horner pattern, with `o.hashCode()` in place of a character code. Starting at 1 rather than 0 distinguishes some empty/leading cases. To save time, you can hash only the first few items: more collisions, but still correct.
 
-Note that the loop calls `o.hashCode()` on each element, so a list's hash code depends on its contents. **This is precisely why a `HashSet<List<Integer>>` is dangerous**: mutate the inner list and its hash code changes, so the outer set is now looking in the wrong bucket for it, and the item is effectively lost even though it is still physically stored. The lecture's shortcut (look at only the first few items to save time) trades collision rate for speed and still works correctly.
-
-### Example 7: hashing a recursive structure
+### Example 7: Hashing a recursive data structure (extra slide material)
 
 ```java
 @Override
@@ -579,32 +448,43 @@ public int hashCode() {
 }
 ```
 
-The base case is the sentinel leaf (`value == null` → 0). The recursive case combines three numbers with distinct powers of 31 as weights, so a value in the left subtree and the same value in the right subtree contribute differently, meaning mirror-image trees do not automatically collide. Reasoning about the call structure: each node's call triggers two child calls, so the whole tree is visited, and the hash code depends on every stored value and on the shape of the tree.
+For a binary tree with sentinel leaves, the base case is a null-valued sentinel returning 0. Otherwise combine this node's value hash with the recursively computed left and right subtree hashes, weighted by different powers of 31 so that swapping the left and right subtrees produces a different hash code.
+
+---
 
 ## Common Pitfalls
 
-- **Thinking an M-fold speedup changes the asymptotics.** Θ(N/10) = Θ(N). A fixed number of buckets gives a real-world win but no asymptotic win. Only tying M to N (M = Nk) converts Θ(N/M) into Θ(1).
-- **Quoting "hash tables are Θ(1)" without the conditions.** Θ(1) is *on average* and *assuming items are evenly spread*. A resize costs Θ(N), and a bad distribution costs Θ(N) because you traverse one long chain.
-- **Thinking a good load factor alone implies good performance.** The lecture shows two tables with identical load factor N/M = 0.75 where one has Θ(N) `contains` and the other Θ(1). You also need even distribution.
-- **Using `%` instead of `Math.floorMod`.** Hash codes are routinely negative, and `-1 % 4` is -1 in Java, which is an invalid index. This is the single most common implementation bug in this material.
-- **Believing a hash code is unique.** Overflow makes uniqueness impossible for strings in Java. `"포옹"` and `"kamala lifefully"` share hash code 1,732,557. Buckets must therefore still compare items with `equals`.
-- **Assuming equal hash codes are the only cause of collisions.** Two items also collide when distinct hash codes reduce to the same index mod M.
-- **Forgetting that items move on resize.** The index depends on M, so doubling M requires re-reducing (and in Java, recomputing or reusing the hash code for) every item. In the k = 1.5 walkthrough, 16 and 20 share bucket 0 under `% 4` but split apart under `% 8`.
-- **Storing mutable objects in a `HashSet`/`HashMap`.** If the object changes, its hash code changes and it is no longer findable in the bucket where it lives. Never make a `HashSet<List<Integer>>`.
-- **Overriding `equals` without `hashCode`.** Two objects that are `equals` can then land in different buckets, so lookups fail. The reverse coupling also matters: the bucket scan uses `equals` to decide membership.
-- **Picking a large even base like 126 "for uniqueness".** Overflow is far worse for base 126: 126³² = 0 in `int` arithmetic, so only the last 32 characters matter, producing massive collisions (the four "... best thing on the earth." strings all give 634199182). Prefer a small prime.
-- **Writing a hash code that just sums the characters.** "ab" collides with "ba". Order information is lost without the multiply-by-base step.
-- **Confusing hash table, hash set, and hash map.** The hash table is the storage mechanism (M buckets, N items, a `hashCode` deciding the bucket). A hash set is the Set ADT built on it; a hash map is the Map ADT built on it.
-- **Assuming `hashCode()` comes from an interface.** It does not; it is inherited from `Object` by every class, and the default implementation uses the memory address.
-- **Forgetting the no-zero-digit detail in base 26.** Because `aaa` must differ from `a`, letters run 1 through 26, not 0 through 25.
+1. **Using `%` instead of `Math.floorMod` on hash codes.** Java's `%` returns a negative result for negative operands, and hash codes are frequently negative. `-1 % 4 == -1` produces an index error.
+
+2. **Reducing by the largest index instead of the array length.** After doubling M from 4 to 8, the modulus is 8, not 7. `11 % 8 = 3`, not 7. This is the exact point where the lecture poll split the room.
+
+3. **Forgetting to rehash on resize.** Doubling the array is not enough. Every item's index depends on M, so every item must be rehashed and reinserted into the new backing array.
+
+4. **Thinking a constant number of buckets gives constant time.** Θ(N/10) = Θ(N). A fixed M buys only a constant-factor speedup. You need M to grow with N.
+
+5. **Thinking a good load factor alone guarantees Θ(1).** Two tables with identical load factor 0.75 can be Θ(N) and Θ(1) respectively. The Θ(1) bound also requires **even distribution**, which depends on the quality of the hash code.
+
+6. **Expecting unique hash codes.** By the pigeonhole principle plus integer overflow, collisions are mathematically unavoidable: `"포옹"` and `"kamala lifefully"` both hash to 1732557, and `"守门员"` collides with `"孡㜹ቘ஝஝俎"`.
+
+7. **Storing mutable objects in a `HashSet`/`HashMap`.** (Warning #1 from lecture.) If an object's instance variables change, its `hashCode` changes, so it now belongs in a different bucket than the one it is sitting in, and the item gets lost. Never make a `HashSet<List<Integer>>`.
+
+8. **Overriding `equals` without overriding `hashCode`.** (Warning #2 from lecture.) HashMaps and HashSets use `hashCode` to find the bucket and `equals` to check whether an item is already in that bucket. Overriding only one leads to lost items and generally weird behavior.
+
+9. **Confusing hash set / hash map / hash table.** Per the FAQ: a hash set is a Set ADT implementation, a hash map is a Map ADT implementation, and a hash table is the underlying storage mechanism (M buckets holding N items) that both use.
+
+10. **Assuming adversarial data behaves like random data.** The transcript is explicit: if an attacker knows your hashing scheme with M = 4, they can insert 0, 4, 8, 16, 20, 24, 28, ... and funnel everything into bucket 0, degrading you to Θ(N).
+
+11. **Assuming a bigger base is always a better hash code.** (Extra, from the Creating a Good Hash Code section.) Base 126 is *worse* than base 31 because of overflow behavior; see the next section.
+
+---
 
 ## Likely Exam Points
 
-### 1. Drawing a hash table after a sequence of insertions, including a resize
+### 1. Trace a hash table through insertions and a resize
 
-**Q.** A hash table of integers (hash code = the integer itself) starts with M = 4 and resizes by doubling when N/M ≥ 1.5. Insert 7, 16, 3, 11, 20, 13 in that order. Draw the final table.
+**Q.** A separate-chaining hash table starts with M = 4 and resizes (doubling M) when N/M ≥ 1.5. Items hash to themselves. Insert 7, 16, 3, 11, 20, 13 in that order. Show the final table.
 
-**A.** The insertion of 13 brings N = 6, M = 4, N/M = 1.5, triggering a resize to M = 8. Recompute every index with `% 8`:
+**A.** After `add(13)`, N = 6 and N/M = 6/4 = 1.5, triggering a resize to M = 8. Rehash all six items mod 8: 16 → 0, 3 → 3, 11 → 3, 20 → 4, 13 → 5, 7 → 7.
 
 ```
 0: 16
@@ -616,97 +496,119 @@ The base case is the sentinel leaf (`value == null` → 0). The recursive case c
 6:
 7: 7
 ```
+N = 6, M = 8, N/M = 0.75.
 
-N = 6, M = 8, N/M = 0.75. The key move to show your work on is that items must be re-reduced: 16 and 20 separate, while 3 and 11 stay together.
+---
 
-### 2. Computing a base-B integerization by hand
+### 2. Runtime of hash table operations under stated assumptions
 
-**Q.** Convert "bee" to an integer using the powers-of-26 strategy, where `a` = 1 and `e` = 5.
+**Q.** Give the worst-case runtime of `contains(x)` for a separate-chaining hash table (a) with no resizing, (b) with resizing and even distribution, (c) with resizing but all items hashing to the same bucket.
 
-**A.** (2 × 26²) + (5 × 26¹) + (5 × 26⁰) = 1352 + 130 + 5 = **1487**. (Compare `cat` = (3 × 26²) + (1 × 26¹) + (20 × 26⁰) = 2074.)
+**A.** (a) Θ(N): M is constant, so buckets hold Θ(N/M) = Θ(N) items. (b) Θ(1): M = Θ(N), so buckets hold Θ(N/M) = Θ(1) items. (c) Θ(N): one bucket is a linked list of length N, and traversing it is linear. Even distribution is a required assumption for the Θ(1) bound, and `add` is additionally only Θ(1) *on average* because resizes cost Θ(N).
 
-### 3. Computing Java's real `String.hashCode()`
+---
 
-**Q.** What does `"bee".hashCode()` return in Java, and why is it not 1487?
-
-**A.** 97,410. Java uses base **31**, not 26, and uses the characters' raw code points (`'b'` = 98, `'e'` = 101), not alphabet positions. The Horner trace is 98 → 98×31 + 101 = 3139 → 3139×31 + 101 = 97,410.
-
-### 4. The negative-hash-code reduction
-
-**Q.** An item's `hashCode()` returns -1 and the table has 4 buckets. What is `-1 % 4` in Java, which bucket should the item go in, and what should the code use?
-
-**A.** `-1 % 4` is **-1** in Java, which would be an invalid array index. The item belongs in bucket **3** (wrapping around, like negative indexing in Python). Use `Math.floorMod(-1, 4)`, which returns 3.
-
-### 5. Stating the runtimes with their conditions
-
-**Q.** Fill in the worst-case / average runtimes for `contains(x)` and `add(x)`: bushy BST, separate-chaining hash table without resizing, separate-chaining hash table with resizing. State every assumption.
-
-**A.**
-
-| | `contains(x)` | `add(x)` |
-|---|---|---|
-| Bushy BSTs | Θ(log N) | Θ(log N) |
-| Hash table, no resizing | Θ(N) | Θ(N)† |
-| Hash table, with resizing | Θ(1)† | Θ(1)\*† |
-
-\* on average &nbsp;&nbsp; † assuming items are evenly spread. Without resizing, M is constant so buckets hold Θ(N/M) = Θ(N) items. With resizing, M = Θ(N) so buckets hold Θ(N/M) = Θ(1) items, but a resize itself costs Θ(N) and an uneven distribution degrades to Θ(N).
-
-### 6. Why resizing costs Θ(N)
+### 3. Why resizing costs Θ(N)
 
 **Q.** Break down the cost of a resize operation and justify the total.
 
-**A.** Doubling the number of buckets is Θ(M); iterating over the M buckets is Θ(M); iterating over the N items is Θ(N); per item, recomputing the hash code and new index is Θ(1), and re-inserting is Θ(1) if you insert at a known position such as the head of the chain. Since M = Θ(N), the total is Θ(M) + Θ(M) + Θ(N)×(Θ(1) + Θ(1)) = **Θ(N)**.
+**A.** Allocating the doubled bucket array is Θ(M); iterating the M old buckets is Θ(M); iterating the N items is Θ(N); per item, recomputing the hash code and new index is Θ(1), and re-inserting is Θ(1) assuming insertion at a known position such as head insertion into a sentinel-headed list. Total: Θ(M) + Θ(M) + Θ(N)·(Θ(1) + Θ(1)). Since M = Θ(N), this is **Θ(N)**.
 
-### 7. Load factor is not sufficient for good performance
+---
 
-**Q.** Two separate-chaining tables both have N = 3, M = 4, load factor 0.75. Table A has all three items in bucket 3; table B has one item each in buckets 0, 2, 3. Compare `contains(x)`.
+### 4. Base-B integerization by hand
 
-**A.** Table A is Θ(N): you must traverse the three-item linked list in bucket 3. Table B is Θ(1): each bucket holds at most one item. Identical load factors, different performance. Good performance requires an **even distribution**, which depends on both the hash code and the table size.
+**Q.** Using the lecture's scheme (a = 1, ..., z = 26, base 26), convert `"bee"` to an integer.
 
-### 8. The two warnings
+**A.** `b` = 2, `e` = 5, `e` = 5, so `bee₂₆ = (2 × 26²) + (5 × 26¹) + (5 × 26⁰) = 1352 + 130 + 5 = 1487`.
 
-**Q.** Why must you never put a mutable object in a `HashSet`, and why must you never override `equals` without overriding `hashCode`?
+---
 
-**A.** (1) The bucket an item lives in is determined by its hash code at insertion time. If the object's variables change, its hash code changes, so future lookups reduce to a different bucket and the item is lost (e.g. `HashSet<List<Integer>>`). (2) `HashMap`/`HashSet` locate a candidate bucket from `hashCode` and then use `equals` to check membership within that bucket. If `equals` reports two objects equal but `hashCode` sends them to different buckets, the membership check never runs on the right chain, so items get lost and behavior is generally weird.
+### 5. Horner's-method trace
 
-### 9. Why a small prime base
+**Q.** Trace `englishToInt("bee")` and give `intRep` after each loop iteration.
 
-**Q.** Base 126 gives unique integers for all ASCII strings (ignoring overflow), while base 31 does not. Why does Java use 31?
+**A.** Start `intRep = 0`. i = 0: `0 * 26 = 0`, `+ 2` → **2**. i = 1: `2 * 26 = 52`, `+ 5` → **57**. i = 2: `57 * 26 = 1482`, `+ 5` → **1487**. Return 1487.
 
-**A.** Because overflow is not ignorable. 126 is even, and in 32-bit `int` arithmetic 126³² = 126³³ = ... = 0, so every character more than 32 positions from the end is multiplied by zero and contributes nothing. All four of "geocronite / flan / treachery / Brazil is the best thing on the earth." hash to 634199182. A prime base is never even, avoiding this collapse, and also lowers the chance of a bad relationship between the hash code and the number of buckets. Small keeps the computation cheap. Real hash codes do not need uniqueness, only good spread.
+---
 
-### 10. Identifying bad hash functions
+### 6. Integer overflow
 
-**Q.** For each, say whether it is a good or bad `hashCode` for strings and why: (a) `return 0;` (b) return the first character's alphabet position (c) add all the characters together (d) treat the string as a base-B number.
+**Q.** What does `System.out.println(2147483647 + 1)` print in Java, and why does this matter for hashing?
 
-**A.** (a) Bad: every item collides into one bucket, so operations are Θ(N). (b) Bad: terrible worst case (a dataset of words starting with "a"), only 26 buckets ever used, and strings like "1a2b3c" do not start with a letter. (c) Bad: loses ordering, so "ab" collides with "ba". (d) Good: multiplying by powers of a base scrambles all the data together into a seemingly random integer.
+**A.** It prints `-2147483648`. Java ints are fixed precision with exactly 4,294,967,296 values; exceeding the maximum wraps to the minimum. It matters because a base-126 (or larger) integerization of even a short string like `"omens"` exceeds the int range, so distinct strings can collide. This is acceptable: it is exactly what makes the function a hash code (a map onto a *fixed*-size set), and we reduce into M buckets anyway.
 
-### 11. Terminology
+---
 
-**Q.** Distinguish hash table, hash set, and hash map.
+### 7. Negative hash codes
 
-**A.** A **hash table** is a way of storing information: M buckets holding N items, where each item's `hashCode` tells you which bucket to use. A **hash set** is an implementation of the Set ADT with a hash table as its engine. A **hash map** is an implementation of the Map ADT with a hash table as its engine.
+**Q.** An object's `hashCode()` returns -2108180664 and the table has M = 4 buckets. Which bucket does it go in, and what is the wrong way to compute this?
 
-### 12. Why hash tables answer the lecture's two motivating questions
+**A.** `Math.floorMod(-2108180664, 4) = 0`, so bucket 0. The wrong way is `-2108180664 % 4`, which in Java yields a nonpositive result (here 0, but for a hash code of -1 it yields -1), causing array index errors in general. Always use `Math.floorMod` for the reduce step.
 
-**Q.** Name two advantages hash tables have over search-tree-based sets.
+---
 
-**A.** They do not require items to be comparable (no `<` needed, only `hashCode` and `equals`), and they achieve Θ(1) average operations rather than Θ(log N). The slides add that they have great performance in practice and are often relatively simple to implement, which is why they are the most popular set/map implementation (Python dictionaries are hash tables in disguise).
+### 8. Load factor is not sufficient for Θ(1)
+
+**Q.** Table A has buckets `[ , , , (Marcus→Ryan→Isabel)]` and Table B has `[Isabel, , Ryan, Marcus]`. Both have M = 4, N = 3, load factor 0.75. Are their `contains` runtimes the same?
+
+**A.** No. Table B is Θ(1) because every bucket holds a constant number of items. Table A is Θ(N) because `contains("Isabel")` must traverse a chain of length N. Equal load factors do not imply equal performance; even distribution is what matters, and that depends on the hash code and the table size (`index = hashCode % buckets.length`).
+
+---
+
+### 9. The two HashMap warnings
+
+**Q.** Why should you never store mutable objects in a `HashSet`? Why must you override `hashCode` whenever you override `equals`?
+
+**A.** If a stored object's variables change, its `hashCode` changes, so it is now in the wrong bucket; lookups compute the new bucket and never find it, so the item is effectively lost. Separately, hash tables use `hashCode` to pick the bucket and `equals` to test membership within that bucket; overriding `equals` so that two logically equal objects compare equal, without making them produce equal hash codes, sends them to different buckets and the `equals` check is never even reached.
+
+---
+
+### 10. Why hashing can beat Θ(log N) at all
+
+**Q.** Our BST-based sets achieve Θ(log N). Name the two limitations of search-tree sets that hash tables address.
+
+**A.** (i) Search trees require items to be **comparable** (you must be able to ask "is X < Y?"), which is not true of all types; hash tables need only an integer hash code. (ii) Search trees are Θ(log N); hash tables achieve Θ(1) average time by keeping the number of items per bucket constant.
+
+---
+
+### 11. Choosing M (extra, from the derivation)
+
+**Q.** Why is setting M = N^(1/2) insufficient for Θ(1) operations, and what choice of M works?
+
+**A.** `contains` runs in Θ(N/M). With M = √N that is Θ(N/√N) = Θ(√N), which grows with N. Setting M = Nk for a constant k gives Θ(N/(Nk)) = Θ(1/k) = Θ(1). Larger k means faster `contains` but more memory, so a moderate k is chosen (equivalently, resize whenever N/M exceeds a constant like 1.5 or 0.75).
+
+---
+
+### 12. Choosing a hash base (extra section)
+
+**Q.** Why does Java's String `hashCode` use base 31 rather than base 126, even though base 126 gives unique values for all ASCII strings ignoring overflow?
+
+**A.** Overflow makes base 126 catastrophic: 126³² = 126³³ = ... = 0 under int arithmetic, so all characters beyond the last 32 get multiplied by zero. Any two strings sharing their last 32 characters collide, e.g. `"geocronite is the best thing on the earth."`, `"flan is the best thing on the earth."`, `"treachery is the best thing on the earth."`, and `"Brazil is the best thing on the earth."` all hash to 634199182. A small **prime** base avoids this: being odd (never even) sidesteps that overflow collapse, it is less likely to have a bad relationship with the number of buckets, and being small keeps it cheap to compute. The lecture's hashbrowns analogy: you do not make hashbrowns by chopping a potato into neat predictable segments; multiplying by powers of a prime base scrambles the data together into a seemingly random integer, whereas just adding characters is not random enough (`"ab"` collides with `"ba"`).
+
+---
+
+### 13. Bad hash code recognition (extra section)
+
+**Q.** For each, say whether it is a good or bad `hashCode` and why: (a) `return 0;` (b) return the first character of the word; (c) add all the characters together; (d) treat the string as a base-B number.
+
+**A.** (a) Bad: every item lands in one bucket, so the table degenerates to a single linked list, Θ(N). (b) Bad: only the first 26 buckets ever get used, English first letters are very unevenly distributed, and words starting with the same letter all collide. (c) Bad: `"ab"` and `"ba"` collide, since addition discards position information. (d) Good: position is preserved via powers of the base, so data gets scrambled across all buckets.
+
+---
 
 ## Summary
 
-- Search-tree sets require `Comparable` items and are capped at Θ(log N). Hash tables fix both.
-- Splitting one list into M buckets ("separate chaining") and choosing a bucket by **modulus** gives an M-fold speedup, but Θ(N/M) = Θ(N) when M is constant.
-- Making **M grow with N** (M = Nk) turns Θ(N/M) into Θ(1/k) = Θ(1). Larger k is faster but uses more memory.
-- **Load factor** = N/M. When it exceeds a constant (the lecture uses 1.5 in the walkthrough, 0.75 in the summary), **double M** and re-reduce every item; items can and do change buckets.
-- Non-integer data is first converted by an **integerization function**: treat a string as a base-B number via the Horner loop `intRep = intRep * B + digit`. Base ≥ 26 gives unique values for lowercase words mathematically.
-- **ASCII** assigns 0..127 to characters (printable 33..126); Java `char`s go further via **Unicode**.
-- Java `int`s are **fixed precision** (4,294,967,296 values, max 2,147,483,647, overflowing to -2,147,483,648), so unique integerization is impossible. The function becomes a **hash code**: a projection from a huge set onto a fixed finite one.
-- A `DynamicArrayOfLists` plus a finite integerization function is a **hash table**: `data → hashCode() → hash code → reduce → index → bucket`.
-- Every Java object has `hashCode()` inherited from `Object` (default: memory address); it is not an interface. `java.util.HashMap` and `java.util.HashSet` use it.
-- Java's `String.hashCode()` is a base-**31** Horner loop over `charAt`, with caching in Java 8. Collisions happen (`"포옹"` and `"kamala lifefully"` → 1,732,557).
-- Reduce with **`Math.floorMod(hashCode, M)`**, never `%`: `-1 % 4` is -1 in Java, but `Math.floorMod(-1, 4)` is 3.
-- **Warning #1:** never store mutable objects in a `HashSet`/`HashMap`; a changed hash code loses the item. **Warning #2:** never override `equals` without `hashCode`; buckets use `equals` for membership.
-- Performance: no resizing → Θ(N). With resizing → **Θ(1) on average, assuming even distribution**. A resize is Θ(N) (Θ(M) + Θ(M) + Θ(N) work, with M = Θ(N)); head insertion keeps per-item re-insertion Θ(1). Equal load factors do not imply equal performance.
-- Good hash codes (extra): multiply by powers of a **small prime** base; `return 0`, first-character-only, and character-summing are all bad. Large even bases like 126 collapse under overflow (126³² = 0), making only the last 32 characters matter.
-- Alternatives to chaining (extra): **open addressing** with linear or quadratic probing, cuckoo hashing, non-list buckets. 61B uses separate chaining.
+- Search-tree sets require **comparable** items and give Θ(log N). Hashing requires only an integer hash code and gives Θ(1) average time.
+- Split a single list into **M buckets** (separate chaining) and route each item with a **reduction function**, normally modulus. With even distribution, buckets hold ~N/M items, an M-fold speedup.
+- A **fixed** M is not enough asymptotically: Θ(N/10) = Θ(N). Setting M = Nk for constant k gives Θ(1/k) = Θ(1).
+- Implement this by resizing: when the **load factor** N/M exceeds a constant (1.5 in lecture, 0.75 typically), double M and **rehash every item**, since indices depend on M.
+- To store non-integers, apply an **integerization function** first: treat the data as a number in some base. Base 26 for lowercase English (a = 1, not 0, so `"a"` ≠ `"aaa"`), base 126 for ASCII, base 40959 for Chinese characters.
+- `cat₂₆ = (3 × 26²) + (1 × 26¹) + (20 × 26⁰) = 2074`; `bee₂₆ = 1487`. Horner's method (`intRep = intRep * B + digit`) computes this in one pass.
+- Java ints are **fixed precision** (4,294,967,296 values, max 2,147,483,647, which overflows to -2,147,483,648), so unique integerization of all strings is impossible. That is fine: a map onto a fixed-size set is precisely a **hash code**.
+- A **hash table** = DynamicArrayOfLists + finite integerization. Pipeline: `data → hashCode() → hash code → reduce → index → bucket`.
+- Every Java `Object` has `hashCode()` (default: memory address); Java's String version uses base 31 and caches the result. Collisions are real: `"포옹"` and `"kamala lifefully"` both give 1732557.
+- Hash codes can be negative, and Java's `%` preserves the sign, so reduce with **`Math.floorMod(hashCode, M)`**.
+- Performance: no resizing → Θ(N); with resizing and even spread → Θ(1) `contains`, Θ(1) average `add`. Resizing costs Θ(N); an uneven distribution also degrades to Θ(N). Equal load factors do **not** imply equal performance.
+- Two standing warnings: never store **mutable** objects in a `HashSet`/`HashMap`, and never override `equals` without also overriding `hashCode`.
+- Vocabulary: a *hash set* implements the Set ADT, a *hash map* implements the Map ADT, and a *hash table* is the underlying M-buckets-holding-N-items mechanism.
+- (Extra) Good hash codes use a **small prime** base to scramble data and avoid overflow collapse; alternatives to separate chaining include linear probing, quadratic probing, and cuckoo hashing, but 61B uses separate chaining.
