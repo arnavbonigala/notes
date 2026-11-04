@@ -1,52 +1,45 @@
-<!-- Fri, Oct 30, 2026 | sources: slides (no transcript available) -->
+<!-- Fri, Oct 30, 2026 | sources: slides + YouTube auto-transcript -->
 # Lecture 28: Algebraic Data Types
 
 ## Overview
 
-This lecture finishes the introduction to Gleam's list data type and then introduces **algebraic data types** (ADTs): custom types defined as a set of named **variants**, each carrying its own **fields**. Gleam lists are linked lists built from immutable cells, so there is no `.first` or `.rest` accessor and no mutation; instead you take lists apart with `case` **patterns**, which both test the shape of a list and give local names to its parts. The list-processing examples (`alternating`, `repeating`/`nth_equals`, `matches`, `drop`) show the pattern-matching style of recursion: your base cases come from the patterns themselves rather than from `if` statements. The ADT half of the lecture shows how to define your own types with multiple variants (`Contact` with `EmailOnly`, `PhoneOnly`, `Both`), how patterns name variant fields, when a dot expression like `c.email` is legal, and how recursive, parameterized ADTs let you express data that a homogeneous list cannot express on its own (`NestedList(a)` for nested lists) or that rules out bad values by construction (`NotEmpty(a)` for non-empty lists). It closes with a debugging exercise on `increasing` over `NotEmpty(Int)`.
+This lecture finishes the tour of Gleam's data: first linked lists (Gleam's `List` is a linked list, built and taken apart with list literals, the spread `..` syntax, and `case` patterns rather than `.first`/`.rest`), then tuples, then the main idea: **algebraic data types (ADTs)**. An ADT is built from just two ways of combining data: **product types** (combine several fields into one value, like a Python `@dataclass`) and **sum types** (choose between named variants, like a Python union `int | None`). "Algebraic" just means using both together. The payoff is that a well-designed ADT makes illegal states impossible to even write down: the lecture's running example is a `User` whose `Contact` is `EmailOnly`, `PhoneOnly`, or `Both`, so a user with no way to be contacted is a *type error caught before the program runs*, not a bug discovered later. Along the way the lecture works a pile of list-recursion examples (`describe`, `sorted`, `alternating`, `repeating`/`nth_equals`, `matches`, `drop`) and then ADT examples (`Contact`/`User`, `Tree`, nested lists, and a buggy non-empty-list `increasing` to debug).
 
-> Note on code: all of this lecture's code is in **Gleam**, so the worked examples below are the lecture's Gleam code. Where a Python translation helps build intuition (using the CS 61A `Link` class or Python lists), it is included and marked **(extra context)**.
+Note on language: this lecture's code is **Gleam**, not Python. The Gleam code below is the lecture's own code; Python versions are given alongside as translations to build intuition (the Python/dataclass product-and-sum examples were also shown in lecture).
 
 ---
 
 ## Key Concepts
 
-### 1. Gleam lists are linked lists
+### 1. A Gleam list is a linked list
 
-A list literal looks like a Python list:
+`[3, 7, 5, 9]` *looks* like a Python list but is a linked list: a chain of pairs, each holding a first item and a pointer to the rest.
 
-```gleam
-[3, 7, 5, 9]
-```
-
-but it behaves like the `Link` linked list from earlier in the course: a chain of cells, each holding one item and a reference to the rest of the list. All values in Gleam are immutable, so a list can never be changed after it is built.
-
-A list literal can also contain an expression for *the rest of the list*, using `..`:
+Because of that, a list literal can end with an expression for **the rest of the list**:
 
 ```gleam
 let s = [5, 7, 9]
 let odds = [1, 3, ..s]   // [1, 3, 5, 7, 9], sharing memory with s
 ```
 
-The `..` spread has three restrictions stated on the slide: it can appear **only once**, **only at the end** of the literal, and **only before a list** (the thing after `..` must itself be a list).
+Box-and-pointer reasoning in words: `s` points to a chain `5 -> 7 -> 9 -> end`. Evaluating `[1, 3, ..s]` allocates exactly **two** new links, one holding `1` and one holding `3`, and the `3` link's rest pointer points **at the very same `5` link that `s` points at**. Nothing is copied. Both `s` and `odds` now share the tail `5 -> 7 -> 9`. This is safe precisely because all Gleam values are immutable, so no one can mutate the shared tail out from under either name.
 
-**Box-and-pointer reasoning in words.** `s` is a chain of three cells: `5 -> 7 -> 9 -> (end)`. Evaluating `[1, 3, ..s]` allocates exactly **two** new cells: a cell holding `1` whose rest points at a cell holding `3`, whose rest points at *the very same first cell of `s`*. Nothing is copied. `odds` and `s` share their last three cells. This sharing is completely safe precisely because values are immutable: no one can later change `s`'s cells and corrupt `odds`.
+Rules for `..` inside a list literal:
+- it can appear **only once**,
+- **only at the end**,
+- and the expression after it must be **a list**.
 
-This also explains the "only at the end" rule **(extra context)**: adding to the front of a linked list is cheap (one new cell), while adding to the end would require rebuilding the whole chain, so Gleam's literal syntax only supports the cheap operation.
+### 2. Lists are homogeneous, and the type says what is inside
 
-### 2. Lists are homogeneous, and the type `List(a)` says so
-
-Every item in a Gleam list must have the same type. All of these are type mismatch errors:
+Every item of a Gleam list must have the same type. All of these are type mismatch errors:
 
 ```gleam
-[1, "two"]        // Int and String in the same list
-["one", ..s]      // s is a List(Int), so its items are Int, not String
-[1, 3, s]         // s is a list; the other items are Ints
+[1, "two"]        // Int and String
+["one", ..s]      // s is a List(Int), so its items are Ints
+[1, 3, s]         // 1 and 3 are Ints; s is a List(Int), not an Int
 ```
 
-The last one is the subtle one: `[1, 3, s]` tries to put a *list* in as a third item next to two integers. `[1, 3, ..s]` is what you meant.
-
-A list type names the type of the items it contains: `List(Int)` is a list of integers, `List(String)` a list of strings, `List(List(Int))` a list of lists of integers. A lowercase name like `a` in `List(a)` is a **type variable**: the function works for lists of any single item type (parametric polymorphism).
+The type `List(Int)` means "list whose items are `Int`s". Combined with the `gleam/list` module:
 
 ```gleam
 import gleam/list
@@ -54,13 +47,193 @@ import gleam/list
 fn double_each(s: List(Int)) -> List(Int) {
   list.map(s, fn(n) { 2 * n })
 }
+// double_each([5, 7, 9]) == [10, 14, 18]
 ```
 
-The `gleam/list` module (the lecture points at the stdlib docs) contains `map`, `filter`, `all`, `any`, `append`, `zip`, and more, so many list problems do not need hand-written recursion.
+The `list` module has the higher-order functions you already know from Python: `map`, `filter`, `all`, `any`, `append`, `zip`, and more.
 
 ### 3. There is no `.first` or `.rest`: use `case` patterns
 
-Because there are no list accessors, a `case` expression does double duty: it **tests the shape** of the list and **binds names** to its parts.
+Gleam does not let you reach into a list with attribute access. The *only* way to look inside is a `case` expression whose patterns describe the shape of the list and give **local names** to the pieces. This is the single most important mechanical skill from this lecture.
+
+Pattern vocabulary for lists:
+
+| Pattern | Matches |
+|---|---|
+| `[]` | the empty list only |
+| `[1]` | a one-item list whose item equals `1` |
+| `[_]` | any one-item list (item ignored) |
+| `[_, _]` | any two-item list, exactly |
+| `[4, ..]` | any list of length >= 1 starting with `4` (the `..` may match zero items) |
+| `[a, b]` | exactly two items, named `a` and `b` |
+| `[a, b, ..rest]` | at least two items; `rest` names the **list** of everything after them |
+| `p1 \| p2` | either pattern (both alternatives must bind the same names) |
+| `_` | anything |
+| `pattern if cond` | a **guard**: match only if `cond` is also true |
+
+Branches are tried **top to bottom**, and the first match wins. Guards can use the names bound by that pattern.
+
+### 4. `case` can have multiple subjects
+
+```gleam
+case s, t {
+  [x, ..s_rest], [y, ..t_rest] -> ...
+  _, _ -> ...
+}
+```
+You write one pattern per subject, separated by commas. `_, _` matches any `s` and any `t`.
+
+### 5. Equality works on any type; there is no `is`
+
+Two values of the same type can always be compared with `==` and `!=`, structurally. There is no equivalent of Python's `is`, because all values are immutable, so identity never matters observably. Logical operators: `&&` for `and`, `||` for `or`, `!` for `not`.
+
+### 6. Tuples
+
+- Construct with `#(...)`: `#(3, 4)`, `#("oski", 61)`.
+- Unlike lists, a tuple may hold **different types**, and its type records each one: `#(Int, Int)`, `#(String, Int)`. The type therefore fixes the length.
+- Access by position with `.0`, `.1`, `.2`, ..., which is efficient regardless of tuple length.
+- Destructure with `let`: `let #(x2, y2) = #(x * x, y * y)`.
+- Tuple syntax doubles as a **pattern** in `case`, naming the components.
+
+### 7. Two ways to build complex data: product and sum
+
+**Product type (combination).** Bundle several fields into one value. Python's `@dataclass`; Gleam's single-variant type. The fields may have different types, and may themselves be user-defined types.
+
+```python
+@dataclass
+class Position:
+    latitude: float
+    longitude: float
+
+@dataclass
+class Student:
+    email: str
+    sid: int
+    position: Position
+```
+
+Why "product"? The set of possible values is the set of possible latitudes **times** the set of possible longitudes: every combination is allowed, so cardinalities multiply.
+
+**Sum type (choice).** One name for several alternative variants. In Python, a union:
+
+```python
+OptionalInt = int | None          # an int, or nothing
+LinkedList = Link | tuple[()]     # a Link, or the empty tuple
+```
+
+Why "sum"? The possible values are all the `int`s **plus** the one `None` value: cardinalities add.
+
+The distinction in one line: a product type is "a `String` **and** an `Int` combined into one object"; a sum type is "something that is **either** a `String` **or** an `Int`".
+
+**Algebraic data types are just these two used together**: a named type lists its variants (sum), and each variant carries fields (product).
+
+### 8. The point of ADTs: make illegal states unrepresentable
+
+Suppose every user must have an email, a phone, or both, and must never have neither (otherwise you cannot contact them). The naive product type does not express this:
+
+```python
+@dataclass
+class User:                 # BAD
+    name: str
+    email: str | None
+    phone: int | None       # allows email=None, phone=None
+```
+
+You could add runtime checks, but then you have to decide what to do with a contactless user, and the bad state is still *constructible*. The ADT version removes the possibility entirely:
+
+```gleam
+pub type Contact {
+  EmailOnly(email: String)
+  PhoneOnly(phone: Int)
+  Both(email: String, phone: Int)
+}
+
+pub type User {
+  User(name: String, contact: Contact)
+}
+```
+
+There is no "neither" variant, so there is no way to build a `User` without contact information. In Gleam a program that violates the types **cannot be run at all**, so the bad case is eliminated before execution rather than defended against during it. (The same shapes can be written in Python with three dataclasses and `Contact = EmailOnly | PhoneOnly | Both`, but Python only *hints*: nothing forces `user.contact` to actually hold one of them.)
+
+Two further Gleam design points from lecture:
+- A sum type's variants are **not themselves types**. `EmailOnly` is a constructor of `Contact`; the field in `User` is declared as `Contact`. You cannot splice ad-hoc unions together on the fly, which pushes you to name the concept ("these three variants exist because they describe a contact option").
+- Cost of this: a type with one variant makes you write the name twice (`pub type User { User(...) }`). Benefit: you habitually ask "what are the possible values of this type?"
+
+### 9. Patterns over ADT values, and when dot access is allowed
+
+```gleam
+pub fn contact(user: User) -> String {
+  case user.contact {
+    EmailOnly(e) | Both(e, _) -> "mailto:" <> e
+    PhoneOnly(n) -> "tel:" <> int.to_string(n)
+  }
+}
+```
+
+- A constructor pattern gives local names to that variant's fields, so `e` is the email in whichever of the two variants matched. The `|` alternative is legal here because **both alternatives bind `e`**.
+- The compiler checks **exhaustiveness**: if some variant of `Contact` were unhandled, the program would not run. So after the `case`, you know every possibility was considered, and the string concatenation is type-correct.
+
+Dot access on ADT fields is allowed only when the field is guaranteed to exist:
+- `user.contact` is fine: every variant of `User` (there is one) has a `contact` field.
+- `user.contact.email` is **not allowed**: `user.contact` might be a `PhoneOnly`, which has no `email`.
+- After matching a variant, dot access on that value is fine. The `Variant(..)` pattern ignores the fields and `as c` names the whole matched value:
+
+```gleam
+pub fn contact(user: User) -> String {
+  case user.contact {
+    EmailOnly(..) as c -> "mailto:" <> c.email
+    Both(..) as c -> "mailto:" <> c.email
+    PhoneOnly(..) as c -> "tel:" <> int.to_string(c.phone)
+  }
+}
+```
+
+So the rule is: use `case` to establish which variant you have, then use dots inside that branch.
+
+### 10. Type aliases vs new types
+
+```gleam
+pub type NestedList(a) =            // alias: just another name for an existing type
+  List(Nested(a))
+
+pub type Nested(a) {                // new type with two variants
+  Sublist(NestedList(a))
+  Item(a)
+}
+```
+
+`=` introduces an **alias** (no new variants, no constructors). Braces with variant names introduce a **new** sum type. Here `a` is a **type variable**, so `NestedList(Int)`, `NestedList(String)`, etc. are all available from one definition. The two definitions are mutually recursive, which is exactly what "a nested list contains items and nested lists" means.
+
+---
+
+## Definitions
+
+- **Linked list (Gleam `List`)**: a sequence represented as a chain of links, each holding one item and a reference to the rest; Gleam's built-in list type.
+- **List literal**: `[e1, e2, ...]`, optionally ending in `..rest_expression` to reuse an existing list as the tail.
+- **Spread / tail syntax (`..`)**: in a list literal, prepends items onto an existing list, sharing its memory; allowed once, only at the end, only before a list. In a pattern, `..` means "and any remaining items", optionally named (`..rest`), where the name refers to a list.
+- **Homogeneous list**: a list all of whose items have the same type; `List(T)` is the type of lists of `T`.
+- **Type variable (e.g. `a` in `List(a)`)**: a placeholder in a type that may be instantiated with any type, letting one function or type definition work for many element types.
+- **Pattern**: a syntactic description of a value's shape used in `case` (and `let`) that both tests the value and binds local names to its parts.
+- **Guard (`if`)**: an extra boolean condition attached to a pattern; the branch is taken only if the pattern matches **and** the guard is true.
+- **Or-pattern (`|`)**: a pattern matching any of several alternatives; all alternatives must bind the same names.
+- **Wildcard (`_`)**: a pattern matching any value without binding a name.
+- **Multiple subjects**: `case s, t { ... }`, where each branch lists one pattern per subject, comma-separated.
+- **Tuple**: a fixed-length, heterogeneous combination written `#(...)`, with positional access `.0`, `.1`, ...; its type lists each component's type.
+- **Product type**: a type whose values combine several fields, all present at once; the number of possible values is the product of the fields' possibilities. (Python `@dataclass`; Gleam single-variant type.)
+- **Sum type (union type)**: a named type whose values are one of several variants; the number of possible values is the sum over variants. (Python `A | B`; Gleam multi-variant type.)
+- **Variant / constructor**: one named alternative of a sum type, with its own fields; used to build values and to pattern match. Not itself a type in Gleam.
+- **Field (attribute)**: a named component of a variant, e.g. `email` in `EmailOnly(email: String)`.
+- **Algebraic data type**: a type built by combining products and sums, i.e. a named set of variants each carrying fields.
+- **Exhaustiveness checking**: the compiler's verification that a `case` covers every possible value of the subject's type; a non-exhaustive `case` prevents the program from running.
+- **Type alias (`pub type X(a) = ...`)**: a new name for an existing type, introducing no constructors.
+- **`as` pattern (`P as c`)**: matches `P` and also binds `c` to the whole matched value.
+- **`Variant(..)` pattern**: matches that variant while ignoring all of its fields.
+
+---
+
+## Worked Examples
+
+### A. `describe`: reading pattern order off the page
 
 ```gleam
 fn describe(s: List(Int)) -> String {
@@ -76,162 +249,48 @@ fn describe(s: List(Int)) -> String {
 }
 ```
 
-Reading the pattern vocabulary off this example:
+`case s` matches the patterns against the *contents* of `s`, top to bottom, first match wins. The lecture's live traces:
 
-- `[]` matches only the empty list.
-- `[1]` matches a list of exactly one item whose value is `1`. A literal inside a pattern is a *test*, not a binding.
-- `[a, b]` matches a list of exactly two items and names them `a` and `b`. A lowercase name inside a pattern is a *binding*: `a` is now a name for the first item of `s`.
-- `_` is a wildcard: matches anything, binds nothing. `[_, _]` means "exactly two items, I don't care what."
-- `[4, ..]` matches any list whose first item is `4`, with any (possibly empty) rest that is discarded.
-- `[a, b, ..rest]` matches a list of **two or more** items, naming the first two and naming `rest` for everything after them.
-- `if <condition>` after a pattern is a **guard**: the branch is taken only if the pattern matches *and* the guard is true.
-- `_` alone at the end is the catch-all.
+| Call | Which branch, and why | Result |
+|---|---|---|
+| `describe([])` | `[]` matches immediately | `"Empty list"` |
+| `describe([1])` | not `[]`; `[1]` requires one item equal to 1 | `"List of just 1"` |
+| `describe([2])` | `[]` no; `[1]` no (item is not 1); `[4, ..]` no; all two-item patterns no; falls through to `_` | `"Some other list"` |
+| `describe([4, 5, 6])` | `[4, ..]` matches (`..` covers `5, 6`) | `"List starting with 4"` |
+| `describe([5, 6])` | `[4, ..]` no; `[a, b]` with `a = 5, b = 6`, guard `5 < 6` true | `"List of 5 then 6"` |
+| `describe([6, 5])` | `[a, b]` matches but guard `6 < 5` fails, so continue; `[_, _]` matches | `"List of two elements"` |
+| `describe([1, 5, 7, 9, 3])` | `[4, ..]` no; `[a, b]`/`[_, _]` need exactly two items; `[a, b, ..rest]` with `a = 1, b = 5, rest = [7, 9, 3]`, guard `1 < 5` true | `"List ending in [7, 9, 3]"` |
 
-**Branch order matters: the first matching branch wins.** `describe([4, 9])` returns `"List starting with 4"`, not `"List of 4 then 9"`, even though the `[a, b] if a < b` pattern would also have matched, because `[4, ..]` comes first.
+Two lessons: (i) `[a, b]` is checked before `[a, b, ..rest]`, so the exactly-two case never reaches the longer pattern; (ii) the branch body may ignore some bound names, as here where only `rest` is used.
 
-**Exhaustiveness (extra context).** Gleam's compiler requires a `case` to cover every possible value of the subject; a missing case is a compile-time error, not a runtime surprise like Python returning `None`. That is why these examples end in a catch-all, and it is also why guards alone are never enough to satisfy the compiler (a guard can fail, so a guarded branch does not count as covering its pattern).
+### B. `sorted`, two ways (reconstructed from the transcript; slides for this part were not included)
 
-Two more pattern features used later in the lecture:
-
-- **Alternation** with `|`: `[] | [_] | [_, _] -> True` takes the branch if *any* of the alternatives matches. If the alternatives bind names, every alternative must bind the same names with the same types (as in `EmailOnly(e) | Both(e, _)`).
-- **Multiple subjects**: `case s, t { ... }` matches two values at once, with each branch giving one pattern per subject, separated by commas.
-
-### 4. Comparison and boolean operators in Gleam
-
-- Two values of the same type can always be compared with `==` and `!=`, and this is **structural** equality: `[1, 2] == [1, 2]` is true regardless of whether the two lists share memory.
-- There is **no equivalent of Python's `is`**, because all values are immutable, so identity is not observable the way it is for mutable Python lists.
-- `&&` is `and`, `||` is `or`, `!` is `not`. Like Python's `and`/`or`, `&&` and `||` short-circuit **(extra context, and relied on by `repeating` and `matches` to avoid work after a failure)**.
-- `<>` concatenates strings; `int.to_string` and `string.inspect` convert values to strings.
-
-### 5. Algebraic data types: variants and fields
-
-A custom type is declared with a name and a list of **variants**, each variant being a constructor with named fields:
+Recursive version: a list is sorted if the first two items are in order and the list from the second item onward is sorted.
 
 ```gleam
-pub type Contact {
-  EmailOnly(email: String)
-  PhoneOnly(phone: Int)
-  Both(email: String, phone: Int)
-}
-
-pub type User {
-  User(name: String, contact: Contact)
-}
-```
-
-A value of type `Contact` is *one of* these three shapes. A value of type `User` always has the single shape `User(name, contact)`. Type names and variant names are capitalized; function and variable names are lowercase.
-
-Why "algebraic" **(extra context)**: a type like `Contact` is a **sum** ("or") of its variants, and each variant is a **product** ("and") of its fields. The number of possible values is the sum over variants of the product of the field possibilities. This is just terminology, but it explains the lecture title: you build types by combining "or" and "and".
-
-The payoff is that a `case` over an ADT handles each shape separately and gives local names to that shape's fields:
-
-```gleam
-pub fn contact(user: User) -> String {
-  case user.contact {
-    EmailOnly(e) | Both(e, _) -> "mailto:" <> e
-    PhoneOnly(n) -> "tel:" <> int.to_string(n)
+fn sorted(s: List(Int)) -> Bool {
+  case s {
+    [] | [_] -> True
+    [first, second, ..rest] -> first <= second && sorted([second, ..rest])
   }
 }
 ```
+Progress: the recursive call's argument `[second, ..rest]` is one shorter than `s` (we dropped `first`), so recursion terminates. Note the rebuilt literal `[second, ..rest]` shares `rest` rather than copying it.
 
-`EmailOnly(e) | Both(e, _)` is the alternation pattern: both alternatives bind a `String` named `e`, so the branch can use `e` whichever variant arrived. `Both`'s phone field is discarded with `_`.
-
-### 6. When a dot expression is allowed
-
-`user.contact` is fine: `User` has exactly one variant, and that variant has a `contact` field, so the field is guaranteed to exist.
-
-`user.contact.email` is **not allowed**, because `user.contact` has type `Contact` and a `Contact` may not have an `email` attribute (it could be `PhoneOnly`). The general rule: you may access a field through a dot expression only when the compiler is sure the field is there.
-
-A pattern match can supply that certainty. After matching a specific variant, you can bind the whole value with `as` and then use dot expressions on it:
+Shorter and tail-recursive version:
 
 ```gleam
-pub fn contact(user: User) -> String {
-  case user.contact {
-    EmailOnly(..) as c -> "mailto:" <> c.email
-    Both(..) as c -> "mailto:" <> c.email
-    PhoneOnly(..) as c -> "tel:" <> int.to_string(c.phone)
+fn sorted(s: List(Int)) -> Bool {
+  case s {
+    [] | [_] -> True
+    [first, second, ..] if first > second -> False
+    [_, ..rest] -> sorted(rest)
   }
 }
 ```
+Here the "found a violation" case returns directly, and otherwise we drop the already-checked first item and recurse on `rest`. Because the recursive call is the entire body of that branch, it is a **tail call**, so it runs in constant space in Gleam.
 
-Here `(..)` inside a record pattern means "I don't care about any of the fields," and `as c` names the matched value. Because the branch is reached only when the value is an `EmailOnly`, `c.email` is known to exist. Note that `EmailOnly` and `Both` have to be written as two separate branches in this version even though the bodies are identical: combining them with `|` would leave the compiler unsure which variant `c` is **(extra context on the reason; the slide just shows them split)**.
-
-The other direction of this rule shows up in `NotEmpty` below: `s.first` *is* allowed for `s: NotEmpty(a)` without any pattern match, because **every** variant of `NotEmpty` has a `first` field of type `a`.
-
-### 7. Type aliases, parameterized types, and recursive types
-
-```gleam
-pub type NestedList(a) =
-  List(Nested(a))
-
-pub type Nested(a) {
-  Sublist(NestedList(a))
-  Item(a)
-}
-```
-
-Two different declarations are at work here:
-
-- `pub type NestedList(a) = List(Nested(a))` with an `=` is a **type alias**. It introduces no new constructors and no new values; `NestedList(Int)` is just another way to write `List(Nested(Int))`.
-- `pub type Nested(a) { ... }` with a block is a **new custom type** with two constructors, `Sublist` and `Item`.
-
-Both are **parameterized** by a type variable `a`, and the definitions are **mutually recursive**: a `NestedList(a)` is a list of `Nested(a)`, and a `Sublist` holds a `NestedList(a)`. That recursion is exactly the English definition on the slide: "a nested list of integers is a list containing integers and nested lists of integers."
-
-**Why an ADT is needed at all here.** In Python you can simply write `[1, [2, 3], 4]`, because a Python list can hold anything, and you distinguish the cases at runtime with `isinstance(x, list)`. A Gleam list must be homogeneous, so `[Item(1), Sublist([Item(2), Item(3)]), Item(4)]` is how you say it: every element has the same type, `Nested(Int)`, and the *tag* (`Item` vs `Sublist`) carries the information `isinstance` would have recovered. Tagging replaces runtime type inspection.
-
-The `NotEmpty` type illustrates the other classic use of ADTs, making bad values impossible to construct:
-
-```gleam
-pub type NotEmpty(a) {
-  Last(first: a)
-  Link(first: a, rest: NotEmpty(a))
-}
-```
-
-A `NotEmpty(a)` is either a final item (`Last`) or an item followed by another non-empty list (`Link`). There is no empty case, so
-
-```gleam
-pub fn starts_with(s: NotEmpty(a), v: a) -> Bool {
-  s.first == v
-}
-```
-
-needs no empty check at all, and `s.first` type-checks without a `case` because both variants have `first`.
-
----
-
-## Definitions
-
-- **Algebraic data type (ADT)**: a type defined as a fixed set of named variants, each variant holding a fixed set of typed fields. A value of the type is exactly one variant.
-- **Variant (constructor)**: one of the alternative shapes of an ADT, written with a capitalized name, for example `EmailOnly(email: String)`. Used both to construct values and inside patterns to match them.
-- **Field (attribute)**: a named, typed component of a variant, for example `email` in `EmailOnly(email: String)`.
-- **Sum type (extra context)**: a type formed by an "or" of variants (`Contact` is `EmailOnly` or `PhoneOnly` or `Both`).
-- **Product type (extra context)**: a shape formed by an "and" of fields (`Both` is an email *and* a phone).
-- **Type alias**: a declaration of the form `pub type Name(a) = SomeExistingType`, giving a new name to an existing type without creating new constructors.
-- **Type variable**: a lowercase name in a type, such as the `a` in `List(a)` or `NotEmpty(a)`, standing for any one type chosen by the caller.
-- **Linked list**: a list represented as a chain of cells, each holding one item and a reference to the rest. Gleam's `List` is a linked list.
-- **List literal**: `[e1, e2, ...]`, optionally ending with `..rest_expression`, which supplies the rest of the list and shares its memory.
-- **Spread (`..`) in a literal**: the rest-of-list form; allowed only once, only at the end of the literal, and only in front of a value that is itself a list.
-- **Pattern**: a shape written in a `case` branch that matches certain values and binds names to their parts. Literals in a pattern test for equality; lowercase names bind; `_` matches and discards; `..` or `..name` in a list pattern stands for the remaining items.
-- **Guard**: an `if condition` attached to a pattern; the branch is taken only when the pattern matches and the condition is true.
-- **Alternation pattern**: `p1 | p2 | p3`, matching if any alternative matches; all alternatives must bind the same names with the same types.
-- **`as` pattern**: `Variant(..) as c`, which matches and also binds the whole matched value to `c`, enabling dot access to that variant's fields.
-- **Multiple subjects**: `case s, t { pa, pb -> ... }`, matching several values simultaneously with one pattern per subject.
-- **Exhaustiveness (extra context)**: the requirement that a `case` cover all possible values of its subjects; Gleam enforces it at compile time.
-- **Structural equality**: `==` compares values by their contents and shape. Gleam has no identity comparison (no `is`) because all values are immutable.
-- **Prefix**: list `t` is a prefix of `s` if `s` begins with all of `t`'s items in order.
-- **Matching lists** (this lecture's definition): `s` and `t` *match* if they are equal or one is a prefix of the other.
-- **Alternating list**: a list of the form `[x, y, x, y, x, ...]`, that is, every item equals the item two positions earlier.
-- **Repeating list with period `n`**: a list of the form `[x1, ..., xn, x1, ..., xn, x1, ...]`, that is, every item equals the item `n` positions earlier.
-- **Nested list**: a list whose elements are either items or nested lists; in Gleam, `NestedList(a) = List(Nested(a))` with `Nested(a)` being `Item(a)` or `Sublist(NestedList(a))`.
-
----
-
-## Worked Examples
-
-### Example 1: Alternating lists
-
-Goal: return whether `s` has the form `[x, y, x, y, x, ...]`.
+### C. `alternating`: does the list look like `[x, y, x, y, x, ...]`?
 
 ```gleam
 fn alternating(s: List(a)) -> Bool {
@@ -242,9 +301,7 @@ fn alternating(s: List(a)) -> Bool {
   }
 }
 ```
-
 Tests from the slide:
-
 ```gleam
 assert alternating([])
 assert alternating([1, 2, 1, 2, 1])
@@ -252,48 +309,15 @@ assert alternating(["a", "b", "a", "b"])
 assert !alternating([1, 2, 1, 3])
 assert !alternating([1, 2, 2, 1])
 ```
+How it works: a list alternates exactly when **every item equals the item two positions later**. Lists of length 0, 1, or 2 trivially satisfy that, hence the first branch. Otherwise, look at positions 0 and 2 (`x` and `z`, skipping position 1 with `_`); if they differ, the answer is `False` immediately. If they agree, drop one item and check the rest, which slides the window by one and eventually checks every such pair.
 
-How each branch earns its place:
+Trace `alternating([1, 2, 1, 3])`: length 4, so branch 1 fails. `x = 1, z = 1`, guard `1 != 1` is false, so branch 2 fails. Branch 3 recurses on `[2, 1, 3]`: length 3, `x = 2, z = 3`, guard true, so `False`. Propagates out as `False`.
 
-1. **Base case `[] | [_] | [_, _] -> True`.** The condition "every item equals the item two before it" is vacuously true for lists of length 0, 1, and 2, since no item has an item two positions earlier. Alternation `|` collapses three base cases into one branch.
-2. **Failure case `[x, _, z, ..] if x != z -> False`.** This pattern requires at least three items and names the first (`x`) and the third (`z`), discarding the second and any tail. If `x != z`, the alternating property is already broken, so return `False` immediately.
-3. **Recursive case `[_, ..rest] -> alternating(rest)`.** Reached only when the list has three or more items and `x == z`. Having verified the first constraint, drop the first item and check the rest. Each recursive call checks one more adjacent-but-one pair, and the list shrinks by one, so it terminates in a base case.
+Trace `alternating([1, 2, 2, 1])`: `x = 1, z = 2`, differ, so `False` right away.
 
-Note the type: `List(a)`, not `List(Int)`. The function works on lists of any type because Gleam lets you compare any two values of the same type with `!=`. That is why `alternating(["a", "b", "a", "b"])` type-checks.
+Note the signature `List(a) -> Bool`: it works for any item type because `!=` works on any type.
 
-**Trace `alternating([1, 2, 1, 3])`:**
-
-| call | branch 1? | branch 2? | action |
-|---|---|---|---|
-| `[1, 2, 1, 3]` | no (length 4) | `x=1, z=1`, guard `1 != 1` false, no | recurse on `[2, 1, 3]` |
-| `[2, 1, 3]` | no (length 3) | `x=2, z=3`, guard `2 != 3` true | return `False` |
-
-**Trace `alternating([1, 2, 1, 2, 1])`:** `x=1,z=1` so recurse on `[2,1,2,1]`; `x=2,z=2` so recurse on `[1,2,1]`; `x=1,z=1` so recurse on `[2,1]`, which matches `[_, _]` and returns `True`.
-
-**Trace `alternating([1, 2, 2, 1])`:** `x=1, z=2`, guard `1 != 2` is true, so `False` right away.
-
-**Python translation (extra context)**, with the 61A `Link` class, to show what the patterns are doing:
-
-```python
-class Link:
-    empty = ()
-    def __init__(self, first, rest=empty):
-        self.first = first
-        self.rest = rest
-
-def alternating(s):
-    if s is Link.empty or s.rest is Link.empty or s.rest.rest is Link.empty:
-        return True          # the [] | [_] | [_, _] branch
-    if s.first != s.rest.rest.first:
-        return False         # the [x, _, z, ..] if x != z branch
-    return alternating(s.rest)
-```
-
-The Gleam version needs no `s.rest.rest.first` chain and cannot raise an attribute error on a short list, because the pattern `[x, _, z, ..]` already guarantees three items exist before `x` and `z` are ever evaluated. That safety is the main practical argument for pattern matching.
-
-### Example 2: Repeating lists (direct recursion)
-
-Goal: return whether `s` is `n` values repeated, for example for `n == 3`, `[x, y, z, x, y, z, x, y, z, x, ...]`. Equivalently: every item equals the item `n` positions earlier.
+### D. `repeating` with `nth_equals`: is `s` a block of `n` values repeated?
 
 ```gleam
 pub fn repeating(s: List(a), n: Int) -> Bool {
@@ -316,38 +340,13 @@ pub fn nth_equals(expected: a, s: List(a), n: Int) -> Bool {
 }
 ```
 
-Reading `repeating`:
+The idea generalizes the alternating case: `s` is `n` values repeated exactly when `s[i] == s[i + n]` for every `i` where both exist. `repeating` walks `i` from the front, and for each position checks that item against the item `n` later.
 
-- `[] -> True`: an empty list is trivially periodic.
-- `[first, ..rest]`: name the first item and the rest. The constraint for this position is "the item `n` later equals `first`," which is exactly `nth_equals(first, s, n)`. Then the same must hold for every later position, which is `repeating(rest, n)`.
-- Note that `nth_equals` is given **`s`**, not `rest`. Index `n` of `s` is index `n - 1` of `rest`, so passing the whole list with `n` keeps the indexing honest: `nth_equals(first, s, n)` asks about `s[n]` compared to `s[0]`.
-- `&&` short-circuits, so once one position fails, no further recursion happens.
+Subtle but important detail: `nth_equals(first, s, n)` is called with **`s`, the whole list**, not `rest`. Since `s[0]` is `first`, counting `n` steps from `s` lands on `s[n]`, which is exactly the item we want to compare with `first`.
 
-Reading `nth_equals(expected, s, n)`:
+Inside `nth_equals`, the two base cases are: the list ran out (`[]` gives `True`, because "shorter than `n`" means there is nothing to contradict) and the countdown hit zero (`0 -> first == expected`). Otherwise step one item forward and decrement `n`. Notice the **nested `case`**: the outer one inspects the list, the inner one inspects the number.
 
-- Two nested `case` expressions: the outer one on the list, the inner one on the counter.
-- `[] -> True`: we ran off the end of the list before reaching index `n`. There is no item at that index, so there is no constraint to violate; returning `True` is what makes the function total. This is why the doc comment says "return True if `s` is shorter than `n`."
-- `n == 0`: we have arrived; compare `first == expected`.
-- otherwise: walk one step forward and decrement, `nth_equals(expected, rest, n - 1)`.
-
-**Trace `repeating([1, 2, 1, 2, 1], 2)`:**
-
-| `s` in `repeating` | check | result |
-|---|---|---|
-| `[1,2,1,2,1]` | `nth_equals(1, [1,2,1,2,1], 2)` walks to `[1,2,1]` with `n=0`, compares `1 == 1` | `True`, continue |
-| `[2,1,2,1]` | `nth_equals(2, [2,1,2,1], 2)` reaches `2 == 2` | `True`, continue |
-| `[1,2,1]` | `nth_equals(1, [1,2,1], 2)` reaches `1 == 1` | `True`, continue |
-| `[2,1]` | `nth_equals(2, [2,1], 2)` runs off the end (`[]`) | `True`, continue |
-| `[1]` | `nth_equals(1, [1], 2)` runs off the end | `True`, continue |
-| `[]` | base case | `True` |
-
-So the answer is `True`. If instead the list were `[1, 2, 1, 3, 1]`, the second position would compare `s[1] = 2` with `s[3] = 3` and return `False`, which short-circuits the whole thing.
-
-**Edge cases worth knowing (extra context).** With `n == 0`, `nth_equals(first, s, 0)` compares `first == first`, so `repeating(s, 0)` is `True` for every list. With a negative `n`, the counter never reaches `0`, so `nth_equals` walks off the end and returns `True`, again making `repeating` vacuously `True`. Neither is in the slide's test cases, but it is worth knowing that the base case `[] -> True` is what absorbs these.
-
-### Example 3: Matching lists
-
-Definition from the slide: lists `s` and `t` *match* if they are equal or one is a prefix of the other.
+### E. `matches`: equal, or one a prefix of the other
 
 ```gleam
 assert matches([1, 2, 3], [1, 2, 3])
@@ -363,30 +362,13 @@ fn matches(s: List(a), t: List(a)) -> Bool {
   }
 }
 ```
+This is the multiple-subject `case`. The first branch requires **both** lists to be non-empty: compare heads, then recurse on both tails. The second branch, `_, _`, is reached only when at least one list is empty, which is precisely the situation "we ran out before finding a mismatch", i.e. one is a prefix of the other, so `True`.
 
-This is the lecture's demonstration of **multiple subjects**: `case s, t` with two patterns per branch.
+Trace `matches([1, 2, 3], [1, 3])`: `1 == 1`, recurse on `[2, 3]` and `[3]`; `2 == 3` is false, so `&&` short-circuits to `False` without recursing further.
 
-- First branch: both lists are non-empty. Name both first items and both rests. The lists match iff the first items are equal and the rests match. `&&` short-circuits, so a mismatch stops the recursion immediately.
-- Second branch, `_, _ -> True`: reached only when the first branch failed to match, which happens exactly when `s` is empty or `t` is empty. If either has run out, everything compared so far was equal, so the shorter one is a prefix of the longer one, and the answer is `True`. The slide's annotation is the key point: "this pattern matches any value of `s` and any value of `t`."
+Trace `matches([], [1, 2])`: the first branch needs `s` non-empty, so it fails; `_, _` gives `True`.
 
-Branch **order** is what makes the catch-all correct. If you wrote `_, _ -> True` first, it would match everything and `matches` would always return `True`.
-
-**Trace `matches([1, 2, 1, 2], [1, 2])`:** compare `1 == 1`, recurse on `([2, 1, 2], [2])`; compare `2 == 2`, recurse on `([1, 2], [])`; the first branch cannot match because `t` is empty, so `_, _ -> True`. Result: `True` (`[1, 2]` is a prefix of `[1, 2, 1, 2]`).
-
-**Trace `matches([1, 2, 3], [1, 3])`:** compare `1 == 1`, recurse on `([2, 3], [3])`; compare `2 == 3`, which is `False`, so `&&` short-circuits and the result is `False`.
-
-**Python translation (extra context):**
-
-```python
-def matches(s, t):
-    if s is Link.empty or t is Link.empty:
-        return True
-    return s.first == t.first and matches(s.rest, t.rest)
-```
-
-### Example 4: Repeating lists using matching, plus `drop`
-
-The elegant reformulation: a list has period `n` exactly when it matches itself with the first `n` items removed.
+### F. `repeating` again, built from `matches` and `drop`
 
 ```gleam
 pub fn repeating(s: List(a), n: Int) -> Bool {
@@ -405,27 +387,31 @@ fn drop(s: List(a), n: Int) -> List(a) {
   }
 }
 ```
+Why this is the same property: `drop(s, n)` is `s` shifted left by `n`, so comparing `s` against it item by item compares `s[i]` with `s[i + n]`. `matches` stops happily when the shorter list (the dropped one) runs out, which is exactly the "up to the end" behavior we want. "Up to the first `n`" in the docstring matters: if `s` is shorter than `n`, `drop` returns `[]` and `matches(s, [])` is `True`, which is correct since a short list cannot violate the pattern.
 
-Why this works: line up `s` against `drop(s, n)`.
+`drop` itself is two nested `case`s again: count down on `n`, and separately guard against the list running out. `drop` also illustrates sharing: it returns a **suffix of the original chain**, allocating nothing.
 
+### G. Tuples: formatting a fraction (reconstructed from the transcript)
+
+```gleam
+fn fraction_to_string(f: #(Int, Int)) -> String {
+  case f {
+    #(_, 0) -> "undefined"
+    #(n, 1) -> int.to_string(n)
+    #(n, d) -> int.to_string(n) <> "/" <> int.to_string(d)
+  }
+}
 ```
-s            : [x, y, z, x, y, z, x, ...]
-drop(s, 3)   : [x, y, z, x, ...]
+`#(Int, Int)` is the tuple type (numerator, denominator); the patterns describe the tuple and name its parts. The lecture also showed the `let` and positional forms:
+
+```gleam
+let t = #(x * x, y * y)
+let #(x2, y2) = t
+x2 + y2          // same as t.0 + t.1
 ```
+(and noted you would really just write `x * x + y * y`; the tuple is only there to demonstrate the syntax).
 
-Position `i` of `drop(s, n)` is position `i + n` of `s`. So `matches` comparing them item by item is exactly the test "`s[i] == s[i+n]` for every `i` where both exist," and `matches` stops with `True` when the shorter list (always `drop(s, n)`) runs out, which is exactly the right place to stop. That is why `matches` was defined to accept prefixes rather than requiring equal lengths: a strict equality check would wrongly reject every finite periodic list.
-
-Reading `drop`:
-
-- Outer `case` is on the **counter**, not the list: `0 -> s` means "done, nothing more to remove."
-- Inner `case` on the list: `[] -> []` makes `drop` total, handling `n` larger than the length ("remove **up to** the first `n` items," as the doc comment carefully says). `[_, ..rest] -> drop(rest, n - 1)` discards one item and continues.
-- `drop` allocates nothing: it returns an existing tail of `s`, sharing memory. Walking down a linked list and returning a suffix is free.
-
-**Trace `repeating([1, 2, 3, 1, 2, 3, 1], 3)`:** `drop(s, 3)` walks past `1, 2, 3` and returns the suffix `[1, 2, 3, 1]`. Then `matches([1,2,3,1,2,3,1], [1,2,3,1])` compares `1=1, 2=2, 3=3, 1=1`, then `t` is empty, so `True`.
-
-**Trace `repeating([1, 2, 3, 1, 2, 4], 3)`:** `drop` gives `[1, 2, 4]`; `matches` compares `1=1`, `2=2`, then `3` against `4`, returning `False`.
-
-### Example 5: Contacts, an ADT with three variants
+### H. The `Contact` / `User` ADT in use
 
 ```gleam
 pub type Contact {
@@ -445,33 +431,46 @@ pub fn contact(user: User) -> String {
   }
 }
 ```
+Evaluating the lecture's example:
+```gleam
+contact(User("Oski", EmailOnly("oski@berkeley.edu")))   // "mailto:oski@berkeley.edu"
+```
+Step by step: `User("Oski", EmailOnly(...))` builds a `User` value whose `contact` field points to a `Contact` value built by the `EmailOnly` constructor. In `contact`, `user.contact` is legal because every `User` has a `contact` field. The subject is that `Contact` value; the first pattern `EmailOnly(e)` matches and binds `e` to `"oski@berkeley.edu"`; `<>` concatenates. If the user had been built with `Both("a@b.c", 5551234)`, the same first branch would match via its second alternative with `e = "a@b.c"` and the phone ignored.
 
-Step by step on the slide's example, `contact(User("Oski", EmailOnly("oski@berkeley.edu")))`:
-
-1. `User("Oski", EmailOnly("oski@berkeley.edu"))` constructs a `User` value with `name = "Oski"` and `contact = EmailOnly("oski@berkeley.edu")`. Think of it as two nested boxes: a `User` box with two slots, whose second slot holds an `EmailOnly` box with one slot holding the string.
-2. Inside `contact`, `user.contact` is a legal dot expression because `User` has one variant and that variant has a `contact` field. It evaluates to the `EmailOnly(...)` value.
-3. The `case` tries the first branch. The alternation `EmailOnly(e) | Both(e, _)` matches on its first alternative, binding `e` to `"oski@berkeley.edu"`.
-4. The body evaluates `"mailto:" <> e`, giving `"mailto:oski@berkeley.edu"`.
-
-No branch for `PhoneOnly` was needed in step 3, but it must exist in the `case` for the code to compile, since the `case` has to be exhaustive over all three variants.
-
-The alternative formulation with `as`:
+### I. Trees as a single-variant ADT (from the transcript)
 
 ```gleam
-pub fn contact(user: User) -> String {
-  case user.contact {
-    EmailOnly(..) as c -> "mailto:" <> c.email
-    Both(..) as c -> "mailto:" <> c.email
-    PhoneOnly(..) as c -> "tel:" <> int.to_string(c.phone)
-  }
+pub type Tree(a) {
+  Tree(label: a, branches: List(Tree(a)))
+}
+
+pub fn leaf(label: a) -> Tree(a) {
+  Tree(label, [])
 }
 ```
+This is the familiar 61A tree ADT: a tree is a label plus a list of branches, and a leaf is a tree with no branches. `leaf` is an ordinary **function**, not a variant. `a` is a type variable, so you can have `Tree(Int)` or `Tree(String)`.
 
-Here each pattern ignores the fields with `(..)` and names the whole value `c`, then reads fields with dot expressions. Both styles are fine; the first is shorter, the second is handy when a variant has many fields and you want only one or two of them.
+The lecture's tree: root `1`, branches `2` and `5`; under `2`, the leaves `3` and `4`; under `5`, the leaf `6`.
 
-What you cannot write is `user.contact.email`, because `user.contact` has type `Contact` and "user.contact may not have an email attribute." The dot expression is rejected at compile time, not at runtime.
+```gleam
+let t = Tree(1, [Tree(2, [leaf(3), leaf(4)]), Tree(5, [leaf(6)])])
+```
+(`leaf(3)` and `Tree(3, [])` are the same thing; `leaf` is just shorter.)
 
-### Example 6: Nested lists
+Summing labels with tree recursion plus `list.map`:
+
+```gleam
+pub fn sum_labels(t: Tree(Int)) -> Int {
+  t.label + int.sum(list.map(t.branches, sum_labels))
+}
+```
+`t.label` is legal dot access because `Tree` has exactly one variant, so every value has those fields. `list.map(t.branches, sum_labels)` recursively sums each branch, producing a list of numbers, and `int.sum` adds them.
+
+On the example: branch rooted at `2` gives `2 + 3 + 4 = 9`; branch rooted at `5` gives `5 + 6 = 11`; `int.sum([9, 11]) = 20`; plus the root label `1` gives `21`.
+
+Where is the base case? There is no explicit leaf branch: for a leaf, `t.branches` is `[]`, `list.map` returns `[]`, and `int.sum([]) = 0` (like Python's `sum([])`), so the recursion bottoms out at `t.label + 0`. You *could* write an explicit leaf case and it would do no harm.
+
+### J. Nested lists: an alias plus a two-variant type
 
 ```gleam
 pub type NestedList(a) =
@@ -482,19 +481,11 @@ pub type Nested(a) {
   Item(a)
 }
 ```
+"A nested list of integers is a list containing integers and nested lists of integers." The sum type `Nested` is what makes the heterogeneity type-safe: a Gleam list must be homogeneous, so instead of mixing `Int`s and lists, every element is a `Nested(Int)`, which is *either* an `Item` wrapping an integer *or* a `Sublist` wrapping another nested list.
 
-The nested list `[1, [2, 3], 4]` is written in Gleam as
-
-```gleam
-[Item(1), Sublist([Item(2), Item(3)]), Item(4)]
-```
-
-Every element has the same type, `Nested(Int)`, which satisfies list homogeneity, and the tag says whether the element is a bare item or a sublist.
-
-Direct recursion:
+Version 1, explicit recursion over the list:
 
 ```gleam
-// Sum a nested list of integers
 pub fn sum_nested(s: NestedList(Int)) -> Int {
   case s {
     [] -> 0
@@ -507,18 +498,11 @@ pub fn sum_nested(s: NestedList(Int)) -> Int {
   }
 }
 ```
+Two kinds of recursion are interleaved: `sum_nested(rest)` walks along the list (linear recursion), and `sum_nested(t)` descends into a sublist (deep recursion). The inner `case` is the ADT dispatch: unwrap an `Item` to get the integer, or recurse on a `Sublist`. Note that a `case` expression *has a value*, so it can sit directly to the left of `+`.
 
-This is a **tree recursion** with two distinct recursive calls:
-
-- `[] -> 0`: an empty nested list sums to 0.
-- Otherwise split into `first` and `rest`. An inner `case` on `first` decides how much the first element contributes: if it is a `Sublist(t)`, recurse *into* the sublist with `sum_nested(t)`; if it is an `Item(a)`, the contribution is just `a`. Then add `sum_nested(rest)` to recurse *along* the list.
-- Note that a `case` expression is a value in Gleam, which is why the whole `case first { ... }` can sit directly to the left of `+`.
-- Both recursive calls shrink the data (one goes down into a sublist, one goes right along the list), so the recursion terminates on finite nested lists.
-
-Higher-order version:
+Version 2, the same thing with `list.map`:
 
 ```gleam
-// Sum a nested list of integers with list.map
 pub fn sum_nested(s: NestedList(Int)) -> Int {
   int.sum(
     list.map(s, fn(x) {
@@ -530,25 +514,9 @@ pub fn sum_nested(s: NestedList(Int)) -> Int {
   )
 }
 ```
+Map each element to its own total, then add them all. The `[] -> 0` base case disappears because `int.sum([]) = 0`, exactly as in `sum_labels`.
 
-Same idea with the "along the list" recursion delegated to the library: `list.map` turns each `Nested(Int)` element into the `Int` it contributes (recursing into sublists as needed), producing a `List(Int)`, and `int.sum` adds them up. The explicit base case disappears because `list.map` of `[]` is `[]` and `int.sum([])` is `0`. Only the "down into a sublist" recursion remains written by hand.
-
-**Python comparison (extra context):**
-
-```python
-def sum_nested(s):
-    total = 0
-    for x in s:
-        if isinstance(x, list):
-            total += sum_nested(x)
-        else:
-            total += x
-    return total
-```
-
-The structure is the same, but Python asks the runtime "is this a list?" with `isinstance`, while Gleam encodes the answer in the data with `Item` and `Sublist`, and the compiler then forces you to handle both.
-
-### Example 7: Debugging `increasing` on non-empty lists
+### K. Debugging exercise: `increasing` for non-empty lists
 
 ```gleam
 pub type NotEmpty(a) {
@@ -569,35 +537,26 @@ pub fn increasing(s: NotEmpty(Int)) -> Bool {
 }
 ```
 
-First, the two things that are right:
+First, note *why* `starts_with` can write `s.first` without a `case`: **both** variants of `NotEmpty` have a field named `first` of the same type, so the field is guaranteed to exist. (Contrast `user.contact.email`, which is rejected because `email` is missing from `PhoneOnly`.) This type also structurally guarantees non-emptiness: there is no empty variant, so "a `NotEmpty` list with zero items" cannot be written.
 
-- `starts_with` uses `s.first` with no `case` at all, and that is legal because *both* variants of `NotEmpty` have a field named `first` of type `a`. Contrast with `Contact`, where no field is common to all variants.
-- The `Last(_) -> True` base case is correct: a one-item list is increasing.
+**The bug:** the middle pattern is `Link(first, Link(second, _))`, which requires the rest to be a `Link`. The **final pair** of the list has shape `Link(first, Last(second))`, which that pattern does **not** match. So the last pair is never compared: control falls to `Link(_, rest) -> increasing(rest)`, then `Last(_) -> True`.
 
-**The bug: the final adjacent pair is never compared.** The second pattern is `Link(first, Link(second, _))`, which requires the rest of `s` to be a `Link`, that is, to have at least two items after `first`... more precisely, it requires `s` to have at least three items total, since a `Link(second, _)` itself has at least two items. So whenever the rest is a `Last`, the guard is skipped entirely and control falls through to `Link(_, rest) -> increasing(rest)`, which eventually hits `Last(_) -> True`.
+Concretely, for the list `5, 3` built as `Link(5, Last(3))`: `Last(_)` does not match; `Link(first, Link(...))` does not match because the rest is a `Last`; the third branch recurses on `Last(3)`, which returns `True`. So `increasing` wrongly reports `True`. In general, any list whose only decrease is between the last two items is misclassified.
 
-**Counterexample trace, `increasing(Link(3, Last(1)))`** (the list `[3, 1]`, which is not increasing):
-
-1. `Last(_)`? No, `s` is a `Link`.
-2. `Link(first, Link(second, _))`? No. `first` would be `3`, but the rest is `Last(1)`, not a `Link`, so the pattern fails before the guard is even considered.
-3. `Link(_, rest)`? Yes, with `rest = Last(1)`. Recurse: `increasing(Last(1))` matches `Last(_)` and returns `True`.
-
-So `increasing([3, 1])` returns `True`. In general, the last pair of neighbors in the list is never checked, so any list that is increasing except for its final step is misreported, for example `[1, 5, 2]` also returns `True`.
-
-**Fix A (minimal patch): add the missing pattern** for the case where the rest is a `Last`, before the general recursive branch.
+**Fixes.** Either add the missing pattern:
 
 ```gleam
 pub fn increasing(s: NotEmpty(Int)) -> Bool {
   case s {
     Last(_) -> True
-    Link(first, Link(second, _)) if second <= first -> False
     Link(first, Last(second)) if second <= first -> False
+    Link(first, Link(second, _)) if second <= first -> False
     Link(_, rest) -> increasing(rest)
   }
 }
 ```
 
-**Fix B (cleaner): compare through the common field** `first`, which exists in both variants, so the two "rest" shapes do not need separate patterns at all.
+or, more cleanly, exploit the fact that **every** variant has a `first` field (the reason `starts_with` was put on the slide as a hint):
 
 ```gleam
 pub fn increasing(s: NotEmpty(Int)) -> Bool {
@@ -607,179 +566,141 @@ pub fn increasing(s: NotEmpty(Int)) -> Bool {
   }
 }
 ```
-
-Reading Fix B: a `Last` is increasing; a `Link` is increasing iff its own item is less than the first item of its rest *and* its rest is increasing. `rest.first` is legal for the reason `starts_with` works. Note that `increasing(rest)` re-examines the pair starting at `rest`, so every adjacent pair gets checked exactly once, including the final one.
+Here `rest.first` is the next item regardless of whether `rest` is a `Last` or a `Link`, so both pairs-at-the-end and pairs-in-the-middle are checked uniformly. (extra context: the second form is my preferred fix rather than one written on the slide; the slide only supplied `starts_with` and the buggy function.)
 
 ---
 
 ## Common Pitfalls
 
-1. **Reaching for `.first` or `.rest` on a Gleam `List`.** They do not exist. Use a `case` pattern like `[first, ..rest]`. Dot access is only for records (your own ADT variants), and only when the field is known to exist.
-2. **Putting `..` in the wrong place.** `..` may appear only once, only at the very end of a literal, and only before a list. `[..s, 9]` and `[1, ..s, 9]` are not valid.
-3. **Writing `[1, 3, s]` when you meant `[1, 3, ..s]`.** The first tries to make a list whose third item is a list, which is a type error (or, with homogeneous lists of lists, silently a different structure than you intended).
-4. **Mixing item types.** `[1, "two"]` and `["one", ..s]` (where `s: List(Int)`) are type mismatch errors. Gleam lists are homogeneous, full stop. If you really need "integers or lists of integers," define an ADT like `Nested(a)`.
-5. **Getting branch order wrong.** The first matching branch wins. A catch-all (`_` or `_, _`) placed early swallows everything after it; in `matches`, moving `_, _ -> True` to the top makes the function always return `True`. Conversely, in `describe`, `[4, ..]` preempts the later `[a, b] if a < b` for the list `[4, 9]`.
-6. **Expecting guards to make a case exhaustive.** A guarded branch can fail its guard, so you still need an unguarded branch covering that shape. This is also the trap behind the `increasing` bug: a pattern that is too specific (`Link(second, _)` where a `Last` can appear) silently sends values to a later branch instead of producing an error.
-7. **Forgetting that a nested pattern constrains the *shape* of the inner value, not just its contents.** `Link(first, Link(second, _))` does not mean "the next item is `second`"; it means "the rest is a `Link`, and its item is `second`."
-8. **Writing `user.contact.email`.** Illegal, because a `Contact` may be a `PhoneOnly`. Match the variant first, then access the field (optionally with `Variant(..) as c`).
-9. **Confusing `pub type X = ...` with `pub type X { ... }`.** The first is an alias introducing no constructors; the second defines variants. You cannot "construct a `NestedList`" with a constructor, because `NestedList(a)` is just `List(Nested(a))`; you build it with a list literal of `Item`/`Sublist` values.
-10. **Python operator and comparison habits.** Use `&&`, `||`, `!`, not `and`, `or`, `not`. Use `<>` for string concatenation, not `+`. There is no `is`, and you do not need it, since all values are immutable and `==` is structural.
-11. **Trying to mutate.** Nothing is mutable, so a "modified" list is always a new list that shares structure with the old one. `drop(s, n)` does not change `s`.
-12. **Dropping a base case because "it can't happen."** `nth_equals`'s `[] -> True`, `drop`'s `[] -> []`, and `matches`'s `_, _ -> True` all exist to handle running off the end of a list, and in each case the chosen return value is deliberate. The compiler will reject the function without them.
+1. **Trying `s.first` / `s.rest` on a `List`.** Gleam's `List` has no such accessors. Use `case s { [] -> ...; [first, ..rest] -> ... }`. (Your *own* ADTs, like `Tree` or `NotEmpty`, do support dot access on fields present in every variant.)
+2. **Misplacing `..` in a literal.** `[1, ..s, 3]` and `[..s, 1]` and `[1, ..s, ..t]` are all illegal: once, at the end, and the thing after it must be a list.
+3. **Mixing item types.** `[1, "two"]`, `["one", ..s]` where `s : List(Int)`, and `[1, 3, s]` are type mismatches. If you genuinely need a mixed sequence, that is a signal to define a sum type (as `Nested` does) or to use a tuple.
+4. **Forgetting that branch order decides everything.** A broad pattern placed early shadows later ones. In `describe`, `[a, b]` precedes `[a, b, ..rest]`, so two-item lists never reach the longer pattern; a leading `_` would swallow every case.
+5. **Forgetting that a guard failure continues to later branches.** `[a, b] if a < b` not matching does not end the `case`; it falls through to `[_, _]`.
+6. **Assuming `..` requires at least one remaining item.** `[4, ..]` matches the single-item list `[4]`; `..rest` can bind `[]`.
+7. **Writing `user.contact.email`.** Illegal: `user.contact` may be a `PhoneOnly`. Pattern match on the variant first, then use dots inside that branch (optionally with `Variant(..) as c`).
+8. **Using a variant name where a type is expected.** In `User(name: String, contact: Contact)` the field type is `Contact`, not `EmailOnly`. Variants are constructors, not types.
+9. **Writing a `case` that misses a variant.** Non-exhaustive `case` means the program will not run. Equally, leaving out the "list ran out" case (`[]`, or `Last` for `NotEmpty`) is the classic source of both type errors and logic bugs, as in `increasing`.
+10. **Or-patterns that bind different names.** `EmailOnly(e) | Both(e, _)` is fine because both bind `e`; `EmailOnly(e) | PhoneOnly(n)` would not be, since the body cannot know which name exists.
+11. **Reaching for `is`.** There is no `is` in Gleam. Use `==` and `!=`; values are immutable, so structural equality is all you need.
+12. **Mixing up Python and Gleam operators.** `&&`, `||`, `!`, not `and`, `or`, `not`. Concatenate strings with `<>`.
+13. **In `repeating`, passing `rest` instead of `s` to `nth_equals`.** Passing `s` is what makes the countdown land on `s[n]`; passing `rest` would compare against `s[n + 1]` and be off by one.
+14. **Confusing `type X = ...` with `type X { ... }`.** The first is an alias (no constructors); the second defines a new type with variants.
+15. **Forgetting the double name for single-variant types.** `pub type User { User(...) }`: the type and its one constructor each need the name.
 
 ---
 
 ## Likely Exam Points
 
-### 1. Evaluating a `case` with ordered patterns and guards
+**1. Which branch does a `case` take?**
+Given `describe` from part A, what does `describe([4, 3])` return?
+*Answer:* `"List starting with 4"`. `[]` fails, `[1]` fails, and `[4, ..]` matches with `..` binding the single remaining item `3`, so the later two-item patterns are never reached.
 
-**Q.** Using the `describe` function from lecture, give the result of `describe([2, 7, 9])` and `describe([7, 2])`, and explain why `describe([4, 9])` does not return `"List of 4 then 9"`.
-
-**A.** `describe([2, 7, 9])`: `[]` no; `[1]` no; `[4, ..]` no (first item is 2); `[a, b]` no (three items); `[_, _]` no; `[a, b, ..rest] if a < b` matches with `a = 2`, `b = 7`, `rest = [9]`, and `2 < 9`... careful, the guard is `a < b`, that is `2 < 7`, which is true, so the result is `"List ending in [9]"`. `describe([7, 2])`: `[a, b] if a < b` fails its guard (`7 < 2` is false), so the next branch `[_, _]` matches, giving `"List of two elements"`. `describe([4, 9])` returns `"List starting with 4"` because `[4, ..]` appears earlier than `[a, b] if a < b`, and the first matching branch wins.
-
-### 2. Which list literals type-check
-
-**Q.** Given `let s = [5, 7, 9]`, which of these are errors and why: (a) `[1, 3, ..s]`, (b) `["one", ..s]`, (c) `[1, 3, s]`, (d) `[s, [1]]`?
-
-**A.** (a) Fine: `List(Int)` with value `[1, 3, 5, 7, 9]`, sharing `s`'s cells. (b) Error: the items of `s` are `Int`, so the literal's items cannot be `String`. (c) Error: `s` is a `List(Int)` used as an item alongside `Int`s. (d) Fine: a `List(List(Int))` with two items, both lists of integers.
-
-### 3. Completing a list-pattern recursion (fill-in-the-blank, the lecture's own format)
-
-**Q.** Fill in `alternating`, which returns whether `s` is of the form `[x, y, x, y, x, ...]`, using three branches, and say why `List(a)` rather than `List(Int)` is an acceptable parameter type.
-
-**A.**
-
-```gleam
-fn alternating(s: List(a)) -> Bool {
-  case s {
-    [] | [_] | [_, _] -> True
-    [x, _, z, ..] if x != z -> False
-    [_, ..rest] -> alternating(rest)
-  }
-}
-```
-
-Lists of length 2 or less are vacuously alternating; if the first and third items differ, the list fails; otherwise drop the first item and continue. `List(a)` works because any two values of the same type can be compared with `==`/`!=` in Gleam, so no integer-specific operation is used.
-
-### 4. Why a base case returns what it returns
-
-**Q.** In `matches`, why is the second branch `_, _ -> True` instead of `_, _ -> False`? And why must it come second?
-
-**A.** The second branch is reached only when at least one of the lists is empty, which means every pair compared so far was equal and the shorter list is a prefix of the longer one. By the lecture's definition ("equal, or one is a prefix of the other") that is a match, so `True` is correct, and `assert matches([], [1, 2])` confirms it. It must come second because `_, _` matches every pair of lists; placed first, it would make `matches` return `True` unconditionally.
-
-### 5. Multi-subject `case`
-
-**Q.** Rewrite the first branch of `matches` as nested single-subject `case` expressions, and state the rule about how many patterns a branch needs when a `case` has multiple subjects.
-
-**A.**
-
+**2. Fill in list patterns to complete a recursive function.**
+Complete `alternating` so that `[x, y, x, y, ...]` returns `True`.
+*Answer:*
 ```gleam
 case s {
-  [x, ..s_rest] ->
-    case t {
-      [y, ..t_rest] -> x == y && matches(s_rest, t_rest)
-      [] -> True
-    }
-  [] -> True
+  [] | [_] | [_, _] -> True
+  [x, _, z, ..] if x != z -> False
+  [_, ..rest] -> alternating(rest)
 }
 ```
+Lists of length <= 2 always alternate; otherwise compare positions 0 and 2 and slide the window by one.
 
-With multiple subjects, each branch must supply exactly one pattern per subject, separated by commas (`case s, t { pa, pb -> ... }`), and all patterns must match for the branch to be taken.
+**3. Spot the type error in a list literal.**
+Let `s : List(Int)`. Which of `[1, 3, ..s]`, `["one", ..s]`, `[1, 3, s]` type check?
+*Answer:* only `[1, 3, ..s]`. `["one", ..s]` mixes `String` items with an `Int` tail. `[1, 3, s]` tries to put a `List(Int)` in as if it were an `Int` item (it lacks `..`).
 
-### 6. The `matches` plus `drop` characterization of periodicity
+**4. Memory sharing.**
+After `let s = [5, 7, 9]` and `let odds = [1, 3, ..s]`, how many new links are allocated, and what do `s` and `odds` share?
+*Answer:* two new links (for `1` and `3`); the `3` link's rest pointer points at the existing `5` link, so `odds` shares the entire tail `5 -> 7 -> 9` with `s`. Nothing is copied, and this is safe because values are immutable.
 
-**Q.** Explain in one or two sentences why `matches(s, drop(s, n))` correctly decides whether `s` has period `n`, and state what `repeating(s, n)` returns when `s` is shorter than `n`.
-
-**A.** Position `i` of `drop(s, n)` is position `i + n` of `s`, so comparing the two lists item by item checks exactly `s[i] == s[i+n]` for every `i` where both items exist, which is the definition of period `n`. When `s` is shorter than `n`, `drop(s, n)` is `[]` (it removes "up to" `n` items), and `matches(s, [])` takes the `_, _ -> True` branch, so `repeating` returns `True`, which is right since no item has an item `n` positions earlier.
-
-### 7. Writing and tracing `drop`
-
-**Q.** What does `drop([1, 2], 5)` return, and how many new list cells does `drop([1, 2, 3, 4], 2)` allocate?
-
-**A.** `drop([1, 2], 5)` returns `[]`: the counter never reaches 0, so the recursion runs off the end and hits the `[] -> []` branch. `drop([1, 2, 3, 4], 2)` allocates **zero** new cells; it returns the existing tail `[3, 4]`, which is a suffix of the original chain. This is safe because lists are immutable.
-
-### 8. Legality of dot expressions on ADTs
-
-**Q.** For the lecture's `Contact`/`User` types and the `NotEmpty(a)` type, say whether each is allowed and why: (a) `user.name`, (b) `user.contact`, (c) `user.contact.email`, (d) `s.first` for `s: NotEmpty(a)`, (e) `s.rest` for `s: NotEmpty(a)`.
-
-**A.** (a) and (b) are allowed: `User` has a single variant containing both fields, so they always exist. (c) is not allowed: `user.contact` has type `Contact`, and a `Contact` may be `PhoneOnly`, which has no `email` field. (d) is allowed: every variant of `NotEmpty` (`Last` and `Link`) has a `first` field of type `a`, which is exactly why `starts_with` can be written as `s.first == v` with no `case`. (e) is not allowed: `Last` has no `rest` field, so you must match `Link(_, rest)` first (or match the variant and use `Link(..) as c` before writing `c.rest`).
-
-### 9. Alternation patterns that bind names
-
-**Q.** Why can `EmailOnly(e) | Both(e, _)` share one branch body, and why does the `as`-based version of `contact` write `EmailOnly(..) as c` and `Both(..) as c` as two separate branches with identical bodies?
-
-**A.** Alternation is allowed when every alternative binds the same names with the same types: both `EmailOnly(e)` and `Both(e, _)` bind a single `String` named `e`, so the body `"mailto:" <> e` is well-typed either way. In the `as` version, the body reads `c.email` through a dot expression, which is only permitted when the compiler knows which variant `c` is; combining the two variants into one branch would leave that unknown, so they are written separately.
-
-### 10. Recursion over a nested ADT
-
-**Q.** Write `count_items`, returning the number of `Item` values anywhere in a `NestedList(a)` (sublists counted recursively). Then give the result for `[Item(1), Sublist([Item(2), Sublist([]), Item(3)]), Item(4)]`.
-
-**A.**
-
+**5. Product vs sum, and counting values.**
+(extra context: the counting arithmetic below is a standard way to test the intuition the lecture gave.) Given
 ```gleam
-pub fn count_items(s: NestedList(a)) -> Int {
-  case s {
-    [] -> 0
-    [first, ..rest] ->
-      case first {
-        Sublist(t) -> count_items(t)
-        Item(_) -> 1
-      }
-      + count_items(rest)
-  }
-}
+pub type Light { Red Yellow Green }
+pub type Pair { Pair(Light, Bool) }
+pub type Either { L(Light) R(Bool) }
 ```
+how many distinct values does each type have, and which is a product and which a sum?
+*Answer:* `Light` has 3. `Pair` is a product: 3 * 2 = 6. `Either` is a sum: 3 + 2 = 5. Products multiply possibilities (all fields present at once), sums add them (one variant at a time).
 
-Same two-way (tree) recursion as `sum_nested`: recurse down into each `Sublist` and along the rest of the list. For the given value: `Item(1)` contributes 1; the `Sublist` contributes `count_items([Item(2), Sublist([]), Item(3)]) = 1 + 0 + 1 = 2`; `Item(4)` contributes 1. Total **4**.
-
-### 11. Why the ADT is necessary for nested lists
-
-**Q.** Why can you not simply write `[1, [2, 3], 4]` as a Gleam value, and what does the `Nested(a)` type do about it?
-
-**A.** Gleam lists are homogeneous: every item must have the same type, and `1` (an `Int`) does not have the same type as `[2, 3]` (a `List(Int)`). `Nested(a)` wraps both possibilities into one type with two variants, `Item(a)` and `Sublist(NestedList(a))`, so the list `[Item(1), Sublist([Item(2), Item(3)]), Item(4)]` is homogeneous (all items are `Nested(Int)`) while the constructor tag records which case each element actually is. The tag plays the role that `isinstance(x, list)` plays in Python.
-
-### 12. Spotting the bug in `increasing`
-
-**Q.** The lecture's `increasing` for `NotEmpty(Int)` has a bug. Give an input it gets wrong, explain the cause, and fix it.
-
-**A.** `increasing(Link(3, Last(1)))`, the list `[3, 1]`, wrongly returns `True`. The branch `Link(first, Link(second, _)) if second <= first` requires the *rest* to be a `Link`, so when the rest is a `Last` the comparison is skipped and control falls to `Link(_, rest) -> increasing(rest)`, which returns `True` from the `Last(_)` base case. The result: the final adjacent pair is never compared, so `[1, 5, 2]` also returns `True`. Fix by comparing through the common `first` field:
-
+**6. Design an ADT that forbids an illegal state.**
+Define a type for a user who must have an email, a phone, or both, but never neither.
+*Answer:*
 ```gleam
-pub fn increasing(s: NotEmpty(Int)) -> Bool {
-  case s {
-    Last(_) -> True
-    Link(first, rest) -> first < rest.first && increasing(rest)
-  }
+pub type Contact {
+  EmailOnly(email: String)
+  PhoneOnly(phone: Int)
+  Both(email: String, phone: Int)
+}
+pub type User { User(name: String, contact: Contact) }
+```
+There is no "neither" variant, so an uncontactable user is a type error caught before the program runs, rather than a runtime check. A single record with two optional fields would permit the bad state.
+
+**7. When is dot access legal?**
+Why is `user.contact` allowed but `user.contact.email` rejected? Rewrite the rejected expression correctly.
+*Answer:* `contact` exists in every variant of `User`, so it is guaranteed present; `email` does not exist in `PhoneOnly`, so the compiler cannot promise it. Match first:
+```gleam
+case user.contact {
+  EmailOnly(..) as c | Both(..) as c -> c.email
+  PhoneOnly(..) -> "none"
 }
 ```
+(or bind the field directly with `EmailOnly(e) | Both(e, _) -> e`).
 
-(Equivalently, add the missing branch `Link(first, Last(second)) if second <= first -> False` before the recursive branch.)
+**8. Exhaustiveness.**
+What goes wrong with `case user.contact { EmailOnly(e) -> e }`?
+*Answer:* it is non-exhaustive: `PhoneOnly` and `Both` are unhandled, so the program will not compile or run. Exhaustiveness checking is the mechanism that makes "all cases considered" a compile-time guarantee.
 
-### 13. Type alias versus custom type
+**9. Multiple-subject `case`.**
+Write `matches(s, t)`, true when the lists are equal or one is a prefix of the other, using one `case` with two subjects.
+*Answer:*
+```gleam
+case s, t {
+  [x, ..s_rest], [y, ..t_rest] -> x == y && matches(s_rest, t_rest)
+  _, _ -> True
+}
+```
+The fallthrough is reached only when one list is exhausted, which is exactly the prefix case.
 
-**Q.** What is the difference between `pub type NestedList(a) = List(Nested(a))` and `pub type Nested(a) { Sublist(NestedList(a)) Item(a) }`?
+**10. Composing helpers.**
+Explain why `matches(s, drop(s, n))` decides whether `s` is `n` values repeated.
+*Answer:* `drop(s, n)` is `s` shifted left by `n` positions, so matching `s` against it compares `s[i]` with `s[i + n]` for every `i` where both exist, which is precisely the repeating condition; `matches` returns `True` once the shifted (shorter) list runs out, so the comparison stops at the right place, and if `s` is shorter than `n`, `drop` yields `[]` and the answer is `True`.
 
-**A.** The first, with `=`, is a **type alias**: it introduces a new *name* for the existing type `List(Nested(a))` and no new constructors or values. The second, with a block, declares a **new custom type** with two variants, `Sublist` and `Item`, which are the constructors you use to build values and the patterns you use to take them apart. The two definitions refer to each other, which is how the recursive "a nested list contains items and nested lists" shape is expressed.
+**11. Find the bug in a recursion over a custom ADT.**
+Why does the lecture's `increasing` return `True` for `Link(5, Last(3))`?
+*Answer:* the guarded pattern is `Link(first, Link(second, _))`, which never matches when the rest is a `Last`, so the final pair is never compared; control falls to `Link(_, rest) -> increasing(rest)` and then to `Last(_) -> True`. Fix by adding `Link(first, Last(second)) if second <= first -> False`, or by rewriting as `Link(first, rest) -> first < rest.first && increasing(rest)`, which works because every variant of `NotEmpty` has a `first` field.
+
+**12. Why a sum type is needed for nested lists.**
+Gleam lists are homogeneous, so how can a nested list hold both integers and sublists?
+*Answer:* every element has the single type `Nested(a)`, a sum type with variants `Item(a)` and `Sublist(NestedList(a))`. Homogeneity is preserved at the list level, and the variety lives inside the element type, recovered by a `case`.
+
+**13. Base cases via `int.sum`.**
+In `sum_labels` and the `list.map` version of `sum_nested` there is no explicit leaf or empty branch. Why is that correct?
+*Answer:* `list.map` of the empty list is `[]` and `int.sum([]) = 0`, so a leaf (no branches) or empty nested list contributes 0 automatically. Writing the base case explicitly is allowed and harmless.
+
+**14. Tuple vs list vs ADT.**
+You need a value holding a name (`String`) and an age (`Int`). Which of `List`, tuple, or ADT applies, and why?
+*Answer:* not a `List` (items must share a type); a tuple `#(String, Int)` works and gives `.0`/`.1` access; a one-variant ADT like `Person(name: String, age: Int)` is usually better because the fields are named and the type documents its meaning. All three can be pattern matched.
 
 ---
 
 ## Summary
 
-- Gleam `List` values are **immutable linked lists**. A literal may end with `..rest`, which supplies the rest of the list and **shares memory** with it; `..` appears at most once, only at the end, only before a list.
-- Lists are **homogeneous**: `List(Int)`, `List(String)`, `List(List(Int))`. `[1, "two"]`, `["one", ..s]` (with `s: List(Int)`), and `[1, 3, s]` are all type errors.
-- `gleam/list` provides `map`, `filter`, `all`, `any`, `append`, `zip`, and more, so not every list problem needs hand-written recursion.
-- There is **no `.first` or `.rest`** for lists. A `case` expression with list patterns both tests the shape and binds names: `[]`, `[1]`, `[4, ..]`, `[a, b]`, `[_, _]`, `[a, b, ..rest]`, `_`.
-- Pattern extras: guards (`if a < b`), alternation (`[] | [_] | [_, _]`), wildcards (`_`), rest patterns (`..` and `..rest`), `as` bindings, and **multiple subjects** (`case s, t { pa, pb -> ... }`).
-- **The first matching branch wins**, and Gleam requires the `case` to be exhaustive, so guarded branches always need an unguarded fallback.
-- Gleam has no `is`: `==`/`!=` are structural and work on any two values of the same type. Boolean operators are `&&`, `||`, `!`; string concatenation is `<>`.
-- `alternating`: base case for length 0, 1, 2; fail on `[x, _, z, ..] if x != z`; otherwise recurse on `[_, ..rest]`.
-- `repeating` directly: for each suffix, check `nth_equals(first, s, n)` and recurse; `nth_equals` returns `True` when it runs off the end, which makes short lists pass.
-- `matches s t`: equal first items plus matching rests, with `_, _ -> True` when either list runs out (prefixes count as matches). `drop(s, n)` returns the suffix after up to `n` items, allocating nothing.
-- `repeating(s, n) = matches(s, drop(s, n))`: a list has period `n` exactly when it matches itself shifted left by `n`.
-- An **algebraic data type** is a set of named **variants**, each with typed **fields**: a "sum" of variants, each a "product" of fields. Constructors are capitalized and serve as both builders and patterns.
-- A pattern gives local names to a variant's fields (`EmailOnly(e) | Both(e, _)`); alternatives in a `|` pattern must bind the same names and types.
-- **Dot access rule**: `x.f` is allowed only when `f` is guaranteed present, that is, when every variant of `x`'s type has it (`s.first` on `NotEmpty`, `user.contact` on `User`) or when a pattern has already pinned down the variant (`EmailOnly(..) as c -> c.email`). `user.contact.email` is rejected at compile time.
-- `pub type X = ...` is a **type alias** (no new constructors); `pub type X { ... }` defines variants. Types can be **parameterized** (`NestedList(a)`) and **recursive** (`Nested`, `NotEmpty`).
-- ADTs buy you two things: expressing data that a homogeneous list cannot hold on its own (`Item` vs `Sublist` tags replacing Python's `isinstance`), and ruling out bad values by construction (`NotEmpty` has no empty case, so `s.first` always exists).
-- `sum_nested` is a tree recursion: recurse **into** each `Sublist` and **along** the rest of the list, either by hand or with `int.sum(list.map(s, ...))`.
-- Debugging lesson from `increasing`: an over-specific nested pattern (`Link(first, Link(second, _))`) silently skips cases where the inner value is a different variant (`Last`), so the final adjacent pair is never checked. Compare through a field common to all variants (`rest.first`) or add the missing pattern.
+- Gleam's `List` is a **linked list**. `[1, 3, ..s]` prepends onto `s` and **shares** its memory; `..` may appear only once, only at the end, only before a list.
+- Lists are **homogeneous**: `List(Int)` is the type of lists of integers. `gleam/list` provides `map`, `filter`, `all`, `any`, `append`, `zip`, and more.
+- There is no `.first`/`.rest` on lists. Inspect lists with `case` **patterns**: `[]`, `[1]`, `[_]`, `[_, _]`, `[4, ..]`, `[a, b, ..rest]`, with `|` alternatives, `_` wildcards, and `if` **guards**. Branches are tried in order; first match wins; a failed guard falls through.
+- `case` can take **multiple subjects** (`case s, t { ... }`), one pattern per subject.
+- `==`/`!=` work on any type; there is no `is` because all values are immutable. Operators are `&&`, `||`, `!`, and `<>` for string concatenation.
+- **Tuples** `#(a, b)` are fixed-length and heterogeneous, accessed by `.0`, `.1`, destructurable with `let`, and usable as patterns; their type lists each component type.
+- List-recursion patterns practiced: `describe` (pattern order), `sorted` (including a tail-recursive version), `alternating` (`s[i] == s[i+2]`), `repeating` + `nth_equals` (`s[i] == s[i+n]`), `matches` (prefix equality), `drop`, and `repeating` rebuilt as `matches(s, drop(s, n))`.
+- **Product types** combine fields that are all present (Python `@dataclass`, Gleam single-variant type); possibilities **multiply**. **Sum types** choose among named variants (Python `A | B`, Gleam multi-variant type); possibilities **add**. **Algebraic data types** use both together.
+- The payoff: ADTs make illegal states unrepresentable. `Contact` as `EmailOnly | PhoneOnly | Both` means a `User` with no contact information is a compile-time impossibility, not a runtime check.
+- In Gleam, variants are constructors, not types: a sum type must be **named**, and single-variant types repeat the name (`type User { User(...) }`).
+- `case` over an ADT binds each variant's fields to local names, supports `Variant(..) as c` plus dot access, and is **exhaustiveness checked**, so unhandled variants stop the program from running.
+- Dot access on a field is legal only if **every** variant has it: `user.contact` yes, `user.contact.email` no, `s.first` on `NotEmpty` yes.
+- `type X(a) = ...` is an **alias**; `type X(a) { ... }` defines a new type. Mutual recursion between them models nested data (`NestedList`/`Nested`).
+- Tree ADT: `Tree(label: a, branches: List(Tree(a)))`, with `leaf` as an ordinary function, and `sum_labels(t) = t.label + int.sum(list.map(t.branches, sum_labels))`, whose base case is implicit in `int.sum([]) == 0`.
+- Classic bug to watch for: a pattern that requires the *rest* to be the recursive variant (`Link(first, Link(second, _))`) silently skips the last pair.
