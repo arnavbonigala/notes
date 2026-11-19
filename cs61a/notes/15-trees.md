@@ -1,45 +1,43 @@
-<!-- Wed, Sep 30, 2026 | sources: slides + code (no transcript available) -->
+<!-- Wed, Sep 30, 2026 | sources: slides + code + YouTube auto-transcript -->
 # Lecture 15: Trees
 
-A tree is the course's first branching recursive data structure: a value (the **label**) together with a list of **branches**, each of which is itself a tree. This lecture introduces two complementary vocabularies for talking about trees (the recursive "wooden tree" view: root label plus branches; and the relative "family tree" view: nodes, parents, children, paths), defines the `Tree` data class used for the rest of the course, and then establishes a standard recipe for writing tree-processing functions: make one small choice (which branch to explore), recurse once per branch, and combine the results. Every example in the lecture (`count_leaves`, `largest_label`, `largest_path_sum`, `above_root`) is an instance of that recipe, and the only thing that changes between them is how the per-branch results get combined (`sum`, `max`, `t.label + max(...)`, or no combination at all when you are printing rather than returning). The lecture closes with a short `min` exercise that sets up the "pick the element that minimizes something" pattern.
-
----
+Trees are the second major recursive data structure in this course, and they exist to represent hierarchical relationships: things that have parts, which have their own parts, and so on down. A tree has a root label and a list of branches, where every branch is itself a tree, and a tree with zero branches is called a leaf. Because the definition is recursive, almost every function that processes a tree is recursive too, and it follows one of a small number of shapes: make a recursive call on each branch, then aggregate the results (count, sum, max), or walk downward from the root toward the leaves carrying information with you and act when you arrive. This lecture introduces the `Tree` data class, the `is_leaf` helper, the printed indented representation, how trees compare to linked lists, and then works through `count_leaves`, `largest_label`, `largest_path_sum`, and `above_root`, plus tree-building functions and the downward-accumulating pattern.
 
 ## Key Concepts
 
-### Two ways to describe the same structure
+### Why trees exist
 
-The slides deliberately give two descriptions, because problems are phrased in both languages.
+The purpose of a tree is to store a set of labels along with the relationships between those labels. The relationships are hierarchical: parts have subparts, and those have their own subparts. In computer science we draw trees with the root at the top, growing downward, which is upside down compared to a real tree but is the universal convention.
 
-**Recursive description (wooden trees):**
-- A tree has a **root label** and a **list of branches**.
-- Each branch is itself a tree.
-- A tree with zero branches is a **leaf**.
+### Two vocabularies for the same structure
+
+The lecture is explicit that there are two metaphors in use, and both describe the exact same object.
+
+The **recursive description (wooden trees)**:
+- A tree has a root label and a list of branches.
+- Each branch is a tree.
+- A tree with zero branches is called a leaf.
 - A tree starts at the root.
 
-**Relative description (family trees):**
-- Each location in a tree is a **node**.
-- Each node has a **label**, which can be any value.
-- One node can be the **parent** or **child** of another.
-- The top node is the **root node**.
+The recursion is the key sentence: a tree has a branch that is itself a tree. Because each branch is a tree, each branch also has its own root label, its own branches, and its own leaves.
 
-These are the same structure seen from different angles. The recursive view is what you write code with (a branch *is* a tree, so you can hand it straight to a recursive call). The relative view is what problem statements use: "each parent is the sum of its children" is really a statement about labels at locations, not about separate objects. The slides point this out explicitly: people routinely refer to labels by their locations.
+The **relative description (family trees)**:
+- Each location in a tree is called a node.
+- Each node has a label, which can be any value.
+- One node can be the parent or the child of another.
+- The top node is the root node.
 
-A key consequence of the recursive view: **a branch is a tree**, and **a leaf is a tree**. There is no separate "subtree" type and no separate "leaf" type. In the slide diagram, the node labeled `1` with children `0` and `1` is simultaneously a branch of the whole tree and a perfectly good tree in its own right. This is what makes recursion work: the recursive call `f(b)` on a branch `b` is the *same kind of problem* as the original.
+Both vocabularies get used in the same breath, and you should be fluent in switching. The thing to internalize: labels are values, nodes are trees. A label does not have branches; a tree does. This confusion is the source of a specific bug discussed later.
 
-### The tree abstraction: what you are allowed to do
+### People say "node" when they mean "label"
 
-For a tree `t`, the lecture says you may only:
+A very common abbreviation in CS 61A and beyond is a phrase like "each parent is the sum of its children." The strictly correct version would be "the label of each parent node is equal to the sum of the labels of its children," but that is too long to say every time. So people refer to labels by their locations. Read such sentences charitably and know what they mean.
 
-- Get the root label: `t.label`
-- Get the list of branches: `t.branches`
-- Get the branch at index `i`, which is a tree: `t.branches[i]`
-- Determine whether it is a leaf: `is_leaf(t)`
-- Treat `t` as a value: `return t`, `f(t)`, `[t]`, `s = t`, and so on
+### Paths
 
-That last bullet matters more than it looks. A `Tree` is an ordinary Python object, so it can be stored in lists, passed to functions, returned, and aliased. `print(Tree(1, [t, t]))` in the slides builds a tree whose two branches are *the same object* `t`, and it prints the identical subtree twice.
+A path goes from the root to a leaf (or, in some problems, from the root to any node). The defining property of a path is that it always connects a parent node to one of its children and continues on that way. You cannot jump sideways between branches.
 
-### The `Tree` data class
+### The Tree data class
 
 ```python
 from __future__ import annotations
@@ -54,17 +52,57 @@ def is_leaf(t: Tree) -> bool:
     return not t.branches
 ```
 
-Details worth understanding rather than memorizing:
+Things worth noticing:
 
-- `Tree[T]` declares a **type variable** `T` that describes the type of the labels. `Tree(2, [Tree(4), Tree(6, [...])])` is a `Tree[int]`, or just "a Tree".
-- `branches` defaults to the empty list, so `Tree(4)` is a leaf and you do not have to write `Tree(4, [])`.
-- The default is written `field(default_factory=list)`, not `= []`. A single shared list as a default would be the same list object for every `Tree` ever constructed, which is exactly the mutable-default bug. `default_factory=list` calls `list()` fresh for each new tree. (Dataclasses actually refuse a mutable default outright, so you get an error rather than a silent bug.) (extra context)
-- `is_leaf` is `not t.branches`, relying on the empty list being falsy. A leaf is a tree with zero branches, not a tree with `None` branches.
-- `from __future__ import annotations` is what lets the annotation `list[Tree[T]]` refer to `Tree` inside the definition of `Tree` itself. (extra context)
+- `T` is a **type variable** describing the type of the labels in the tree. It is optional. `Tree[int]` says the labels are all integers; plain `Tree` says the labels can be anything.
+- `field(default_factory=list)` looks complicated but is just Python's way of saying "branches defaults to an empty list." This is why `Tree(4)` is legal and builds a leaf.
+- `is_leaf` is a helper function (not a method) that checks whether the branch list is empty. It exists purely to make programs cleaner. `not []` is `True`, so `is_leaf(Tree(4))` is `True`.
 
-### Printing trees
+(extra context) A mutable default like `[]` cannot be written directly as a dataclass default, because all instances would share one list; `default_factory=list` calls `list()` fresh for each instance. The lecture only says it means "defaults to empty list," which is the part you need.
 
-`Tree.__str__` calls `format_tree`, which indents each branch two spaces further than its label:
+### Constructing a tree
+
+```python
+t = Tree(2, [Tree(4), Tree(6, [Tree(8), Tree(10)])])
+```
+
+You supply a root label and a list of branches, each of which must be a tree. `Tree(4)` is a leaf. `Tree(6, [Tree(8), Tree(10)])` is a tree with two leaves. The whole thing is a `Tree[int]`, or just a `Tree`.
+
+Trees are values like any other. For a tree `t` you can `return t`, call `f(t)`, build `[t]`, write `s = t`, and so on.
+
+### The printed representation
+
+Trees have a `__str__` method (which calls `format_tree`) controlling how they display. The rule: the root label appears first, then each branch below it, indented one more level. Labels at the same depth get the same indentation, so **depth in the tree determines indentation in the printout**.
+
+```python
+>>> print(t)
+2
+  4
+  6
+    8
+    10
+```
+
+And nesting the same tree twice:
+
+```python
+>>> print(Tree(1, [t, t]))
+1
+  2
+    4
+    6
+      8
+      10
+  2
+    4
+    6
+      8
+      10
+```
+
+Both `2`s have the same depth, so both get the same indentation. The lecture is candid that it takes practice to go from the printed form back to the structure. The trick it suggests: horizontally in the drawing you read 1, then 2, then 4, 6; vertically in the printout you read 1, some 2s, then 4, 6. Same structure, different display.
+
+Here is `format_tree` itself, which is a tree-recursive function in its own right:
 
 ```python
 def format_tree(t: Tree, indent='') -> str:
@@ -77,39 +115,21 @@ def format_tree(t: Tree, indent='') -> str:
     return string
 ```
 
-So for `t = Tree(2, [Tree(4), Tree(6, [Tree(8), Tree(10)])])`:
+Note that the recursive call adds two spaces to `indent`, which is exactly how depth becomes indentation.
 
-```
-2
-  4
-  6
-    8
-    10
-```
+### The tree abstraction: what you are allowed to do
 
-Reading this backwards is a common exam skill: indentation depth is depth in the tree, and consecutive lines at the same indentation under a shared parent are siblings.
+For a tree `t`, you can only:
 
-Labels do not have to be numbers. The code's expression-tree example mixes ints and strings:
+- Get the label for the root of the tree: `t.label`
+- Get the list of branches for the tree: `t.branches`
+- Get the branch at index `i`, which is a tree: `t.branches[i]`
+- Determine whether the tree is a leaf: `is_leaf(t)`
+- Treat `t` as a value: `return t`, `f(t)`, `[t]`, `s = t`, etc.
 
-```python
-expr = Tree(10, [Tree(6, [Tree(2), Tree('*'), Tree(3)]), Tree('+'), Tree(4)])
-```
+That is the whole interface. There is no `t.leaves`, no `t.parent`, no `t.children`, no `t.size`. If you need any of those, you write a function.
 
-which prints
-
-```
-10
-  6
-    2
-    *
-    3
-  +
-  4
-```
-
-### Trees vs linked lists
-
-The lecture puts the two data classes side by side:
+### Trees versus linked lists
 
 ```python
 type LinkedList[T] = Link[T] | tuple[()]
@@ -120,67 +140,59 @@ class Link[T]:
     rest: LinkedList[T] = ()   # rest defaults to ()
 ```
 
-**What's similar:** a tree in which each node has at most one child is just like a linked list. `label`/`branches` plays the role of `first`/`rest`, and recursion on `rest` is the one-branch case of recursion on `branches`.
+What's similar: a tree in which each node has at most one child is just like a linked list. Both are recursive: `rest` is a linked list, each branch is a tree.
 
-**What's different:**
-- Trees can have many branches, so recursion must loop over or map across all of them rather than making one recursive call.
-- **Trees can't be empty.** The slides flag this as a course-specific decision. A linked list has an empty case (`()`), so linked-list recursion usually bottoms out on "empty". Tree recursion bottoms out on **leaf**, not on empty, because there is no empty tree to bottom out on.
+What's different:
+- Trees can have many branches, while a linked list has exactly one `rest`.
+- Trees **cannot be empty**. This is a course-specific decision. A linked list can be empty (the `()` case), and that empty case is the natural base case for linked list recursion. Trees have no empty value, so the base case for tree recursion is usually the **leaf**, not emptiness.
 
-### The recipe for writing recursive tree functions
+That last point matters a lot for how you write base cases. You never write `if t is None` or `if t == ()` for a tree in this course.
 
-The slides give a checklist to answer *before* writing code:
+### Writing recursive tree functions: the three questions
 
-1. **What small initial choice can I make?** For trees, this is usually: which branch to explore?
-2. **What recursive call for each option?** Usually `f(b)` for each `b` in `t.branches`.
-3. **How can you combine the results of those recursive calls?** To answer this, answer three sub-questions:
+Before writing any code, answer these:
+
+1. **What small initial choice can I make?** For trees, this is often: which branch to explore?
+2. **What recursive call for each option?** Usually `f(b)` for each `b in t.branches`.
+3. **How can I combine the results of those recursive calls?** Which breaks into three sub-questions:
    - What type of values do they return?
    - What do the possible return values mean?
-   - How can you use those return values to complete your implementation? For example: look to see if any option evaluated to true; add up the results from each option.
+   - How can I use those return values to complete my implementation? For example: look to see if any option evaluated to true, or add up the results from each option.
 
-The slides note that **processing a leaf is often the base case**. That is the structural consequence of "trees can't be empty".
+The lecture repeats this framework for every example, and that repetition is the point. The hard part of tree recursion is almost never the recursive call; it is knowing precisely what the recursive call gives you back so you know how to combine the pieces.
 
-The shape that falls out of this recipe, over and over:
+### The two major patterns
 
-```python
-def f(t):
-    if is_leaf(t):
-        return <something about t.label>
-    else:
-        return <combine>([f(b) for b in t.branches], <and maybe t.label>)
-```
+**Pattern A: recurse on all branches, then aggregate.** This is `count_leaves`, `largest_label`, `largest_path_sum`, `sum_leaves`. You get one value back per branch, you build a list of them, and you combine with `sum`, `max`, or similar.
 
-The list comprehension `[f(b) for b in t.branches]` is the idiom: it makes exactly one recursive call per branch and collects the results in a list, which you then feed to `sum`, `max`, `any`, `all`, and so on.
+**Pattern B: walk downward from root to leaves, carrying accumulated information, and act when you get there.** This is `above_root` (uses the root's label while descending) and `print_sums` (carries the running path sum down).
 
-### When you do not need to combine
+The lecture explicitly draws the analogy to the two versions of factorial. In one version you compute the factorial of `n-1` and multiply by `n` at the very end, so `n` is the *last* number folded in. In the other version you start with 1, pass an accumulator down through a two-argument recursion, and `n` is the *first* number folded in. Different order of operations, same answer. Both strategies apply to trees.
 
-`above_root` is the counterexample in the lecture. It prints rather than returns, so there is nothing to combine: "Don't need to combine the recursive return call! Do need to print this label, if it's larger than the root." When a function's job is a side effect, the recursive calls are statements in a `for` loop, not expressions inside a combiner.
+### Building trees is also recursive
 
-`above_root` also demonstrates the **helper-function-with-a-closure** pattern. The comparison is always against *the original root's* label, which changes meaning if you recurse on `t` directly (at depth 2, `t` would be a subtree and `t.label` would be the wrong root). Defining an inner `process(u)` keeps `t` fixed in the enclosing frame while `u` moves down the tree.
-
----
+A function that creates a tree from another tree is usually recursive as well. The structure is: build a `Tree(new_label, new_branches)` where `new_branches` is a list comprehension of recursive calls.
 
 ## Definitions
 
-- **Tree:** a data structure with a root label and a list of branches, each of which is a tree. In this course a tree always has at least one node; there is no empty tree.
-- **Label:** the value stored at a node. Can be any value (`int`, `str`, etc.). Accessed as `t.label`.
-- **Branch:** one of the trees in `t.branches`. A branch is itself a tree, so it has its own label and branches.
-- **Node:** a location in a tree. Every node has a label and is the root of some subtree.
-- **Root / root node:** the top node of a tree. "Root label" means the label of that node, `t.label`.
-- **Root of a branch:** the top node of a branch, that is, the branch's own root. A branch is also a tree, so this is just `b.label` for a branch `b`.
-- **Leaf:** a tree with zero branches, that is, a node with no children. `is_leaf(t)` returns `not t.branches`. A leaf is also a tree.
-- **Parent / child:** if node `p`'s branches include node `c`, then `p` is the parent of `c` and `c` is a child of `p`.
-- **Path:** a sequence of nodes from one node down through children to another. In this lecture, "a path from the root to a leaf" means the sequence of nodes starting at the root, moving to a child each step, and ending at a leaf.
-- **Path sum:** the sum of the labels along a path.
-- **`is_leaf(t)`:** `not t.branches`, a function (not a method) that reports whether `t` has zero branches.
-- **`field(default_factory=list)`:** dataclass mechanism giving each new instance a fresh empty list as the default value for `branches`.
-- **Type variable `T` in `Tree[T]`:** describes the type of the labels in the tree. `Tree[int]` is a tree whose labels are integers.
-- **`LinkedList[T]`:** the type alias `Link[T] | tuple[()]`, that is, either a `Link` or the empty tuple.
-
----
+- **Tree**: a data structure with a root label and a list of branches, where each branch is itself a tree. In this course, a tree is never empty.
+- **Label**: the value stored at a node. Can be any value (int, str, anything). The label itself has no branches.
+- **Branch**: one of the subtrees of a tree, stored in `t.branches`. Each branch is a tree, so it has its own label and branches.
+- **Leaf**: a tree with zero branches. A leaf is still a tree. Tested with `is_leaf(t)`, i.e. `not t.branches`.
+- **Node**: a location in a tree. Every node is a tree (the node together with everything below it). The nodes of `t` are `t` itself plus all nodes of all branches of `t`.
+- **Root**: the top of a tree. The root of the whole tree is the root node; each branch also has its own root, because each branch is a tree.
+- **Root label**: `t.label`, the label at the top of tree `t`.
+- **Parent / child**: if node `b` is a branch of node `t`, then `t` is the parent of `b` and `b` is a child of `t`.
+- **Path**: a sequence of nodes starting at the root where each next node is a child of the previous. Usually root-to-leaf, but some problems use root-to-any-node.
+- **Depth**: how far a label is from the root; determines indentation in the printed representation. (The lecture uses the word "depth" in exactly this sense.)
+- **`is_leaf(t)`**: helper function returning `not t.branches`, i.e. `True` when the branch list is empty.
+- **Type variable (`T` in `Tree[T]`)**: an optional annotation describing the type of the labels in the tree. `Tree[int]` means integer labels; plain `Tree` means any labels.
+- **`field(default_factory=list)`**: dataclass syntax meaning "this field defaults to an empty list," which is what makes `Tree(4)` construct a leaf.
+- **Tree recursion**: recursion in which a function makes more than one recursive call per frame, which is what happens naturally when you recurse on every branch.
 
 ## Worked Examples
 
-All examples use the lecture's tree:
+### The example tree used throughout the code file
 
 ```python
 t = Tree(1,
@@ -194,7 +206,7 @@ t = Tree(1,
              Tree(4)])])
 ```
 
-which prints as
+Read this carefully, because several doctests depend on it. Printed, it is:
 
 ```
 1
@@ -208,11 +220,11 @@ which prints as
     4
 ```
 
-**Box-and-pointer / object reasoning in words:** there are nine `Tree` objects here. The outermost object has `label` bound to `1` and `branches` bound to a one-element list whose single element is a pointer to the `9` object. The `9` object's `branches` is a two-element list pointing at the `2` object and the `4` object. The `2` object's `branches` is a three-element list pointing at `5`, `8`, `3`. The `5` object's `branches` points at `6` and `7`. The objects for `6`, `7`, `8`, `3`, `4` each have `branches` bound to their own fresh empty list (fresh because of `default_factory=list`, so no two leaves share a list). Nothing points upward: there are no parent pointers, so a recursive function can never look back up at an ancestor unless you pass that information down yourself (which is exactly what `above_root` does with its closure).
+Structurally: the root label is 1 with a single branch rooted at 9. The 9 node has two branches: one rooted at 2 and one leaf 4. The 2 node has three branches: a tree rooted at 5, a leaf 8, and a leaf 3. The 5 node has two leaves, 6 and 7.
 
----
+The leaves are 6, 7, 8, 3, and 4, which is five leaves.
 
-### 1. `print_leaves`: recursion with side effects
+### `print_leaves`
 
 ```python
 def print_leaves(t):
@@ -224,32 +236,17 @@ def print_leaves(t):
             print_leaves(b)
 ```
 
-Why it works: there are exactly two cases for a tree, leaf or not-leaf, and they are exhaustive because `t.branches` is either empty or not. If `t` is a leaf, its only leaf is itself, so print its label. Otherwise `t` contributes no leaf of its own, and its leaves are exactly the union of the leaves of its branches, so recurse on each branch in order.
+This is Pattern B in its simplest form. There is nothing to combine, because nothing is returned: the base case *does* the work (prints), and the recursive case just forwards the job to each branch. Note the `for` loop rather than a list comprehension, because we do not need the results.
 
-Trace on `t`: `print_leaves(t)` is not a leaf, so it calls `print_leaves` on the `9` tree, which calls on `2` then `4`. The `2` call recurses into `5`, `8`, `3`; the `5` call recurses into `6` and `7`, which are leaves and print. Then `8` prints, then `3` prints, then control returns up to the `9` frame, which moves to its second branch `4` and prints it.
+Environment reasoning: calling `print_leaves(t)` on the tree above opens a frame where `t` is bound to the whole tree. `is_leaf(t)` is false (it has one branch), so we loop over `t.branches`, which has one element, and call `print_leaves` on the tree rooted at 9. That opens another frame. Each frame either prints once and returns, or opens one frame per branch. Because frames are opened left to right and each finishes before the next starts, the leaves print in left-to-right order: 6, 7, 8, 3, 4.
 
-Output:
+### `count_leaves`
 
-```
-6
-7
-8
-3
-4
-```
-
-Note that the left-to-right order of `t.branches` determines the print order, and that the deeper calls finish before their later siblings start.
-
----
-
-### 2. `count_leaves`: combine with `sum`
-
-Applying the recipe from the slides:
+The three questions, answered as in lecture:
 
 - Small, initial choice: which branch's leaves to count?
-- Recursive call for each option: for each branch `b`, `count_leaves(b)`, meaning the number of leaves on branch `b`.
+- Recursive call for each option: for each branch `b`, `count_leaves(b)`, which gives the number of leaves on branch `b`.
 - Combine results: add up all of the counts.
-- Type of the returned values: `int`. Meaning: a count. How to use them: sum them.
 
 ```python
 def count_leaves(t: Tree) -> int:
@@ -264,36 +261,51 @@ def count_leaves(t: Tree) -> int:
         return sum([count_leaves(b) for b in t.branches])
 ```
 
-Step by step on `t`:
+The lecture is explicit that **processing a leaf is often the base case**. How many leaves are in a tree that is just a leaf? One.
 
-| Call | Branch results | Returns |
-|---|---|---|
-| `count_leaves(Tree(6))` | leaf | `1` |
-| `count_leaves(Tree(7))` | leaf | `1` |
-| `count_leaves(5-tree)` | `[1, 1]` | `sum([1,1]) = 2` |
-| `count_leaves(Tree(8))` | leaf | `1` |
-| `count_leaves(Tree(3))` | leaf | `1` |
-| `count_leaves(2-tree)` | `[2, 1, 1]` | `4` |
-| `count_leaves(Tree(4))` | leaf | `1` |
-| `count_leaves(9-tree)` | `[4, 1]` | `5` |
-| `count_leaves(t)` | `[5]` | `5` |
+In the recursive case, each `count_leaves(b)` returns an integer, so the list comprehension produces a list of integers, one per branch, and `sum` collapses it to the total. Tracing on the big tree: the 5 node returns `sum([1, 1]) = 2`; the 2 node returns `sum([2, 1, 1]) = 4`; the 9 node returns `sum([4, 1]) = 5`; the root returns `sum([5]) = 5`.
 
-Environment reasoning: each of these is a separate frame of `count_leaves`, each with its own `t` bound to a different `Tree` object. The frames nest: the frame for the `5` tree is still open (waiting inside the list comprehension) while the frames for `6` and `7` run and return. At the deepest point, five `count_leaves` frames are open at once (for `1`, `9`, `2`, `5`, `6`). Nothing is mutated; each frame just returns a number up to its caller.
+Why no explicit base case for "no branches" beyond `is_leaf`? Because there is no empty tree. The leaf case *is* the bottom.
 
-Note that the root's own label never appears in the answer. `count_leaves` cares only about structure.
-
----
-
-### 3. `largest_label`: combine with `max`, including the root
-
-- Small, initial choice: which branch to look for the largest label on?
-- Recursive call for each option: for each branch `b`, `largest_label(b)`, meaning a label that is the largest one from branch `b`.
-- Combine results: return the largest of these **and the root label**.
-
-The slides build it as a fill-in-the-blank:
+### `sum_leaves` (developed live in lecture)
 
 ```python
-def largest_label(t):
+def sum_leaves(t: Tree):
+    """Sum the leaf labels of Tree t."""
+    if is_leaf(t):
+        return t.label
+    else:
+        return sum([sum_leaves(b) for b in t.branches])
+```
+
+If you are already looking at a leaf, the sum of all leaf labels in that tree is just the tree's own label, because that is the only leaf. Otherwise every leaf lives on some branch, so sum the per-branch sums.
+
+The lecture pairs this with a Fibonacci tree, built live:
+
+```python
+def fib_tree(n: int) -> Tree[int]:
+    if n == 0 or n == 1:
+        return Tree(n)
+    else:
+        left = fib_tree(n - 2)
+        right = fib_tree(n - 1)
+        return Tree(left.label + right.label, [left, right])
+```
+
+`fib_tree(5)` has root label 5 (the fifth Fibonacci number). `fib_tree(5).branches[0]` is `fib_tree(3)`, because the left branch is `n - 2`. The lecture then observes a fact: for a Fibonacci tree, the sum of the leaf labels equals the root label. `sum_leaves(fib_tree(5))` is 5; `sum_leaves(fib_tree(6))` is 8. This holds for Fibonacci trees specifically because the tree is built so each parent label is the sum of its two children's labels, and it does not hold for trees in general.
+
+Accessing a nested value: to reach a specific label deep in `fib_tree(5)`, you chain branch indices and then take a label, for example `fib_tree(5).branches[1].label` is 3 (the right branch is `fib_tree(4)`, whose root label is 3), and going one level further, `fib_tree(5).branches[1].branches[1].label` is 2 (`fib_tree(3)`'s root label).
+
+### `largest_label`
+
+The three questions:
+
+- Small, initial choice: which branch to look for the largest label on?
+- Recursive call for each option: for each branch `b`, `largest_label(b)`, which returns a label that is the largest one from branch `b`.
+- Combine results: return the largest of those and the root label.
+
+```python
+def largest_label(t: Tree):
     """Return the largest label in tree t.
 
     >>> largest_label(Tree(6, [Tree(4), Tree(5), Tree(3)]))
@@ -305,23 +317,26 @@ def largest_label(t):
         return max([largest_label(b) for b in t.branches] + [t.label])
 ```
 
-Two things to notice.
+The slide asks: **what would happen if we got rid of the base case return `t.label`?** The answer is that the function would break, because the recursive case's list comprehension iterates over `t.branches`, which is empty for a leaf, giving `max([] + [t.label])`, which is actually still `t.label`. So in this specific formulation the base case is redundant, since `[t.label]` is appended unconditionally. The point of the question on the slide is to make you check whether your recursive case already handles leaves. Keeping the base case makes the intent explicit and is the safer habit.
 
-**Why `+ [t.label]`.** The doctest is the whole point: the root label `6` is bigger than any of the branch labels `4, 5, 3`, so if you only took `max` over the branch results you would return `5`, which is wrong. The largest label in a tree is the largest among (the root label, the largest label in each branch). `[... for b in t.branches] + [t.label]` builds a list containing all the candidates and takes the `max` of that one list.
+Note the `+ [t.label]`: without it the function would ignore the root of every subtree and return only the largest *leaf* label. The doctest `largest_label(Tree(6, [Tree(4), Tree(5), Tree(3)]))` returning 6 is exactly the test that catches this: 6 is the root, not a leaf, and it is the answer.
 
-**The slide's question: "What would happen if we got rid of this?"** (the `return t.label` base case). The answer is that the function still works. For a leaf, `t.branches` is empty, so the list comprehension evaluates to `[]`, and `[] + [t.label]` is `[t.label]`, so `max([t.label])` is `t.label`, exactly what the base case returned. The base case is **redundant** here because the `+ [t.label]` term guarantees the list passed to `max` is never empty. Contrast this with a version written as `max([largest_label(b) for b in t.branches] + [t.label])` turned into `max([largest_label(b) for b in t.branches])`: that one *does* need the base case, because `max([])` raises `ValueError: max() arg is an empty sequence`.
+The lecture also walks a **largest leaf label** variant (the maximum over leaves only, where the root does not count). On a tree with root 100, an inner 90, and leaves 7, 8, 6, 9, 2, the answer is 9: 100 and 90 do not count because they are not leaves. The correct recursive case there is a list comprehension of recursive calls over the branches, then `max` of that list, with no `+ [t.label]`.
 
-On the lecture's `t`, `largest_label(t)` returns `9`: the `5`-subtree yields `max(6, 7, 5) = 7`, the `2`-subtree yields `max(7, 8, 3, 2) = 8`, the `9`-subtree yields `max(8, 4, 9) = 9`, and the root yields `max(9, 1) = 9`.
+The lecture explicitly rejects several wrong options for that variant, and each wrong answer teaches something:
 
-(The docstring in `15.py` says "largest leaf label", but the slides and the implementation both compute the largest label anywhere in the tree, which is what the `Tree(6, [...])` doctest checks. Go by the implementation and the slides.)
+- `max([b for b in t.branches])` just gives you the branches (trees), never computing the largest leaf label in each.
+- `max([largest_leaf(t) for b in t.branches])` recurses on `t`, not `b`. This is not a smaller version of the same problem, so it never advances toward the leaves and runs forever.
+- `max([largest_leaf(b.branches) for b in t.branches])` or anything that takes `.branches` of a returned label: when you call `largest_leaf` you get back a **label**, not a tree, and labels have no branches. Only trees have branches. Getting the branches of branches is what recursion does for you; you do not do it by hand.
+- Anything mentioning `t.leaves`: there is no such attribute.
 
----
+### `largest_path_sum`
 
-### 4. `largest_path_sum`: combine with `max`, then add the root
+The three questions:
 
 - Small, initial choice: which branch contains the rest of the largest path sum?
-- Recursive call for each option: for each branch `b`, `largest_path_sum(b)`, meaning the largest root-to-leaf path sum **within branch `b`**.
-- Combine results: every root-to-leaf path of `t` is the root plus a root-to-leaf path of exactly one branch, so take the best branch result and add the root label.
+- Recursive call for each option: for each branch `b`, `largest_path_sum(b)`, which returns the largest root-to-leaf sum within branch `b`.
+- Combine results: the best path through `t` is `t.label` plus the best path through whichever branch is best.
 
 ```python
 def largest_path_sum(t: Tree):
@@ -336,33 +351,19 @@ def largest_path_sum(t: Tree):
         return t.label + max([largest_path_sum(b) for b in t.branches])
 ```
 
-Here the base case is **not** redundant: without it, a leaf would evaluate `max([])` and raise `ValueError`. The structural reason is that `t.label` is added *outside* the `max`, so nothing keeps the list non-empty. This contrast with `largest_label` is a favorite exam target.
+Here the base case is genuinely required, because the recursive case would compute `max([])` on a leaf, and `max` of an empty list raises a `ValueError`.
 
-Step by step on `t`:
+Tracing the doctest on the big tree: at the 5 node, `max([6, 7]) = 7`, so it returns `5 + 7 = 12`. At the 2 node, the branch results are 12 (through 5), 8, and 3, so `max` is 12 and it returns `2 + 12 = 14`. At the 9 node, branch results are 14 and 4, so it returns `9 + 14 = 23`. At the root, the only branch result is 23, so it returns `1 + 23 = 24`. The winning path is 1, 9, 2, 5, 7.
 
-| Call | Branch results | Returns |
-|---|---|---|
-| `lps(Tree(6))` | leaf | `6` |
-| `lps(Tree(7))` | leaf | `7` |
-| `lps(5-tree)` | `[6, 7]` | `5 + 7 = 12` |
-| `lps(Tree(8))` | leaf | `8` |
-| `lps(Tree(3))` | leaf | `3` |
-| `lps(2-tree)` | `[12, 8, 3]` | `2 + 12 = 14` |
-| `lps(Tree(4))` | leaf | `4` |
-| `lps(9-tree)` | `[14, 4]` | `9 + 14 = 23` |
-| `lps(t)` | `[23]` | `1 + 23 = 24` |
+Compare this to `largest_label`: there we combined with `max(... + [t.label])`, here with `t.label + max(...)`. The structural difference is that a path sum must include the root of the current subtree, so the root's contribution is added rather than being one of the candidates.
 
-Checking by hand, the five root-to-leaf paths have sums `1+9+2+5+6 = 23`, `1+9+2+5+7 = 24`, `1+9+2+8 = 20`, `1+9+2+3 = 15`, `1+9+4 = 14`. The max is `24`, matching the doctest.
+### `above_root`
 
-Note the important correctness argument: it is valid to pick the best branch *independently* and then add `t.label`, because `t.label` is added to every path equally. That kind of reasoning ("the choice decomposes") is what makes the one-line combination legitimate.
-
----
-
-### 5. `above_root`: a helper that closes over the root
+The three questions:
 
 - Small, initial choice: which branch to look at for labels to print?
 - Recursive call for each option: for each branch `b`, `process(b)`.
-- Combine results: nothing to combine. Just print this label if it is larger than the root.
+- Combine results: no need to combine any recursive return value. We do need to print this label, if it is larger than the root.
 
 ```python
 def above_root(t):
@@ -375,194 +376,253 @@ def above_root(t):
     process(t)
 ```
 
-Environment reasoning: `process` is defined in the frame of `above_root`, so its parent frame is that `above_root` frame, where the name `t` is bound to the original tree. Every recursive call `process(b)` creates a new frame whose `u` is a different subtree, but every one of those frames looks up `t` in the *same* `above_root` frame, so `t.label` always means the original root label no matter how deep the recursion goes. This is why the comparison stays correct at depth 4.
+This is the key new idea of this example: the comparison needs the **original root's label**, but a plain recursive function on a subtree has no way to see the top of the tree. The fix is a **nested helper function**. `process` is defined inside `above_root`, so by lexical scoping its parent frame is `above_root`'s frame, where `t` is bound to the whole original tree. As `process` recurses, `u` changes to each subtree in turn, but the name `t` inside `process` always resolves, through the enclosing environment, to the one original tree.
 
-Why a helper is needed: if you tried to write a single recursive `above_root(t)` that compares `u.label > t.label`, the parameter would be rebound on each recursive call and you would end up comparing each node against its own subtree root instead of the global root. The alternative without a closure is to pass the root label down as a second parameter, for example `def process(u, root_label)`. (extra context)
+Environment reasoning: calling `above_root(t)` creates a frame for `above_root` with `t` bound to the tree, and defines `process` whose parent is that frame. Each call to `process(u)` creates a new frame whose parent is the `above_root` frame (not the calling `process` frame). So every `process` frame looks up `t` in the same place and gets the same value, while `u` is local and different in each frame. This is exactly the higher-order-function/environment machinery from earlier lectures applied to a tree problem.
 
-Also note the structure: the `if` and the `for` are siblings, not nested. The root itself is tested (`1 > 1` is false, so `1` is not printed), and every node is visited exactly once in preorder.
+Note also that `process` returns `None`; the work is the printing. And note the root itself is never printed, because `t.label > t.label` is false.
 
-Running `above_root(t)` prints, in order:
+### Building trees: increment the leaves, or increment everything
 
+From the lecture, a function that returns a tree with the same structure as `t` but with every **leaf** label increased by one:
+
+```python
+def increment_leaves(t: Tree) -> Tree:
+    """Return a tree like t but with leaf labels increased by 1."""
+    if is_leaf(t):
+        return Tree(t.label + 1)
+    else:
+        return Tree(t.label, [increment_leaves(b) for b in t.branches])
 ```
-9
-2
-5
-6
-7
-8
-3
-4
+
+Read the recursive case as: the result is a tree with the same label as `t`, but with different branches, because those branches have had their leaves incremented.
+
+Now the version that increments **every** label, which the lecture points out is easier because you no longer need to distinguish leaves from non-leaves:
+
+```python
+def increment(t: Tree) -> Tree:
+    """Return a tree like t but with every label increased by 1."""
+    return Tree(t.label + 1, [increment(b) for b in t.branches])
 ```
 
-Every label except the root `1` is greater than `1`, and the order is the preorder traversal: visit a node, then recurse into its branches left to right.
+Where is the base case? There is no explicit one. If `t.branches` is empty, the list comprehension produces `[]` and no recursive call is ever made, so the recursion terminates on its own. This is a genuinely important pattern: a list comprehension over `t.branches` is self-terminating at leaves. (The same reason `largest_label`'s base case turned out to be redundant.)
 
----
+### The downward-accumulating pattern: `print_sums`
 
-### 6. Min practice
+The second pattern, where you carry information down and act at the leaf. The lecture's example prints the concatenation (or sum) of labels along each root-to-leaf path:
 
-Given
+```python
+def print_sums(t, so_far):
+    """Print the sum of labels along each path from the root of t to a leaf."""
+    so_far = so_far + t.label
+    if is_leaf(t):
+        print(so_far)
+    else:
+        for b in t.branches:
+            print_sums(b, so_far)
+```
+
+The lecture's demonstration tree has labels `'h'`, `'a'`, `'s'`, `'t'`, `'e'` arranged so that the root-to-leaf paths spell `has`, `hat`, and `he`, and `+` concatenates strings rather than adding numbers. The structure is:
+
+```python
+Tree('h', [Tree('a', [Tree('s'), Tree('t')]), Tree('e')])
+```
+
+Calling `print_sums(t, '')` starts with the empty string. At the root, `so_far` becomes `'h'`. The root is not a leaf, so we do not print `'h'`; instead we recurse into each branch **passing `'h'` along**. At the `'a'` node, `so_far` becomes `'ha'`. At the `'s'` leaf, `so_far` becomes `'has'` and we print it. Back up and over to `'t'`: `so_far` is `'hat'`, printed. Then `'e'`: `so_far` is `'he'`, printed.
+
+The lecture's framing of why this works: "the sums we want to print for the entire tree are the sums for each branch after I've already added the root label." The root label is folded in *before* the recursive call, which is the mirror image of the aggregate pattern where the root's contribution is folded in *after* the calls return.
+
+### Counting paths with a given sum
+
+This example combines both ideas. Return the number of paths from the root to **any node** (not just a leaf) in tree `t` whose labels sum to a given value.
+
+The lecture's examples use a tree whose structure makes the following true:
+- Paths summing to 7: two of them (one is `3 + 1 + 2 + 1`).
+- Paths summing to 4: two of them (`3 + 1` and `3 + 1` down different branches). Note these do not reach leaves, which is why the count must consider every node visited, not only leaves.
+- Paths summing to 3: two of them, the path from the root to itself (just `3`), and a path that goes 3, then 4, then back down to a -3 style label summing to 3 again. The point is that the zero-length path consisting of the root alone counts.
+
+```python
+def count_paths(t, total):
+    """Return the number of paths from the root of t to any node
+    whose labels sum to total."""
+    if t.label == total:
+        found = 1
+    else:
+        found = 0
+    return found + sum([count_paths(b, total - t.label) for b in t.branches])
+```
+
+The reasoning, in the lecture's own terms:
+
+- If you have reached the desired total using only the current label, you have found one path.
+- Otherwise you have not found it *yet*, but you may find it by exploring the branches.
+- To explore a branch, you must factor the current label into the sum, which means the total you are now looking for is `total - t.label`. That is the amount that needs to be found within the branch in order to produce the desired total for the whole tree.
+- `count_paths` returns a count, so each branch gives you a number, and you add them all up for the total across all branches.
+
+Two subtleties: the `found` contribution and the branch contributions are **added**, not chosen between, because a path that ends here and a longer path through a branch can both be valid. And notice the hybrid nature: `total` accumulates downward (Pattern B) while the counts aggregate upward (Pattern A).
+
+### Min practice (the closing exercise)
+
+Given:
 
 ```python
 xs = list(range(-10, 11))
 ```
 
-write an expression that evaluates to the `x` in `xs` for which `x*x - 2*x + 1` is smallest.
+Write an expression that evaluates to the `x` in `xs` for which `x*x - 2*x + 1` is smallest. The lecture shows:
 
-```
+```python
 >>> xs
 [-10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 >>> [x*x - 2*x + 1 for x in xs]
 [121, 100, 81, 64, 49, 36, 25, 16, 9, 4, 1, 0, 1, 4, 9, 16, 25, 36, 49, 64, 81]
-```
-
-The answer is `1`, and the crucial reading-comprehension point is that the answer is the **`x`**, not the smallest value of the expression. The smallest value of `x*x - 2*x + 1` is `0`; the `x` that achieves it is `1` (the expression is `(x - 1)**2`).
-
-The intended expression uses `min` with a key function:
-
-```python
->>> min(xs, key=lambda x: x*x - 2*x + 1)
+>>> ... some expression involving min ...
 1
 ```
 
-`min(iterable, key=f)` returns the element of the iterable for which `f(element)` is smallest, rather than the smallest `f(element)` itself. If several elements tie, `min` returns the first one. (extra context)
-
-An equivalent without `key`, using the fact that tuples compare lexicographically:
+The smallest value of the expression is 0, which occurs at `x = 1`, so the answer is 1. The expression is:
 
 ```python
->>> min([(x*x - 2*x + 1, x) for x in xs])[1]
-1
+min(xs, key=lambda x: x*x - 2*x + 1)
 ```
 
-This pairs each score with its `x`, takes the minimum pair (which compares scores first), and then extracts the `x`. (extra context: the tuple trick, which breaks ties by smallest `x` rather than by position.)
+`min` with a `key` function returns the element of the sequence that minimizes the key, not the minimum key value itself. This is why the answer is 1 (the `x`) rather than 0 (the smallest `x*x - 2*x + 1`).
 
-Connection to the tree material: this is the same "argmin/argmax" question as "which branch has the largest path sum?" The lecture's tree functions only need the *value* of the best branch, so plain `max` suffices. If a problem asked you to return the best *branch* or the best *path*, you would need the `key` or tuple technique.
-
----
+This matters for trees because `max`/`min` with a `key` is often how you pick the *best branch* rather than the *best value*. (extra context) For example, `max(t.branches, key=largest_path_sum)` gives you the branch containing the heaviest path, which you would need if a problem asked you to return the path itself and not just its sum.
 
 ## Common Pitfalls
 
-1. **Confusing a branch with a label.** `t.branches[0]` is a `Tree`, not a number. `t.branches[0].label` is the number. Writing `sum(t.branches)` or `max(t.branches)` is a type error waiting to happen.
-2. **Calling `is_leaf` on the wrong thing.** `is_leaf(t.branches)` is wrong; `is_leaf(t)` and `is_leaf(b)` for a branch `b` are right. `is_leaf` takes a tree.
-3. **Treating a tree as possibly empty.** Trees in CS 61A cannot be empty, so `if t is None` or `if t == []` is never the right base case. The base case is `if is_leaf(t)`.
-4. **`max()` on an empty sequence.** If the else-branch is `max([f(b) for b in t.branches])` with no extra element appended, a leaf would make that list empty and raise `ValueError`. Either keep a leaf base case (as in `largest_path_sum`) or append a guaranteed element (as in `largest_label`'s `+ [t.label]`).
-5. **Forgetting to include the root label when the problem says "in the tree".** `largest_label` must consider `t.label`, which is why the doctest uses `Tree(6, [Tree(4), Tree(5), Tree(3)])`. Compare `count_leaves`, where the root label is irrelevant.
-6. **Adding the root label in the wrong place.** `t.label + max([lps(b) ...])` is not the same as `max([t.label + lps(b) ...])` in general... actually these happen to agree for `largest_path_sum`, but `max([lps(b) ...] + [t.label])` (the `largest_label` shape) is definitely wrong for path sums. Get clear on whether the root label is a *candidate* answer or a *contribution* to every answer.
-7. **Returning inside the loop.** `for b in t.branches: return f(b)` only ever examines the first branch. Collect results in a comprehension, or accumulate in a variable, before returning.
-8. **Losing track of the original root in problems that compare against it.** `above_root` needs a helper closing over `t` (or an extra parameter). Recursing on the outer function rebinds `t` and silently changes the meaning of the comparison.
-9. **Printing when you should return, or returning when you should print.** `print_leaves` and `above_root` return `None`; their output is a side effect. `count_leaves`, `largest_label`, `largest_path_sum` return values and print nothing. A function that prints cannot have its output combined by `sum` or `max`.
-10. **Writing `branches: list[Tree[T]] = []` instead of `field(default_factory=list)`.** A single mutable default would be shared by every tree. Dataclasses reject it outright.
-11. **Misreading the indented print format.** Two spaces of indentation is one level of depth. Lines at the same indentation are siblings only if no shallower line separates them from a common parent.
-12. **Assuming `min`/`max` return the input element.** By default they return the extreme *value*. To get the element that minimizes some score, use `key=`.
-
----
+- **Calling `.branches` on a label.** Only trees have branches. `largest_label(b)` returns a *label*, so `largest_label(b).branches` is an error. The lecture calls this out directly: "Only a tree has branches, not its labels."
+- **Recursing on `t` instead of `b`.** `[f(t) for b in t.branches]` is not a smaller version of the same problem. It never advances toward the leaves, so it recurses forever. Always check that the argument to your recursive call is a *branch*.
+- **Inventing attributes.** There is no `t.leaves`, no `t.parent`, no `t.children`, no `t.size`. The abstraction is `t.label`, `t.branches`, `t.branches[i]`, and `is_leaf(t)`.
+- **Forgetting `+ [t.label]` in `largest_label`.** Without it you compute the largest *leaf* label, not the largest label. The doctest with root 6 and leaves 4, 5, 3 exists to catch this.
+- **`max([])` on a leaf.** In `largest_path_sum`, dropping the base case makes the recursive case evaluate `max([])` on a leaf, which raises `ValueError`. Compare `largest_label`, where the appended `[t.label]` keeps the list nonempty and makes the base case redundant.
+- **Looking for an empty-tree base case.** Trees cannot be empty in this course, so `if t is None` or `if t == ()` is wrong. The base case is the leaf, or there is no explicit base case at all (because a comprehension over an empty `t.branches` makes zero recursive calls).
+- **Using `t.branches` instead of `u.branches` in a nested helper.** In `above_root`, the loop must be `for b in u.branches`, because `u` is the subtree being processed. Using `t.branches` would loop over the original root's branches at every level, which is wrong. Conversely, the comparison must be against `t.label`, the original root. Mixing those up is the single most common bug in this style of problem.
+- **Returning inside a loop that should keep going.** In `print_leaves` and `above_root` the recursive calls are statements in a `for` loop, not returns. Adding `return process(b)` would stop after the first branch.
+- **Misreading the printed representation.** Indentation encodes depth, not order. Two labels at the same indentation are siblings-in-depth, which does not necessarily mean they share a parent. You have to count indentation levels carefully.
+- **Confusing `min(xs, key=f)` with `min([f(x) for x in xs])`.** The first returns the input element; the second returns the key value. The practice problem's answer is 1, not 0.
+- **Assuming facts that only hold for a special tree.** The sum of the leaves equals the root label for *Fibonacci trees*, because of how they are constructed. The lecture says explicitly that this does not apply to every tree.
 
 ## Likely Exam Points
 
-### 1. Writing a `sum`-combining tree function
+### 1. Reading and writing the printed representation
 
-**Q.** Write `count_nodes(t)` that returns the total number of nodes in `t` (not just leaves).
+Indentation equals depth. You will be given a printout and asked for the structure, or given a construction and asked for the printout.
 
-**A.**
+**Practice:** What does `print(Tree(1, [Tree(2, [Tree(3)]), Tree(4)]))` display?
+
+**Answer:**
+```
+1
+  2
+    3
+  4
+```
+The 2 and the 4 are both branches of the root, so both are indented two spaces. The 3 is a branch of the 2, so it is indented four spaces.
+
+### 2. Filling in a blank in an aggregate-pattern function
+
+The classic exam shape: a skeleton with `if is_leaf(t): return ____` and a recursive case with one or two blanks.
+
+**Practice:** Fill in the blanks so `count_nodes` returns the total number of nodes in `t`.
+
 ```python
 def count_nodes(t):
-    return 1 + sum([count_nodes(b) for b in t.branches])
-```
-No explicit leaf base case is needed: for a leaf the comprehension is empty, `sum([])` is `0`, and the function returns `1`. On the lecture's `t` this returns `9`. (The guaranteed `1 +` plays the same "keeps it safe" role that `+ [t.label]` plays in `largest_label`.)
-
-### 2. The redundant-base-case question
-
-**Q.** The slides ask: in `largest_label`, what would happen if we removed `if is_leaf(t): return t.label`? Does the same removal work for `largest_path_sum`?
-
-**A.** For `largest_label`, nothing changes: a leaf has no branches, so the list is `[] + [t.label]` and `max([t.label])` is `t.label`, exactly the base case's answer. The base case is redundant. For `largest_path_sum`, removal breaks the function: a leaf would evaluate `max([])`, which raises `ValueError: max() arg is an empty sequence`, because `t.label` is added outside the `max` and so does not keep the list non-empty.
-
-### 3. Tracing a tree function by hand
-
-**Q.** Using the lecture's `t`, what does `largest_path_sum(t)` return, and which path achieves it?
-
-**A.** `24`, via the path `1 -> 9 -> 2 -> 5 -> 7`. The branch values feeding each `max` are: `max(6, 7) = 7` at node `5` giving `12`; `max(12, 8, 3) = 12` at node `2` giving `14`; `max(14, 4) = 14` at node `9` giving `23`; then `1 + 23 = 24`.
-
-### 4. Reading and writing the printed format
-
-**Q.** Write the Python expression that constructs the tree printed below, then state how many leaves it has.
-
-```
-2
-  4
-  6
-    8
-    10
-```
-
-**A.** `Tree(2, [Tree(4), Tree(6, [Tree(8), Tree(10)])])`. It has three leaves (`4`, `8`, `10`), so `count_leaves` returns `3`.
-
-### 5. Helper functions and the closure over the root
-
-**Q.** Fill in `above_root` so that it prints all labels of `t` that are larger than the root label. Why must the body use an inner function?
-
-**A.**
-```python
-def above_root(t):
-    def process(u):
-        if u.label > t.label:
-            print(u.label)
-        for b in u.branches:
-            process(b)
-    process(t)
-```
-The inner `process` has the `above_root` frame as its parent, so `t` always refers to the original tree no matter how deep the recursion. A direct recursion on `above_root` would rebind `t` to a subtree, and each node would be compared against its own subtree's root instead of the global root.
-
-### 6. Side-effect recursion and output order
-
-**Q.** What does `print_leaves(t)` print for the lecture's `t`?
-
-**A.**
-```
-6
-7
-8
-3
-4
-```
-Branches are visited left to right, and a branch is fully explored before the next sibling begins.
-
-### 7. Trees vs linked lists
-
-**Q.** Give one structural way `Tree` and `Link` are alike and two ways they differ.
-
-**A.** Alike: a tree where every node has at most one child behaves exactly like a linked list, with `label`/`branches` playing the role of `first`/`rest`. Different: (1) trees can have many branches, so recursion loops over all of them rather than making a single recursive call on `rest`; (2) trees cannot be empty in this course, so the base case is "leaf", whereas a linked list has an empty case `()` and its base case is "empty".
-
-### 8. `min`/`max` with a key
-
-**Q.** With `xs = list(range(-10, 11))`, write an expression for the `x` in `xs` minimizing `x*x - 2*x + 1`, and say what it evaluates to.
-
-**A.** `min(xs, key=lambda x: x*x - 2*x + 1)`, which evaluates to `1`. Note the answer is the `x`, not the minimum value `0`.
-
-### 9. Applying the recipe to a new problem
-
-**Q.** Write `height(t)` returning the number of edges on the longest root-to-leaf path (a leaf has height `0`). (extra context: `height` was not in this lecture, but it is the same pattern as `largest_path_sum` and is standard on 61A exams.)
-
-**A.**
-```python
-def height(t):
     if is_leaf(t):
-        return 0
-    return 1 + max([height(b) for b in t.branches])
+        return ______
+    else:
+        return ______ + sum([______ for b in t.branches])
 ```
-For the lecture's `t`, this returns `4`. As in `largest_path_sum`, the leaf base case is required because `max([])` would otherwise error.
 
----
+**Answer:** `1`, then `1`, then `count_nodes(b)`. Every node contributes 1 for itself plus the counts of its branches. (The base case is redundant here, since `sum([])` is 0, so `1 + sum([])` already equals 1 at a leaf.)
+
+### 3. The `largest_label` / `largest_path_sum` distinction
+
+Knowing when the root's label is a *candidate* for `max` versus a *mandatory addend*.
+
+**Practice:** On `Tree(1, [Tree(10, [Tree(2)]), Tree(5)])`, what do `largest_label` and `largest_path_sum` return?
+
+**Answer:** `largest_label` returns 10, the biggest label anywhere. `largest_path_sum` returns 13: the paths are 1, 10, 2 (sum 13) and 1, 5 (sum 6), so the maximum is 13. Note 10 is not on the best path as a standalone value; it is part of a sum.
+
+### 4. Nested helper functions to access the original root
+
+The `above_root` pattern, where a comparison needs the top of the tree.
+
+**Practice:** Why does `above_root` use a nested `process(u)` rather than just recursing with `above_root(b)`?
+
+**Answer:** Because the comparison is against the *original* root label. If you recursed with `above_root(b)`, then inside that call `t` would be bound to the branch, and the comparison would be against the branch's own label, which is a different question. The nested `process` has the `above_root` frame as its parent environment, so the name `t` inside `process` always resolves to the one original tree, while `u` changes on each recursive call.
+
+### 5. Accumulating a value downward
+
+The `print_sums` / `count_paths` pattern, where a second parameter carries information from the root toward the leaves.
+
+**Practice:** Complete `print_depths` so it prints each leaf label together with its depth (root at depth 0).
+
+```python
+def print_depths(t, d=0):
+    if is_leaf(t):
+        print(t.label, ______)
+    else:
+        for b in t.branches:
+            print_depths(b, ______)
+```
+
+**Answer:** `d`, then `d + 1`. The depth is accumulated downward in the parameter, and the action happens at the leaf, which is the same shape as `print_sums`.
+
+### 6. Why a base case is or is not needed
+
+**Practice:** `increment` has no `if is_leaf(t)` clause. Why does it terminate?
+
+```python
+def increment(t):
+    return Tree(t.label + 1, [increment(b) for b in t.branches])
+```
+
+**Answer:** At a leaf, `t.branches` is `[]`, so the list comprehension makes zero recursive calls and evaluates to `[]`. The function returns `Tree(t.label + 1, [])`, a leaf, and the recursion bottoms out. A comprehension over `t.branches` is self-terminating at leaves. The same reasoning explains why `largest_label`'s base case is redundant, while `largest_path_sum`'s is not (`max([])` raises an error, whereas `sum([])` and `[... for b in []]` do not).
+
+### 7. Spotting a broken recursive call
+
+**Practice:** What is wrong with each of these as a recursive case for "the largest leaf label in `t`"?
+
+```python
+# (a)
+return max([largest_leaf(t) for b in t.branches])
+# (b)
+return max([largest_leaf(b).branches for b in t.branches])
+# (c)
+return max([b for b in t.branches])
+```
+
+**Answer:** (a) recurses on `t`, not `b`, so it never gets closer to a leaf and runs forever. (b) calls `.branches` on the *label* returned by the recursive call; labels have no branches, only trees do. (c) never recurses at all, so it tries to take the max of a list of trees rather than computing anything about leaves.
+
+### 8. Trees versus linked lists
+
+**Practice:** Give one way trees and linked lists are alike and two ways they differ.
+
+**Answer:** Alike: both are recursive, and a tree in which every node has at most one child is essentially a linked list. Different: a tree can have many branches while a linked list has exactly one `rest`; and in this course a tree cannot be empty (so the base case is the leaf), while a linked list can be empty (so emptiness is the natural base case).
+
+### 9. `min` / `max` with a `key`
+
+**Practice:** For `xs = list(range(-10, 11))`, write an expression evaluating to the `x` minimizing `x*x - 2*x + 1`, and say what it evaluates to.
+
+**Answer:** `min(xs, key=lambda x: x*x - 2*x + 1)`, which evaluates to `1`. The expression factors as `(x - 1)**2`, minimized at `x = 1` where it equals 0. `min` with a key returns the *element*, not the key value, so the answer is 1 and not 0.
 
 ## Summary
 
-- A **tree** has a **root label** (`t.label`) and a **list of branches** (`t.branches`); **each branch is itself a tree**, and a tree with zero branches is a **leaf**.
-- The same structure is described two ways: recursively (root label plus branches) and relatively (nodes, labels, parent/child, root, path). Problem statements use both.
-- The abstraction allows exactly: `t.label`, `t.branches`, `t.branches[i]`, `is_leaf(t)`, and treating `t` as an ordinary value.
-- `Tree` is a dataclass with `label: T` and `branches: list[Tree[T]] = field(default_factory=list)`, so `Tree(4)` is a leaf; `is_leaf(t)` is `not t.branches`.
-- `print(t)` uses `format_tree`, indenting each branch two spaces below its label; indentation depth equals tree depth.
-- Trees resemble linked lists (a one-child-per-node tree is a linked list) but differ: trees can have many branches, and **trees cannot be empty**, so the base case is a leaf rather than an empty structure.
-- The recipe: pick the small initial choice (which branch), make one recursive call per branch (`[f(b) for b in t.branches]`), then combine, after asking what type the results are, what they mean, and how to use them.
-- `count_leaves`: base case returns `1`, else `sum` of the branch counts. On the lecture tree: `5`.
-- `largest_label`: `max([largest_label(b) for b in t.branches] + [t.label])`; including `t.label` is essential for correctness and also makes the leaf base case redundant.
-- `largest_path_sum`: `t.label + max([largest_path_sum(b) for b in t.branches])`; here the leaf base case is required, since `max([])` raises `ValueError`. On the lecture tree: `24`.
-- `above_root`: no combining needed because it prints; uses an inner `process(u)` that closes over the outer `t` so comparisons always use the original root label.
-- `min(xs, key=...)` returns the **element** that minimizes the key, not the minimum key value; for `x*x - 2*x + 1` over `range(-10, 11)` the answer is `x = 1`.
+- A tree has a **root label** and a **list of branches**; each branch is itself a tree; a tree with zero branches is a **leaf**. Trees in this course are never empty.
+- Two vocabularies describe the same object: recursive (root label, branches, leaf) and relative (node, label, parent, child, root node). People say "node" when they mean "label"; read charitably.
+- The data class is `Tree[T]` with fields `label: T` and `branches: list[Tree[T]] = field(default_factory=list)`, plus the helper `is_leaf(t): return not t.branches`. `T` is an optional type variable for the label type.
+- The abstraction permits exactly: `t.label`, `t.branches`, `t.branches[i]`, `is_leaf(t)`, and treating `t` as a value. Nothing else exists (no `t.leaves`, no `t.parent`).
+- The printed representation puts the root first and indents each branch one more level, so **depth determines indentation**.
+- Versus linked lists: a one-child-per-node tree is basically a linked list; trees differ in having many branches and in not having an empty case.
+- Before coding, answer three questions: what small initial choice (usually which branch), what recursive call per option, and how to combine the results (what type they are, what they mean, how to use them).
+- **Pattern A, aggregate upward:** recurse on every branch, build a list of results, combine with `sum` or `max`. Seen in `count_leaves`, `sum_leaves`, `largest_label`, `largest_path_sum`.
+- **Pattern B, accumulate downward:** carry information from the root toward the leaves in an extra parameter (or via a nested helper closing over the root) and act when you arrive. Seen in `print_leaves`, `above_root`, `print_sums`. Mirrors the two versions of factorial.
+- `count_leaves`: base case returns 1, recursive case returns `sum([count_leaves(b) for b in t.branches])`.
+- `largest_label`: `max([largest_label(b) for b in t.branches] + [t.label])`. The `+ [t.label]` makes the root a candidate and also makes the base case redundant.
+- `largest_path_sum`: `t.label + max([largest_path_sum(b) for b in t.branches])`. The root is always added, and the base case is required because `max([])` errors.
+- `above_root` uses a nested `process(u)` so that `t` (the original root) stays visible through the enclosing environment while `u` walks the tree.
+- Tree-building functions are recursive too: `Tree(new_label, [f(b) for b in t.branches])`. A comprehension over `t.branches` terminates by itself at leaves, so an explicit base case is sometimes unnecessary.
+- `count_paths` is a hybrid: the target total decreases downward (`total - t.label`) while counts add upward, and a path ending at the current node plus paths through branches are summed, not chosen between.
+- `min(xs, key=f)` returns the *element* that minimizes `f`, not the minimum value of `f`. For `x*x - 2*x + 1` over `range(-10, 11)` the answer is `1`.
