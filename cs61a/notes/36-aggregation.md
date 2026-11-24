@@ -1,168 +1,318 @@
-<!-- Fri, Nov 20, 2026 | sources: slides (no transcript available) -->
+<!-- Fri, Nov 20, 2026 | sources: slides + YouTube auto-transcript -->
 # Lecture 36: Aggregation
 
-This lecture covers SQL aggregation: the ability to collapse many rows of a table into a single summary row, either across the whole table or separately for each group of rows that share a value. The core mechanism is the `GROUP BY` clause, which partitions the input rows into groups (one output row per unique value of the grouping expression), combined with aggregate functions (`COUNT`, `MAX`, `MIN`, `SUM`, `AVG`) in the `SELECT` clause that compute a single value from each group's rows. `HAVING` then filters which groups survive into the output, which is distinct from `WHERE`, which filters which input rows enter the grouping in the first place. The lecture also presents a disciplined three-step method for writing any select statement (pick input rows, form and filter groups, format output), and works through several examples on an IMDb-style schema (`principals`, `titles`, `names`, `ratings`), including finding remakes by title and computing a vote-weighted average rating per actor across joined tables.
+## Overview
+
+This lecture covers SQL **aggregation**: computing a single value from a group of rows instead of processing one row at a time. Up to now, every SQL expression we wrote referred to values within a single row, and each input row produced one output row. Aggregate functions (`COUNT`, `MAX`, `MIN`, `SUM`, `AVG`) break that one-to-one correspondence: they collapse many rows into one. The `GROUP BY` clause partitions the input rows into groups based on the unique values of an expression, so aggregation happens once per group rather than once over the whole table, yielding one output row per group. The `HAVING` clause then filters which *groups* survive into the output, in contrast to `WHERE`, which filters which *input rows* enter the computation at all. The lecture closes with a methodology for writing select statements (decide input rows, then form and filter groups, then format output) and applies it to multi-table queries on the IMDb dataset that combine `JOIN`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, and `LIMIT` at once.
 
 ## Key Concepts
 
-### The full shape of a select statement
+### Aggregate functions collapse rows
 
-The lecture's central template is:
+Every SQL expression we have written so far refers to values in a single row. A statement processes each row using the expressions in the `SELECT` clause and generates one output row from each input row. An **aggregate function** placed in the columns region of a `SELECT` statement computes a value from a *group* of rows. By default, if there is no `GROUP BY`, the group is **all rows** in the input.
+
+The lecture uses a small `animals` table (kinds of animals, number of legs, typical weight). With rows for ferret/dog/cat (4 legs) and parrot/penguin/t-rex (2 legs):
+
+```sql
+SELECT MAX(legs) FROM animals;
+```
+
+This takes the max over all `legs` values in the table and returns `4`. The crucial observation: **there were six rows in the input but only one row in the output**. That is the defining property of aggregate functions, they change the output to have only one row (per group).
+
+### The aggregate functions covered
+
+- `COUNT(*)`: the number of rows in a group.
+- `MAX([expression])`: the largest value of `[expression]` for any row in the group.
+- `MIN([expression])`: the smallest value.
+- `SUM([expression])`: the total.
+- `AVG([expression])`: the average.
+
+### Aggregation applies to an expression, not just a column
+
+`MAX` does not pull information across rows inside its argument. In the lecture:
+
+```sql
+SELECT MAX(legs - weight) FROM animals;
+```
+
+For **each row** we compute `legs - weight`, and then we find the largest result among those per-row values. The answer came from the parrot (2 legs, weight 6). It did **not** subtract 6 from 4 (max legs minus min weight). The instructor's debugging tip: if you want to see the steps, first run `SELECT legs - weight FROM animals;` to see exactly what values the `MAX` is being taken over.
+
+### Multiple aggregate functions in one expression are independent aggregations
+
+If you *do* want to compare the maximum legs against the minimum weight, use two aggregate functions:
+
+```sql
+SELECT MAX(legs) - MIN(weight) FROM animals;
+```
+
+Here the maximum legs came from the ferret/dog/cat rows while the minimum weight came from the parrot row. **These do not have to come from the same row.** They are two separate aggregations over the same group, and the subtraction happens on the two resulting scalars. You may also list them as two separate columns (`SELECT MAX(legs), MIN(weight) FROM animals;`); both forms are fine.
+
+### Do not mix aggregated and non-aggregated columns
+
+```sql
+SELECT MAX(legs), weight FROM animals;   -- don't do this
+```
+
+SQLite will give you *a* result, but other SQL database systems will raise an error, and the instructor's point is that it does not make sense semantically. The query asks for one row. `MAX(legs)` is well-defined. But "the weight" is the weight of *what*? There were multiple weight values in the group, and we never said how to combine them. SQLite returns one, but that does not tell you which one it was or why. The rule: **either perform aggregation for all the columns, or don't aggregate at all.** Not aggregating is fine, you just end up with six rows in the output. But if you aggregate, aggregate everything.
+
+The one legitimate exception appears with `GROUP BY` (see below).
+
+### Why you cannot average averages: the weighted average
+
+The IMDb `ratings` table has 1,000 rows, one per movie, each with an `averageRating` (the average of that movie's votes) and `numVotes` (how many votes that movie received). To get the average rating across **all the votes**, you cannot just average the `averageRating` column, because different movies received different numbers of votes.
+
+The lecture's two-movie illustration: movie 1 has 80 votes averaging 7; movie 2 has 20 votes averaging 9. The overall average is **not** the average of 7 and 9 (which would be 8). It is closer to 7, because there were far more votes of 7:
+
+```
+(80 × 7 + 20 × 9) / (80 + 20) = (560 + 180) / 100 = 7.4
+```
+
+Generalized in SQL:
+
+```sql
+SELECT SUM(averageRating * numVotes) / SUM(numVotes) FROM ratings;
+```
+
+For each row, multiply the average rating by the number of votes to recover the total rating points contributed by that movie. Summing those gives the total rating points across the dataset; dividing by the total number of votes gives the true average. In this dataset the result was 8, not because of rating inflation but because the dataset was deliberately built from 1,000 highly-rated movies.
+
+### GROUP BY: aggregation per group
 
 ```sql
 SELECT [columns] FROM [table] GROUP BY [expression] HAVING [expression];
 ```
 
-Each clause has one job, and the slides spell them out explicitly:
+- `GROUP BY [expression]`: produces **one output row for each unique value of the expression**.
+- `HAVING [expression]`: keeps only the groups for which the expression is true.
 
-- **SELECT**: the values each output row contains (and the column labels)
-- **FROM**: the source of input rows
-- **WHERE**: which input rows
-- **GROUP BY**: how to form output rows
-- **HAVING**: which output rows
+With the `animals` table:
 
-This mapping is the whole lecture in miniature. Notice the asymmetry: `WHERE` talks about *input* rows, `HAVING` talks about *output* rows. `FROM` and `WHERE` work in the world of the original table; `GROUP BY` and `HAVING` work in the world of groups; `SELECT` decides what each surviving group looks like in the result.
+```sql
+SELECT legs, MAX(weight) FROM animals GROUP BY legs;
+```
 
-### Grouping: one output row per unique value
+There are two unique values of `legs` (4 and 2), so there are two groups and two output rows: the four-legged beasts and the two-legged beasts. The result shows the heaviest four-legged animal at 20 and the heaviest two-legged animal at 12,000 (the t-rex).
 
-Without `GROUP BY`, a select statement that uses an aggregate function treats the entire table as one single group, producing exactly one output row. With `GROUP BY [expression]`, the rows are partitioned: every row for which the expression has the same value lands in the same group, and each group becomes exactly one output row.
+### Why a bare `legs` is legal here
 
-The lecture's running illustration uses the `principals` table:
+Writing `legs` without aggregating it is fine in this query precisely because we grouped by `legs`. Within each output group, there is only one `legs` value shared by every row in that group, so naming it unambiguously identifies the group. This is the exception to the "aggregate everything or nothing" rule: an expression you grouped by is safe to select directly.
 
-| tconst | ordering | nconst | category | character |
-|---|---|---|---|---|
-| tt0012349 | 2 | nm0701012 | actor | The Woman |
-| tt0012349 | 3 | nm0001067 | actor | The Child |
-| tt0017136 | 1 | nm0375609 | actor | Maria |
-| tt0012349 | 13 | nm0000122 | director | \N |
-| tt0013442 | 11 | nm0003638 | director | \N |
+### GROUP BY on an arbitrary expression
 
-With `GROUP BY category`, the three `actor` rows collapse into one output row, and the two `director` rows collapse into another output row. Two distinct values of `category`, therefore two output rows. The slides annotate exactly this: "Output row for actor" covering the three actor rows, "Output row for director" covering the two director rows.
+You can group by any expression, not just a column:
 
-The important intuition: grouping does not throw information away immediately. It bundles rows together and then hands each bundle to the aggregate functions in `SELECT`, which decide how to combine them. The question the `SELECT` clause answers for a grouped query is literally the slide's phrasing: "How do we want to combine the rows?"
+```sql
+SELECT weight / legs, COUNT(*) FROM animals GROUP BY weight / legs HAVING COUNT(*) > 1;
+```
 
-### Aggregate functions
+Integer division (floor division) produces values like 5, 2, 3, 5, 6000 for the various animals. Some of those repeat: two 2s and two 5s. The `HAVING COUNT(*) > 1` clause performs an aggregation for each group to count its rows and keeps the group only if it has more than one row. So although there were four distinct values of the grouping expression, only two groups survive to the output; the two singleton groups are discarded.
 
-An aggregate function in the `[columns]` clause computes a value from a group of rows (or from all rows, if there are no groups). The lecture lists:
+### WHERE vs HAVING
 
-- `COUNT(*)`: the number of rows in a group
-- `MAX([expression])`: the largest value of `[expression]` for any row in the group
-- `MIN`, `SUM`, and `AVG`: analogous (smallest value, total, and mean)
+This distinction is the conceptual heart of the lecture:
 
-Each of these takes many rows and returns one value. That is the defining property: a non-aggregate column expression produces one value *per row*, an aggregate produces one value *per group*.
+- **`WHERE`** decides whether to keep an **individual input row**. Because it looks at one row at a time, you **cannot** use an aggregate function in a `WHERE` expression.
+- **`HAVING`** decides whether to keep a **whole group**. Because it asks about a property of the entire group, you **can** use an aggregate function in a `HAVING` expression.
+
+### Methodology for writing select statements
+
+The lecture gives an explicit recipe. Describe the output table, then:
+
+1. Determine which existing rows are needed to express the result (`FROM` and `WHERE`).
+2. Form groups and determine which groups should appear as output rows (`GROUP BY` and `HAVING`).
+3. Format the output rows (`SELECT`).
+
+Clause-by-clause responsibilities:
+
+| Clause | Role |
+| --- | --- |
+| `SELECT` | Values each output row contains (and column labels) |
+| `FROM` | Source of input rows |
+| `WHERE` | Which input rows |
+| `GROUP BY` | Form output rows |
+| `HAVING` | Which output rows |
 
 ### Column labels with AS
 
-The slides introduce the labeling syntax for the `SELECT` clause:
+Output columns can be named:
 
 ```
 [expression] AS [name], [expression] AS [name], ...
 ```
 
-This matters more for aggregates than for plain columns, because an expression like `COUNT(*)` or `MIN(year)` has no natural column name. Writing `COUNT(*) AS total` gives the output column a readable header, which is also what lets later clauses or external code refer to it by name.
+So `COUNT(*) AS total` labels the aggregate column `total`. An important practical benefit shown in the decade example: once you name a computed value, you can refer to that **name** in `ORDER BY` rather than retyping the whole expression.
 
-### WHERE versus HAVING
+### Why the IMDb data is split across tables
 
-This is the distinction most likely to be tested, and the slides draw it precisely:
-
-- `WHERE [expression]` keeps only input rows for which the expression is true. It runs *before* grouping, so it reduces the set of rows that are available to be grouped.
-- `HAVING [expression]` keeps only groups for which the expression is true. It runs *after* grouping, so it can refer to aggregate functions over the group.
-
-So `WHERE category="actor"` filters away director rows before any grouping happens. `HAVING COUNT(*) > 15` cannot be expressed in `WHERE` at all, because at `WHERE` time there is no group yet and therefore no count.
-
-### The three-step method for writing select statements
-
-The lecture gives an explicit procedure. Describe the output table, then:
-
-1. Determine which existing rows are needed to express the result (`FROM` and `WHERE`)
-2. Form groups and determine which groups should appear as output rows (`GROUP BY` and `HAVING`)
-3. Format the output rows (`SELECT`)
-
-This is deliberately *not* the order the clauses are written in. You write `SELECT` first but you should think about it last, because you cannot decide how to format a row until you know what a row is. This ordering also happens to match the logical evaluation order of the clauses, which is why it works so reliably.
-
-### Why the data is split across tables (extra context on a discussion prompt)
-
-The lecture poses the question "Why store the data like this?" about the four-table IMDb schema (`titles`, `principals`, `names`, `ratings`) as a poll, and the slides do not record an answer. The standard reason is normalization: each fact is stored once in the table where it belongs, so an actor's name lives only in `names` and a film's rating lives only in `ratings`, and `principals` holds just the many-to-many relationship between films and people. This avoids duplicating a name across every film the person appears in, and avoids inconsistency when a value is updated. Joins then reassemble the pieces on demand.
+The lecture poses this as a poll question when showing `titles`, `ratings`, `principals`, and `names` as four separate tables. The query for actor ratings needs to join `names` (actor names), `principals` (which actor appeared in which title, and in what role), and `ratings` (the rating of each title). The implied answer is that splitting avoids repeating the same information in many rows: an actor's name is stored once in `names` rather than duplicated for every movie they appeared in, and a movie's rating is stored once in `ratings` rather than duplicated for every cast member. (extra context: this is the normalization principle in database design.)
 
 ## Definitions
 
-- **Aggregate function**: a function in the `[columns]` clause that computes a single value from a group of rows, or from all rows if there are no groups. The lecture's set: `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`.
-- **`COUNT(*)`**: an aggregate function returning the number of rows in a group.
-- **`MAX([expression])`**: an aggregate function returning the largest value of `[expression]` among the rows of a group. `MIN` returns the smallest, `SUM` the total, `AVG` the mean.
-- **`GROUP BY [expression]`**: a clause that produces one output row for each unique value of `[expression]` among the input rows.
-- **`HAVING [expression]`**: a clause that keeps only those groups for which `[expression]` is true.
-- **`WHERE [expression]`**: a clause that keeps only those input rows for which `[expression]` is true (applied before grouping).
-- **`AS [name]`**: syntax in the `SELECT` clause that assigns a column label to an expression.
-- **Group**: the set of input rows sharing a single value of the `GROUP BY` expression; it becomes exactly one output row.
-- **`principals`**: lecture table with columns `tconst` (title id), `ordering`, `nconst` (person id), `category` (role such as actor or director), and `character`.
-- **`titles`**: lecture table with columns `tconst`, `title`, `year`, `runtime`, `genres`.
-- **`names`**: lecture table with columns `nconst`, `name`, `birth`, `death`, `profession`, `knownforTitles`.
-- **`ratings`**: lecture table with columns `tconst`, `averageRating`, `numVotes`.
-- **`\N`**: the placeholder appearing in the IMDb data for a missing value, visible in the `character` column of director rows.
+- **Aggregation**: putting together information from multiple rows to compute a single value.
+- **Aggregate function**: a function used in the columns clause of a `SELECT` statement that computes a value from a group of rows (or from all rows, if there are no groups). Its presence reduces the output to one row per group.
+- **`COUNT(*)`**: aggregate function returning the number of rows in a group.
+- **`MAX([expression])`**: aggregate function returning the largest value of `[expression]` for any row in a group. `MIN`, `SUM`, and `AVG` are analogous.
+- **`GROUP BY [expression]`**: clause that partitions input rows into groups; the output contains one row for each unique value of `[expression]`.
+- **`HAVING [expression]`**: clause that filters groups, keeping only those for which `[expression]` is true. Aggregate functions are permitted here.
+- **`WHERE [expression]`**: clause that filters individual input rows. Aggregate functions are not permitted here.
+- **`[expression] AS [name]`**: syntax for labeling an output column, allowing the name to be reused elsewhere in the statement (for example, in `ORDER BY`).
+- **Floor division in SQL**: dividing one integer by another performs integer (floor) division. `43 / 10` evaluates to `4`.
 
 ## Worked Examples
 
-### Example 1: Count rows per category
+> Note on language: this lecture is entirely SQL, so the examples below are SQL statements rather than Python. The notes preserve the lecture's own queries and reason through them row by row (the SQL analogue of box-and-pointer tracing: track which input rows land in which group, and what each aggregate sees).
 
-**Goal (from the slides):** For each category, select the category and the total number of rows for that category.
+### Example 1: Basic aggregation over all rows (`animals`)
 
 ```sql
-SELECT category, COUNT(*) AS total
-  FROM principals
-  GROUP BY category;
+SELECT MAX(legs) FROM animals;
 ```
 
-**Step by step.** `FROM principals` supplies every row of the table as input; there is no `WHERE`, so nothing is filtered out. `GROUP BY category` partitions those rows by the value in the `category` column. On the slide's sample data, three rows have `category` equal to `actor` and two have `category` equal to `director`, so there are two groups and therefore two output rows. `SELECT category, COUNT(*) AS total` then formats each group: `category` is the shared value that defines the group (safe to select, because it is identical for every row in the group), and `COUNT(*)` is evaluated over the group's rows.
+Step by step:
+1. `FROM animals` supplies all six input rows (ferret, dog, cat, parrot, penguin, t-rex).
+2. There is no `GROUP BY`, so the entire set of six rows forms a single implicit group.
+3. `MAX(legs)` scans the `legs` value of every row in that group and keeps the largest: `4`.
+4. Output: one row, one column, value `4`.
 
-**Result on the sample data:**
+The "pointer" intuition: instead of six separate output rows each pointing at one input row, there is a single output row that summarizes all six.
+
+```sql
+SELECT SUM(weight) FROM animals;
+```
+
+Same structure: one implicit group, one output row, holding the sum of all six weight values.
+
+### Example 2: Aggregating an expression vs aggregating separately
+
+```sql
+SELECT MAX(legs - weight) FROM animals;
+```
+
+1. For **each** row independently, compute `legs - weight`. The parrot (2 legs, weight 6) gives `-4`; the t-rex gives a very large negative number; and so on.
+2. `MAX` is applied to those six per-row results.
+3. The winner is the parrot's row.
+
+Contrast with:
+
+```sql
+SELECT MAX(legs) - MIN(weight) FROM animals;
+```
+
+1. `MAX(legs)` aggregates the whole group to `4` (from ferret, dog, or cat).
+2. `MIN(weight)` aggregates the whole group independently to the parrot's weight of `6`.
+3. Only then does subtraction happen, on two scalars: `4 - 6`.
+
+The two queries give different answers because the first never crosses row boundaries inside the subtraction, while the second deliberately combines results from two different rows. This is the single most useful distinction in the lecture for debugging aggregate expressions.
+
+### Example 3: The illegal mixed query
+
+```sql
+SELECT MAX(legs), weight FROM animals;
+```
+
+Walk through why it is incoherent: the output must be one row. `MAX(legs)` is `4`. But four different animals had four different weights and no aggregation was specified for `weight`, so there is no principled answer. SQLite will print some weight value, but you cannot say which row it came from or why. Other database systems reject the query outright. Fix it by aggregating:
+
+```sql
+SELECT MAX(legs), AVG(weight) FROM animals;
+```
+
+The lecture notes the average weight comes out to roughly 2,000, dragged up entirely by the t-rex. (This is a good reminder that `AVG` is sensitive to outliers.)
+
+### Example 4: Weighted average across the whole ratings table
+
+```sql
+SELECT SUM(averageRating * numVotes) / SUM(numVotes) FROM ratings;
+```
+
+1. `FROM ratings` supplies 1,000 rows, one per movie.
+2. No `GROUP BY`, so all 1,000 rows form one group.
+3. Inside the first `SUM`, each row contributes `averageRating * numVotes`, the total rating points that movie's voters awarded. Summing gives total rating points across the dataset.
+4. The second `SUM` independently totals `numVotes`, the number of votes cast overall.
+5. Dividing yields the vote-weighted average: `8` for this dataset.
+
+Why the naive version is wrong: `SELECT AVG(averageRating) FROM ratings;` weights a movie with 100 votes exactly as heavily as a movie with 100,000 votes.
+
+### Example 5: GROUP BY with a bare grouped column
+
+```sql
+SELECT legs, MAX(weight) FROM animals GROUP BY legs;
+```
+
+1. `FROM animals` supplies six rows.
+2. `GROUP BY legs` scans the `legs` values and finds two unique ones: `4` and `2`. Two groups form. Group "4" holds ferret, dog, cat. Group "2" holds parrot, penguin, t-rex.
+3. One output row is produced per group.
+4. For group "4": `legs` is unambiguously `4` (every row in the group agrees), and `MAX(weight)` over ferret/dog/cat is `20`.
+5. For group "2": `legs` is `2`, and `MAX(weight)` over parrot/penguin/t-rex is `12000`.
+
+Output:
 
 ```
-actor      3
-director   2
+legs  MAX(weight)
+----  -----------
+2     12000
+4     20
 ```
 
-The `AS total` labels the second column `total` rather than leaving it with the raw expression text as a header.
+### Example 6: GROUP BY an expression, filtered by HAVING
 
-**A useful mental picture.** Think of the table as a pile of index cards. `GROUP BY category` sorts the pile into stacks, one stack per distinct category. `COUNT(*)` reads each stack and writes down how tall it is. The output table has one line per stack.
+```sql
+SELECT weight / legs, COUNT(*) FROM animals GROUP BY weight / legs HAVING COUNT(*) > 1;
+```
 
-### Example 2: Actors with more than 15 characters played
+1. For each row compute `weight / legs` using integer division. The lecture's values: `5`, `2`, `3`, `5`, `6000` (and another `2`).
+2. `GROUP BY` forms a group per unique value: a group for `5` (two rows), a group for `2` (two rows), a group for `3` (one row), a group for `6000` (one row). Four groups.
+3. `HAVING COUNT(*) > 1` evaluates `COUNT(*)` **within each group**. The `5` and `2` groups have 2 rows and pass. The `3` and `6000` groups have 1 row and are discarded.
+4. Output: two rows, even though the grouping expression had four distinct values.
 
-**Goal (from the slides):** Select the `nconst` and the total number of characters for each actor who had more than 15 characters played.
+Note that this filtering is impossible in `WHERE`: when `WHERE` runs, no groups exist yet and `COUNT(*)` has nothing to count over.
+
+### Example 7: Count rows per category (`principals`)
+
+> From the slides. For each category, select the category and the total number of rows for that category.
+
+```sql
+SELECT category, COUNT(*) AS total FROM principals GROUP BY category;
+```
+
+With the slide's sample rows (three `actor` rows and two `director` rows):
+
+1. `FROM principals` supplies all rows.
+2. `GROUP BY category` creates one group per unique category: `actor`, `director`, and so on.
+3. The `actor` group gathers `tt0012349/nm0701012`, `tt0012349/nm0001067`, `tt0017136/nm0375609`. The `director` group gathers `tt0012349/nm0000122` and `tt0013442/nm0003638`.
+4. `category` is safe to select bare because we grouped by it. `COUNT(*) AS total` counts rows per group, labeled `total`.
+
+Output (for the slide excerpt):
+
+```
+category  total
+--------  -----
+actor     3
+director  2
+```
+
+### Example 8: Actors with more than 15 characters played
+
+> From the slides. Select the `nconst` and the total number of characters for each actor who had more than 15 characters played.
 
 ```sql
 SELECT nconst, COUNT(*)
   FROM principals
-  WHERE category="actor"
+  WHERE category = "actor"
   GROUP BY nconst
   HAVING COUNT(*) > 15;
 ```
 
-**Step by step, using the three-step method.**
+Reading it through the methodology:
 
-*Step 1, which input rows?* The result concerns actors only, so the source is `principals` and the filter is `WHERE category="actor"`. Director rows, writer rows, and so on are discarded before anything else happens. This is a per-row condition, so it belongs in `WHERE`.
+1. **Which input rows?** `FROM principals`, restricted by `WHERE category = "actor"` so that directors never enter the computation. This is per-row filtering, so it belongs in `WHERE`.
+2. **Form groups.** `GROUP BY nconst` creates one group per distinct person, gathering all of that actor's credit rows.
+3. **Which groups?** `HAVING COUNT(*) > 15` keeps only actors with more than 15 rows in their group. This is a property of the whole group, so it belongs in `HAVING`, not `WHERE`.
+4. **Format output.** `SELECT nconst, COUNT(*)`: `nconst` is bare but legal (we grouped by it), and `COUNT(*)` reports the group size.
 
-*Step 2, what are the groups and which ones survive?* The output has one row per actor, and an actor is identified by `nconst`, so `GROUP BY nconst`. Each group is now "all the actor-role rows belonging to one person," and since each such row records one character played, the size of the group is the number of characters that person played. The requirement "more than 15 characters played" is a property of the group, not of any individual row, so it belongs in `HAVING COUNT(*) > 15`.
+The important structural lesson is that both filters coexist and do different jobs: `WHERE` prunes rows before grouping, `HAVING` prunes groups after.
 
-*Step 3, how is each output row formatted?* `SELECT nconst, COUNT(*)` gives the person's id and their character count.
+### Example 9: Remakes with the same title
 
-**Why the two filters cannot be swapped.** `WHERE COUNT(*) > 15` is meaningless: at `WHERE` time, rows are being examined one at a time and no group exists, so there is nothing to count. Conversely, putting `category="actor"` in `HAVING` would be wrong in general, because by then rows have already been grouped and the category of an individual row is no longer a per-group property in the way the question needs.
-
-**A subtle point about the count.** The query counts *rows*, and each matching row in `principals` is one credited character for one person in one film. So `COUNT(*)` here is the number of character credits, which is what "characters played" means in this schema. The lecture marks this query with "(Demo)", indicating it was run live against the real database.
-
-### Example 3: Remakes that share a title
-
-**Goal (from the slides):** Create a table of remakes that have the same title, with columns `title`, `original`, and `remake`.
-
-The desired output looks like:
-
-```
-title                             original        remake
--------------------------------   --------        ------
-How to Train Your Dragon          2010            2025
-The Girl with the Dragon Tattoo   2009            2011
-```
-
-The answer developed on the slide:
+> From the slides. Create a table of remakes that have the same title, with columns `title`, `original`, `remake`.
 
 ```sql
 SELECT title, MIN(year) AS first, MAX(year) AS second
@@ -171,197 +321,227 @@ SELECT title, MIN(year) AS first, MAX(year) AS second
   HAVING COUNT(*) > 1;
 ```
 
-**Step by step.** `FROM titles` supplies all films; no `WHERE` filter is needed because every title is a candidate. `GROUP BY title` puts all films sharing a title string into one group. A title that was only ever made once forms a group of size one; a title made twice forms a group of size two. `HAVING COUNT(*) > 1` keeps only the groups with at least two films, which is exactly the definition of "there is a remake." Then `SELECT title, MIN(year) AS first, MAX(year) AS second` formats each surviving group: the title shared by the group, the earliest year in the group (the original), and the latest year in the group (the remake).
+Step by step:
+1. `FROM titles` supplies every title row.
+2. `GROUP BY title` gathers all rows sharing the same title string. A unique title lands in a group of size 1; a remade title lands in a group of size 2 or more.
+3. `HAVING COUNT(*) > 1` discards every title that appears only once, leaving exactly the titles that were made more than once.
+4. `MIN(year)` finds the earliest release in the group (the original) and `MAX(year)` finds the latest (the remake). Note again that these two aggregates read different rows of the same group, which is precisely what we want.
 
-**Why `MIN` and `MAX` are the right tools.** The output needs two different years drawn from the same group. You cannot write `SELECT title, year` here, because a group with two films has two different values of `year` and a single output row cannot hold both unaggregated. `MIN(year)` and `MAX(year)` each collapse the group to one value, and because "original" means earliest and "remake" means latest, they land on exactly the right rows.
+Target output shape:
 
-**A limitation worth noticing.** If a title was made three times, this query reports only the first and the last year, silently hiding the middle one. The slide's column labels `first` and `second` reflect the two-film case. (extra context) Handling three or more versions would require a different approach, such as a self-join of `titles` to itself on matching title with a strict inequality on year.
+```
+title                             original  remake
+-------------------------------   --------  ------
+How to Train Your Dragon          2010      2025
+The Girl with the Dragon Tattoo   2009      2011
+```
 
-### Example 4: Vote-weighted average rating per actor
+(Note that the slide's `AS` labels are `first` and `second` while the described output header says `original` and `remake`; the `AS` names are what the query actually produces.)
 
-**Goal (from the slides):** Select each actor's name and their average rating.
+### Example 10: Movies per decade (floor division + grouping)
+
+> From the transcript. Create a table with columns `decade` and `movies` containing one row per decade in which a movie was released, and the count of movies from the 1,000-row dataset released in that decade.
+
+The hint is integer division: `43 / 10` is `4` in SQL.
+
+```sql
+SELECT year / 10 * 10 AS decade, COUNT(*) AS movies
+  FROM titles
+  GROUP BY decade;
+```
+
+Step by step:
+1. `year / 10` drops the last digit: `1922 / 10` is `192`.
+2. `* 10` puts a zero back: `192 * 10` is `1920`. So 1922 maps to the decade 1920.
+3. `AS decade` names the computed column, which lets `GROUP BY decade` reuse the name instead of retyping `year / 10 * 10`. The instructor explicitly recommends this over retyping the expression.
+4. `GROUP BY decade` forms one group per decade value, and `COUNT(*) AS movies` counts rows within each group.
+
+### Example 11: Average rating for each actor (join + group)
+
+> From the slides.
 
 ```sql
 SELECT names.name,
        SUM(ratings.averageRating * ratings.numVotes) / SUM(ratings.numVotes)
   FROM ratings JOIN names JOIN principals
-  ON names.nconst=principals.nconst AND ratings.tconst=principals.tconst
+  ON names.nconst = principals.nconst AND ratings.tconst = principals.tconst
   GROUP BY names.nconst
-  ORDER BY averageRating DESC
-  LIMIT 10;
+  ORDER BY averageRating DESC LIMIT 10;
 ```
 
-**Step by step.**
+What each piece does:
+1. The three-way join stitches together a person (`names`), their credit on a title (`principals`), and that title's rating (`ratings`). The `ON` conditions enforce internal coherence of each joined row: the `nconst` must match between `names` and `principals`, and the `tconst` must match between `ratings` and `principals`. Without both conditions you get meaningless cross-product rows pairing an actor with an unrelated movie's rating.
+2. `GROUP BY names.nconst` gathers all of one person's joined rows. Grouping by the ID rather than the display name is the safer choice since two people can share a name.
+3. The weighted-average expression from Example 4 is reused, now computed per actor instead of over the whole table.
+4. `ORDER BY ... DESC LIMIT 10` returns the top ten.
 
-*The join.* Three tables are joined. `principals` is the bridge: it has a `nconst` linking to `names` and a `tconst` linking to `ratings`. The `ON` clause states both links: `names.nconst=principals.nconst` connects a credit to the person who earned it, and `ratings.tconst=principals.tconst` connects a credit to the rating of the film it appeared in. Each row of the joined table is therefore one credit, carrying the person's name alongside that film's `averageRating` and `numVotes`.
+### Example 12: Top 20 actors by total votes (full walkthrough from the demo)
 
-*The grouping.* `GROUP BY names.nconst` puts all of one person's credits into one group. Grouping on `nconst` rather than on `name` is deliberate: `nconst` is the unique identifier, so two different people who happen to share a name are kept separate. (extra context) Grouping by `name` would merge them incorrectly.
+> From the transcript. Create a table with columns `name` and `votes` containing one row for each of the 20 actors with the most votes, in descending order. An actor's votes is the total `numVotes` of all movies in which they were first in the credits.
 
-*The aggregate.* This is the most interesting expression in the lecture, because it is not simply `AVG(averageRating)`. The query computes
+The instructor narrates the reasoning for needing a join: each output row (an actor's name plus their total votes) depends on the `names` table for the name, on many rows of `principals` to discover which movies that actor led, and on many rows of `ratings` to look up the votes for each of those movies. The `titles` table is **not** needed, because we never display a movie title or year, and `principals` already connects an actor to the movie they were in.
 
+The query, built up clause by clause:
+
+```sql
+SELECT names.name, SUM(ratings.numVotes) AS votes
+  FROM names JOIN principals JOIN ratings
+  ON names.nconst = principals.nconst AND principals.tconst = ratings.tconst
+  WHERE ordering = 1 AND category = "actor"
+  GROUP BY names.name
+  ORDER BY votes DESC LIMIT 20;
 ```
-SUM(averageRating * numVotes) / SUM(numVotes)
-```
 
-which is a **weighted** mean: each film's rating counts in proportion to how many people voted on it. Note that both `SUM`s aggregate over the same group, and the division happens between the two aggregate results, not row by row.
+Step by step:
+1. **`SELECT`**: the actor's name and the summed votes, labeled `votes` so `ORDER BY` can refer to it.
+2. **`FROM ... ON ...`**: join all three tables and constrain the join so each joined row is internally consistent: one row telling us the actor's name, the role they played (with their credit ordering), and the number of votes that movie received.
+3. **`WHERE ordering = 1 AND category = "actor"`**: keep only rows where the person was first in the credits (the lead) and is an actor rather than a director. Both are per-row conditions, so `WHERE` is correct.
+4. **`GROUP BY names.name`**: one group per actor, containing all of their lead-role movies.
+5. **`SUM(ratings.numVotes) AS votes`**: now that each group holds all of one actor's lead movies, we can total the votes across them.
+6. **`ORDER BY votes DESC LIMIT 20`**: the top 20, descending.
 
-Why weight by votes? A film with 8 votes averaging 9.5 and a film with 500,000 votes averaging 7.0 should not count equally toward an actor's overall standing. `AVG(averageRating)` would treat them as equal and let an obscure, barely-rated film swing the result. The weighted version says: pool all the individual votes across all of the actor's films and take the mean over that pooled set of votes. `averageRating * numVotes` reconstructs the total of all the vote scores for one film, summing that over the group gives the total of all vote scores across the actor's filmography, and dividing by the total number of votes gives the overall mean.
+The instructor ran this with SQLite initialized against the IMDb-1000 database, hit an error from a typo (a missing letter `N`), fixed it, switched to column mode for readable output, and got: Leonardo DiCaprio first (his lead roles summed to the most votes), then Tom Hanks, Christian Bale, and other famous names. The instructor noted that all of the results are men, which reflects the gender imbalance in Hollywood lead roles, and that querying for actors who were *second* in the credits surfaces a different list that includes women.
 
-*Ordering and limiting.* `ORDER BY averageRating DESC LIMIT 10` sorts the output rows from highest to lowest and keeps the top ten.
+### Example 13: Exam question (Spring 2023 CS 61A Final, Q7)
 
-**Reading this in environment-diagram-style terms.** (extra context) Although SQL has no environments, it is useful to reason about scope in an analogous way. Inside a grouped query there are two levels of "visibility." At the row level, the raw column values (`ratings.averageRating`, `ratings.numVotes`, `names.name`) are individually visible, and expressions like `averageRating * numVotes` are computed once per row. At the group level, only the grouping key and aggregate results are available: `SUM(...)` reaches down across all rows in its group and returns one number. An unaggregated column in `SELECT` that is not the grouping key is ambiguous at the group level, in the same way a name is unbound if it was never defined in an accessible frame.
-
-### Example 5: Spring 2023 Final, Question 7
-
-**Setup.** The `finals` table has columns `hall` (strings) and `course` (strings), with one row for each lecture hall in which a course is holding its final exam. The `sizes` table has columns `room` (strings) and `seats` (numbers), with one row per unique room on campus giving the number of seats in that room. All lecture halls are rooms.
-
-**Goal.** Create a table with two columns, `course` (string) and `seats` (number), with one row containing the name of the course and the total number of seats in final rooms for that course. Only include a row for each course that uses at least two rooms for its final.
-
-**Answer from the slides:**
+> From the slides. The `finals` table has columns `hall` (strings) and `course` (strings), with one row per lecture hall in which a course holds its final. The `sizes` table has columns `room` (strings) and `seats` (numbers), with one row per unique room on campus. All lecture halls are rooms. Create a table with columns `course` (string) and `seats` (number), one row per course, giving the total seats across that course's final rooms. Only include courses that use at least two rooms.
 
 ```sql
 SELECT course, SUM(seats) AS seats
   FROM finals, sizes
-  WHERE hall=room
+  WHERE hall = room
   GROUP BY course
   HAVING COUNT(*) > 1;
 ```
 
-**Step by step, with the three-step method.**
+Step by step:
+1. **`FROM finals, sizes`** forms the cross product of the two tables.
+2. **`WHERE hall = room`** keeps only the coherent pairings, attaching each final-exam hall to its own seat count. Without this, every hall would be paired with every room's seat count.
+3. **`GROUP BY course`** gathers all of a course's hall rows into one group.
+4. **`HAVING COUNT(*) > 1`** enforces "at least two rooms" by counting the rows in the group. Note that "at least two" becomes `> 1`, not `>= 1` and not `> 2`.
+5. **`SUM(seats) AS seats`** totals the seats across the group's rooms, with the required column label.
 
-*Step 1, which input rows?* The question mentions both the room assignments (`finals`) and the seat counts (`sizes`), so both tables are needed. `FROM finals, sizes` forms the Cartesian product of the two: every `finals` row paired with every `sizes` row. That product is mostly nonsense, so `WHERE hall=room` keeps only the pairings where the lecture hall matches the room whose seat count is being read. After this step, each surviving row is "one course, one hall it uses, and that hall's seat count."
-
-*Step 2, groups and group filter.* The output has one row per course, so `GROUP BY course`. Each group is all the hall-and-seats rows for one course. The restriction "at least two rooms" is a statement about the size of the group, so `HAVING COUNT(*) > 1`. Since each row in a group is one distinct hall for that course, counting rows counts halls.
-
-*Step 3, formatting.* `SELECT course, SUM(seats) AS seats` gives the course name and the total seating across all of its final rooms. The `AS seats` is what makes the output column match the required name.
-
-**Note on the join style.** This query uses the comma form (`FROM finals, sizes` with the matching condition in `WHERE`) rather than the explicit `JOIN ... ON` form used in Example 4. Both express the same idea: form combinations of rows from two tables, then keep only the combinations that line up correctly. Choosing one or the other is a matter of style in SQLite.
-
-**Note on "at least two."** "At least two" means two or more, so the condition is `COUNT(*) > 1`, equivalently `COUNT(*) >= 2`. Writing `COUNT(*) > 2` would be an off-by-one error that drops every course using exactly two rooms.
+This question is a compact rehearsal of the whole lecture: join via `WHERE`, group, filter groups with an aggregate, and aggregate in `SELECT`.
 
 ## Common Pitfalls
 
-- **Putting an aggregate condition in `WHERE`.** `WHERE COUNT(*) > 15` is wrong. `WHERE` filters individual input rows before any group exists, so there is nothing to count. Aggregate conditions go in `HAVING`.
-
-- **Putting a per-row condition in `HAVING` when `WHERE` is intended.** `HAVING category="actor"` is not the same as `WHERE category="actor"`. The `WHERE` version removes non-actor rows before grouping, so they never affect any count; the `HAVING` version operates after grouping and does not do what the question asks.
-
-- **Selecting an unaggregated column that is not the grouping key.** If you `GROUP BY title` and then `SELECT title, year`, a group containing two films has two different years and only one output row to put them in. The lecture's remakes example sidesteps this correctly with `MIN(year)` and `MAX(year)`. (extra context) SQLite will not error here; it silently picks a value from an arbitrary row in the group, which makes this a quiet correctness bug rather than a visible one.
-
-- **Forgetting that `GROUP BY` produces one row per unique value.** The number of output rows is the number of distinct values of the grouping expression (after `HAVING` filtering), not the number of input rows.
-
-- **Confusing `AVG(x)` with a weighted average.** The actor-ratings example deliberately uses `SUM(rating * votes) / SUM(votes)` and not `AVG(rating)`. These give different answers whenever the films have different vote counts. Using the plain average lets a film with a handful of votes count as much as a blockbuster.
-
-- **Grouping by a display name instead of an identifier.** `GROUP BY names.nconst` separates two distinct people who share a name; `GROUP BY names.name` would merge them.
-
-- **Off-by-one in `HAVING`.** "More than 15" is `> 15`. "At least two" is `> 1`, not `> 2`. Read the English carefully.
-
-- **Omitting the join condition.** `FROM finals, sizes` with no `WHERE hall=room` produces every pairing of every course-hall with every room on campus, inflating every count and sum. In the three-table actor query, both halves of the `ON` condition are required; dropping either one produces a similarly inflated product.
-
-- **Writing clauses in the order you think about them.** The written order is fixed: `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`. The thinking order is `FROM`/`WHERE`, then `GROUP BY`/`HAVING`, then `SELECT`.
-
-- **Skipping `AS` when the question specifies column names.** The final exam question asks for a column literally named `seats`, which requires `SUM(seats) AS seats`. Without `AS`, the column header is the raw expression.
+- **Mixing aggregated and non-aggregated columns.** `SELECT MAX(legs), weight FROM animals;` runs in SQLite but is meaningless and errors in other SQL systems. Aggregate all the columns or none of them. The only safe bare column is one you grouped by.
+- **Confusing `MAX(a - b)` with `MAX(a) - MIN(b)`.** The first computes `a - b` per row and then takes the max; the second performs two independent aggregations over the group and then subtracts. They generally give different answers. When unsure, run the inner expression alone first to see what the aggregate is scanning.
+- **Averaging averages.** `AVG(averageRating)` is not the average rating across votes. Use `SUM(averageRating * numVotes) / SUM(numVotes)` when each row's average already summarizes a different-sized population.
+- **Putting an aggregate in `WHERE`.** `WHERE` tests one row at a time, so `WHERE COUNT(*) > 1` is invalid. Group conditions go in `HAVING`.
+- **Putting a per-row condition in `HAVING`.** Conversely, filtering out directors with `HAVING category = "actor"` is the wrong tool; that is a per-row test and belongs in `WHERE` before the groups form.
+- **Forgetting the join condition.** `FROM finals, sizes` without `WHERE hall = room`, or a multi-way `JOIN` missing one of its `ON` conjuncts, produces rows that are not internally coherent (an actor paired with an unrelated movie's votes). Aggregating those rows yields confidently wrong numbers rather than an error.
+- **Off-by-one in `HAVING` thresholds.** "More than 15 characters" is `COUNT(*) > 15`. "At least two rooms" is `COUNT(*) > 1`. "Appears more than once" is `COUNT(*) > 1`. Translate the English carefully.
+- **Expecting floating-point division from integers.** `year / 10` floors. That is exactly what makes the decade trick (`year / 10 * 10`) work, but it will silently truncate when you wanted a fraction.
+- **Retyping a long grouping expression.** Label it with `AS` and reuse the name in `GROUP BY` or `ORDER BY` rather than duplicating the expression.
+- **Grouping by a display name when an ID exists.** `GROUP BY names.name` works in the demo but `GROUP BY names.nconst` is the more robust choice, since distinct people can share a name. (extra context: the slides' actor-ratings query groups by `nconst` for exactly this reason.)
+- **Joining in a table you do not need.** The demo explicitly skips `titles` because no title or year is displayed and `principals` already links actor to movie. Extra joins add cost and risk of duplicate rows.
 
 ## Likely Exam Points
 
-### 1. Choosing between `WHERE` and `HAVING`
+### 1. `WHERE` vs `HAVING`
 
-This is the single most tested idea from this lecture. Any condition that can be checked by looking at one row alone goes in `WHERE`; any condition involving an aggregate over a group goes in `HAVING`.
-
-**Practice:** The `principals` table has columns `tconst`, `ordering`, `nconst`, `category`, and `character`. Write a query selecting each `tconst` and the number of actors credited in it, for films with more than 3 credited actors.
+**Practice:** Given a table `trips(driver, miles)`, write a query returning each driver who took more than 3 trips of over 100 miles each, along with the number of such trips.
 
 **Answer:**
 ```sql
-SELECT tconst, COUNT(*)
-  FROM principals
-  WHERE category="actor"
-  GROUP BY tconst
-  HAVING COUNT(*) > 3;
+SELECT driver, COUNT(*) FROM trips WHERE miles > 100 GROUP BY driver HAVING COUNT(*) > 3;
 ```
-`category="actor"` is per-row, so `WHERE`. "More than 3 actors" counts rows in a group, so `HAVING`.
+The per-trip condition (`miles > 100`) goes in `WHERE`; the per-driver condition (`COUNT(*) > 3`) goes in `HAVING`.
 
-### 2. Determining the number of output rows
+### 2. Reading off the number of output rows from `GROUP BY`
 
-**Practice:** Given the five sample `principals` rows from the lecture (three with `category` equal to `actor`, two with `category` equal to `director`), how many rows does `SELECT category, COUNT(*) FROM principals GROUP BY category;` produce, and what are they?
+**Practice:** The `animals` table has six rows: ferret (4 legs), dog (4), cat (4), parrot (2), penguin (2), t-rex (2). How many rows does `SELECT legs, COUNT(*) FROM animals GROUP BY legs;` produce? How many does `SELECT COUNT(*) FROM animals;` produce?
 
-**Answer:** Two rows: `actor 3` and `director 2`. One output row per unique value of `category`.
+**Answer:** Two rows for the first (one per unique `legs` value: 2 and 4). One row for the second (no `GROUP BY`, so all six rows form a single implicit group).
 
-### 3. Picking the right aggregate function for a stated goal
+### 3. `MAX(a - b)` vs `MAX(a) - MIN(b)`
 
-**Practice:** Using the `titles` table (`tconst`, `title`, `year`, `runtime`, `genres`), write a query that, for each year, gives the year and the longest runtime of any film released that year.
+**Practice:** For `animals` with parrot (2 legs, weight 6) and ferret (4 legs, weight 20), explain in one sentence why `MAX(legs - weight)` and `MAX(legs) - MIN(weight)` can differ.
+
+**Answer:** `MAX(legs - weight)` evaluates `legs - weight` within each row and then takes the largest of those per-row values (the parrot's row wins), whereas `MAX(legs) - MIN(weight)` performs two independent aggregations over the whole group and subtracts the results, so the two operands may come from different rows.
+
+### 4. The weighted average pattern
+
+**Practice:** The `ratings` table has `averageRating` and `numVotes` per movie. Write a query for the overall average rating across all votes, and say why `AVG(averageRating)` is wrong.
 
 **Answer:**
 ```sql
-SELECT year, MAX(runtime) AS longest
-  FROM titles
-  GROUP BY year;
+SELECT SUM(averageRating * numVotes) / SUM(numVotes) FROM ratings;
 ```
-"Longest runtime of any row in the group" is exactly `MAX`.
+`AVG(averageRating)` treats every movie equally regardless of how many votes it received, so a movie with 20 votes would count as much as one with 80.
 
-### 4. Using two aggregates on the same group
+### 5. Self-grouping to find duplicates
 
-The remakes query is a clean template: group by the shared key, use `HAVING COUNT(*) > 1` to require a collision, and use `MIN` and `MAX` to pull out the two extremes.
-
-**Practice:** Write a query producing one row per genre string in `titles`, with the genre, the earliest year, and the latest year, only for genres with at least 5 films.
+**Practice:** Using `titles(tconst, title, year, runtime, genres)`, produce one row per title that was made more than once, showing the title, the earliest year, and the latest year.
 
 **Answer:**
 ```sql
-SELECT genres, MIN(year) AS first, MAX(year) AS last
-  FROM titles
-  GROUP BY genres
-  HAVING COUNT(*) > 4;
+SELECT title, MIN(year) AS first, MAX(year) AS second
+  FROM titles GROUP BY title HAVING COUNT(*) > 1;
 ```
-"At least 5" is `COUNT(*) > 4`, equivalently `>= 5`.
+Grouping by `title` and keeping groups with more than one row isolates exactly the repeated titles; `MIN` and `MAX` then read the earliest and latest rows in each group.
 
-### 5. Joining then grouping
+### 6. Join, filter, group, order, limit in one statement
 
-Exam questions frequently require combining two tables before aggregating. The pattern is: `FROM a, b WHERE a.key=b.key GROUP BY ...` (or the `JOIN ... ON` equivalent).
-
-**Practice:** Using `finals` (`hall`, `course`) and `sizes` (`room`, `seats`), write a query giving each course and the number of seats in its *largest* final room, for courses using at least two rooms.
+**Practice:** Using `names(nconst, name, ...)`, `principals(tconst, ordering, nconst, category, character)`, and `ratings(tconst, averageRating, numVotes)`, write a query for the 20 actors with the most total votes across the movies where they were first in the credits, in descending order.
 
 **Answer:**
 ```sql
-SELECT course, MAX(seats) AS biggest
-  FROM finals, sizes
-  WHERE hall=room
-  GROUP BY course
-  HAVING COUNT(*) > 1;
+SELECT names.name, SUM(ratings.numVotes) AS votes
+  FROM names JOIN principals JOIN ratings
+  ON names.nconst = principals.nconst AND principals.tconst = ratings.tconst
+  WHERE ordering = 1 AND category = "actor"
+  GROUP BY names.name
+  ORDER BY votes DESC LIMIT 20;
 ```
-Same skeleton as the lecture's version of this question, with `SUM` swapped for `MAX`.
+Both `ON` conjuncts are required so each joined row is internally coherent; `titles` is unnecessary because no title or year appears in the output.
 
-### 6. Weighted averages
+### 7. Integer division for bucketing
 
-The actor-rating query is the lecture's one non-obvious aggregate expression and a natural exam target, since it tests whether you understand that `AVG` is not always the right notion of "average."
-
-**Practice:** Explain in one or two sentences why the lecture computes `SUM(averageRating * numVotes) / SUM(numVotes)` rather than `AVG(averageRating)`, and give a two-film case where the answers differ.
-
-**Answer:** `AVG(averageRating)` treats every film as equally informative regardless of how many people rated it, so a film with very few votes can swing an actor's score as much as a heavily-voted one. The weighted form pools the underlying votes. Example: a film rated 9.0 with 10 votes and a film rated 7.0 with 1000 votes give `AVG` a value of 8.0, while the weighted form gives `(9.0*10 + 7.0*1000) / 1010 = 7090/1010`, about 7.02, which reflects the overwhelming weight of the second film.
-
-### 7. Applying the three-step method to a word problem
-
-**Practice:** State the three steps for writing a select statement, in the order you should think about them, and which clauses each step produces.
+**Practice:** Write a query over `titles` producing one row per decade with the count of movies released in that decade.
 
 **Answer:**
-1. Determine which existing rows are needed: `FROM` and `WHERE`.
-2. Form groups and determine which groups appear as output rows: `GROUP BY` and `HAVING`.
-3. Format the output rows: `SELECT`.
+```sql
+SELECT year / 10 * 10 AS decade, COUNT(*) AS movies FROM titles GROUP BY decade;
+```
+`year / 10` floors away the last digit and `* 10` restores it as a zero, mapping 1922 to 1920. The `AS decade` label lets `GROUP BY` reuse the expression by name.
 
-### 8. Column labeling
+### 8. The illegal mixed select
 
-**Practice:** The question asks for an output table with columns named `course` and `seats`. What goes wrong with `SELECT course, SUM(seats) FROM finals, sizes WHERE hall=room GROUP BY course HAVING COUNT(*) > 1;`?
+**Practice:** Is `SELECT MIN(weight), name FROM animals;` a well-formed query? Explain.
 
-**Answer:** The second column is labeled with the raw expression `SUM(seats)` rather than `seats`. Add `AS seats` to satisfy the required column name.
+**Answer:** No, not meaningfully. It requests one output row, but while `MIN(weight)` is well-defined, `name` was never aggregated and the group holds many names, so there is no principled value. SQLite returns something, other SQL systems error. Either aggregate `name` too, or drop the aggregate and return all rows.
+
+### 9. The exam-style two-table aggregation (Spring 2023 Final Q7)
+
+**Practice:** `finals(hall, course)` and `sizes(room, seats)`. Produce `course` and total `seats` for each course using at least two rooms for its final.
+
+**Answer:**
+```sql
+SELECT course, SUM(seats) AS seats
+  FROM finals, sizes WHERE hall = room
+  GROUP BY course HAVING COUNT(*) > 1;
+```
+`WHERE hall = room` is the join condition, `GROUP BY course` forms one group per course, `HAVING COUNT(*) > 1` encodes "at least two rooms", and `SUM(seats) AS seats` totals and labels.
+
+### 10. Why the data is split into multiple tables
+
+**Practice:** Why does the IMDb dataset store titles, ratings, principals, and names in four tables rather than one wide table?
+
+**Answer:** Each fact is stored once rather than repeated. An actor's name lives once in `names` instead of being duplicated for every credit, and a movie's rating lives once in `ratings` instead of being duplicated for every cast member. Queries then recombine the facts with joins. (extra context: this avoids update anomalies and is the standard normalization argument.)
 
 ## Summary
 
-- `SELECT [columns] FROM [table] GROUP BY [expression] HAVING [expression];` is the full template for aggregation.
-- Clause roles: `SELECT` is the values each output row contains and their labels, `FROM` is the source of input rows, `WHERE` is which input rows, `GROUP BY` forms output rows, `HAVING` is which output rows.
-- `GROUP BY [expression]` produces exactly one output row for each unique value of `[expression]`.
-- An aggregate function in the `[columns]` clause computes one value from a group of rows, or from all rows if there is no grouping: `COUNT(*)`, `MAX`, `MIN`, `SUM`, `AVG`.
-- `WHERE` filters rows *before* grouping; `HAVING` filters groups *after* grouping and is the only place aggregate conditions can appear.
-- Label aggregate columns with `[expression] AS [name]`, especially when the question specifies output column names.
-- Write select statements in three steps: pick input rows (`FROM`, `WHERE`), form and filter groups (`GROUP BY`, `HAVING`), then format output (`SELECT`).
-- `SELECT category, COUNT(*) FROM principals GROUP BY category;` gives the number of rows per category, the canonical minimal example.
-- Remakes pattern: `GROUP BY title HAVING COUNT(*) > 1`, with `MIN(year)` as the original and `MAX(year)` as the remake.
-- Joining before grouping is standard: `FROM a, b WHERE a.key=b.key GROUP BY ...` or `FROM a JOIN b ON ...`, used for both the three-table actor-rating query and the finals-and-sizes exam question.
-- A weighted average is `SUM(value * weight) / SUM(weight)`, which is what the actor-rating query uses so that heavily-voted films count more than lightly-voted ones.
-- Group by a unique identifier (`nconst`) rather than a display value (`name`) when distinct entities might share the display value.
+- An **aggregate function** in the `SELECT` columns computes one value from a group of rows; with no `GROUP BY`, that group is all rows, so six input rows become one output row.
+- The functions covered: `COUNT(*)`, `MAX`, `MIN`, `SUM`, `AVG`.
+- `MAX([expr])` evaluates `[expr]` once per row and then takes the largest result; it never combines values across rows inside the expression. `MAX(a) - MIN(b)` is two separate aggregations whose operands may come from different rows.
+- Do not mix aggregated and non-aggregated columns. SQLite tolerates it, other systems reject it, and the result is meaningless. The exception is a column you grouped by, which has one value per group.
+- You cannot average averages when the rows summarize different-sized populations. Use `SUM(value * weight) / SUM(weight)`.
+- `GROUP BY [expression]` yields **one output row per unique value** of the expression, and the expression can be any computed value (for example `weight / legs`, or `year / 10 * 10` for decades using SQL's integer floor division).
+- `WHERE` filters individual input rows and cannot contain aggregates. `HAVING` filters whole groups and can contain aggregates.
+- Methodology: decide which input rows you need (`FROM`, `WHERE`), then form and filter groups (`GROUP BY`, `HAVING`), then format the output (`SELECT`).
+- Clause roles: `SELECT` = values and labels in each output row; `FROM` = source of input rows; `WHERE` = which input rows; `GROUP BY` = form output rows; `HAVING` = which output rows.
+- Label output columns with `[expression] AS [name]`, then reuse the name in `GROUP BY` or `ORDER BY` instead of retyping the expression.
+- Multi-table aggregation requires a complete join condition so that each joined row is internally coherent; an incomplete `ON` or a missing `WHERE hall = room` produces wrong numbers silently rather than an error.
+- Only join the tables you actually need: the top-20-actors demo skips `titles` entirely because `principals` already links actors to movies.
